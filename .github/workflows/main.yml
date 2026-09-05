@@ -15,6 +15,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Trova progetto Android
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "settings.gradle.kts" ] && [ -f "app/build.gradle.kts" ]; then
+            PROJECT_DIR="."
+          else
+            SETTINGS_FILE="$(find . -maxdepth 4 -type f -name settings.gradle.kts -print -quit)"
+            if [ -z "$SETTINGS_FILE" ]; then
+              echo "::error::Non trovo settings.gradle.kts nel repository"
+              echo "Contenuto repository:"
+              find . -maxdepth 3 -type f | sort | head -200
+              exit 1
+            fi
+
+            PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
+
+            if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
+              echo "::error::Trovato progetto in $PROJECT_DIR ma manca app/build.gradle.kts"
+              find "$PROJECT_DIR" -maxdepth 3 -type f | sort | head -200
+              exit 1
+            fi
+          fi
+
+          PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Progetto Android trovato in: $PROJECT_DIR"
+          ls -la "$PROJECT_DIR"
+          ls -la "$PROJECT_DIR/app"
+
       - name: Java 17
         uses: actions/setup-java@v6
         with:
@@ -32,34 +63,66 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Verifica secrets firma
+      - name: Prepara firma Spectro
+        shell: bash
         env:
           KEYSTORE_B64: ${{ secrets.SPECTRO_KEYSTORE_B64 }}
           KEY_PASSWORD: ${{ secrets.SPECTRO_KEY_PASSWORD }}
         run: |
-          test -n "$KEYSTORE_B64" || { echo "::error::Manca il secret SPECTRO_KEYSTORE_B64"; exit 1; }
-          test -n "$KEY_PASSWORD" || { echo "::error::Manca il secret SPECTRO_KEY_PASSWORD"; exit 1; }
-          echo "$KEYSTORE_B64" | base64 --decode > app/spectro-release.jks
-          keytool -list -keystore app/spectro-release.jks -storepass "$KEY_PASSWORD" -alias spectro >/dev/null
+          set -e
+
+          test -n "$KEYSTORE_B64" || {
+            echo "::error::Manca il secret SPECTRO_KEYSTORE_B64"
+            exit 1
+          }
+
+          test -n "$KEY_PASSWORD" || {
+            echo "::error::Manca il secret SPECTRO_KEY_PASSWORD"
+            exit 1
+          }
+
+          KEYSTORE_PATH="$RUNNER_TEMP/spectro-release.jks"
+
+          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
+
+          test -s "$KEYSTORE_PATH" || {
+            echo "::error::Il keystore decodificato è vuoto"
+            exit 1
+          }
+
+          keytool -list \
+            -keystore "$KEYSTORE_PATH" \
+            -storepass "$KEY_PASSWORD" \
+            -alias spectro >/dev/null
+
+          echo "SPECTRO_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
           echo "Firma Spectro pronta"
 
       - name: Test logica economica
-        run: gradle :app:testDebugUnitTest --stacktrace --no-daemon
+        env:
+          SPECTRO_KEY_PASSWORD: ${{ secrets.SPECTRO_KEY_PASSWORD }}
+        run: gradle -p "$PROJECT_DIR" :app:testDebugUnitTest --stacktrace --no-daemon
 
       - name: Compila APK RELEASE firmato
         env:
-          SPECTRO_KEYSTORE_PATH: spectro-release.jks
           SPECTRO_KEY_PASSWORD: ${{ secrets.SPECTRO_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --stacktrace --no-daemon
+        run: gradle -p "$PROJECT_DIR" :app:assembleRelease --stacktrace --no-daemon
 
       - name: Verifica APK
+        shell: bash
         run: |
-          test -f app/build/outputs/apk/release/app-release.apk
-          ls -lh app/build/outputs/apk/release/app-release.apk
+          APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK" || {
+            echo "::error::APK non trovato in $APK"
+            find "$PROJECT_DIR/app/build/outputs" -maxdepth 5 -type f 2>/dev/null || true
+            exit 1
+          }
+          ls -lh "$APK"
 
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
           name: SpectroERP-v2.1.0-RELEASE
-          path: app/build/outputs/apk/release/app-release.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
+          retention-days: 30

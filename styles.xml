@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.Spectro" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowBackground">#060608</item>
+        <item name="android:windowSplashScreenBackground">#060608</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/spectro_app_icon</item>
+        <item name="android:windowSplashScreenAnimationDuration">250</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

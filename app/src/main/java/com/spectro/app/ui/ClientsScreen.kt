@@ -29,6 +29,7 @@ import java.time.temporal.ChronoUnit
 
 private enum class ClientHubTab { CLIENTS, ISSUES, PAYMENTS }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClientsScreen(vm: SpectroViewModel, p: SpectroPalette) {
     var tab by remember { mutableStateOf(ClientHubTab.CLIENTS) }

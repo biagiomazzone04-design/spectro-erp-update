@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.spectro.app.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult

@@ -61,28 +61,19 @@ jobs:
       - name: Prepara firma Spectro
         shell: bash
         env:
-          KEYSTORE_B64: ${{ secrets.SPECTRO_KEYSTORE_B64 }}
-          KEY_PASSWORD: ${{ secrets.SPECTRO_KEY_PASSWORD }}
+          SIGNING_BUNDLE_B64: ${{ secrets.SPECTRO_SIGNING_BUNDLE_B64 }}
         run: |
-          set -e
+          set -euo pipefail
 
-          test -n "$KEYSTORE_B64" || {
-            echo "::error::Manca il secret SPECTRO_KEYSTORE_B64"
+          test -n "$SIGNING_BUNDLE_B64" || {
+            echo "::error::Manca il secret SPECTRO_SIGNING_BUNDLE_B64"
             exit 1
           }
 
-          test -n "$KEY_PASSWORD" || {
-            echo "::error::Manca il secret SPECTRO_KEY_PASSWORD"
-            exit 1
-          }
+          SIGN_DIR="$RUNNER_TEMP/spectro-signing"
+          mkdir -p "$SIGN_DIR"
+          export SIGN_DIR
 
-          KEYSTORE_PATH="$RUNNER_TEMP/spectro-release.jks"
-          export KEYSTORE_PATH
-
-          # Decodifica robusta:
-          # - accetta eventuali spazi/a-capo introdotti durante il copia/incolla
-          # - se è stato incollato per errore anche testo prima/dopo, estrae
-          #   automaticamente il blocco Base64 che inizia con "MII"
           python3 <<'PY'
           import os
           import re
@@ -90,77 +81,68 @@ jobs:
           import binascii
           from pathlib import Path
 
-          raw = os.environ.get("KEYSTORE_B64", "")
-          out = Path(os.environ["KEYSTORE_PATH"])
-
-          if not raw.strip():
-              raise SystemExit("SPECTRO_KEYSTORE_B64 è vuoto")
-
-          # Rimuove solo spazi e ritorni a capo per prima cosa.
+          raw = os.environ["SIGNING_BUNDLE_B64"]
           compact = re.sub(r"\s+", "", raw)
 
-          # Se l'utente ha incollato anche etichette/testo, parte dal primo "MII".
-          start = compact.find("MII")
+          # Il bundle gzip Base64 creato per Spectro inizia con H4sI.
+          start = compact.find("H4sI")
           if start < 0:
-              raise SystemExit("Nel secret non trovo l'inizio Base64 atteso (MII)")
+              raise SystemExit("Secret non valido: non trovo l'inizio H4sI")
+
           compact = compact[start:]
-
-          # Il keystore fornito termina con padding "=".
-          # Taglia eventuale testo accidentalmente incollato dopo il Base64.
-          pad = compact.find("=")
-          if pad >= 0:
-              end = pad + 1
-              while end < len(compact) and compact[end] == "=":
-                  end += 1
-              compact = compact[:end]
-
-          # Elimina eventuali caratteri non Base64 rimasti.
           compact = re.sub(r"[^A-Za-z0-9+/=]", "", compact)
-
-          # Il padding deve rendere la lunghezza multipla di 4.
           compact += "=" * ((4 - len(compact) % 4) % 4)
-
-          print(f"Lunghezza Base64 normalizzata: {len(compact)} caratteri")
 
           try:
               data = base64.b64decode(compact, validate=True)
           except (binascii.Error, ValueError) as exc:
-              raise SystemExit(
-                  "Il secret SPECTRO_KEYSTORE_B64 risulta ancora corrotto o incompleto "
-                  f"dopo la normalizzazione: {exc}"
-              )
+              raise SystemExit(f"Secret bundle Base64 non valido: {exc}")
 
-          if not data:
-              raise SystemExit("Il keystore decodificato è vuoto")
-
+          out = Path(os.environ["SIGN_DIR"]) / "bundle.tar.gz"
           out.write_bytes(data)
-          print(f"Keystore decodificato correttamente: {len(data)} byte")
+          print(f"Bundle firma decodificato: {len(data)} byte")
           PY
 
+          tar -xzf "$SIGN_DIR/bundle.tar.gz" -C "$SIGN_DIR"
+
+          KEYSTORE_PATH="$SIGN_DIR/spectro-release.p12"
+          PASSWORD_FILE="$SIGN_DIR/password.txt"
+          ALIAS_FILE="$SIGN_DIR/alias.txt"
+
           test -s "$KEYSTORE_PATH" || {
-            echo "::error::Il keystore decodificato è vuoto"
+            echo "::error::Keystore non trovato nel bundle"
             exit 1
           }
+          test -s "$PASSWORD_FILE" || {
+            echo "::error::Password non trovata nel bundle"
+            exit 1
+          }
+          test -s "$ALIAS_FILE" || {
+            echo "::error::Alias non trovato nel bundle"
+            exit 1
+          }
+
+          KEY_PASSWORD="$(cat "$PASSWORD_FILE")"
+          KEY_ALIAS="$(cat "$ALIAS_FILE")"
+
+          echo "::add-mask::$KEY_PASSWORD"
 
           if ! keytool -list \
             -keystore "$KEYSTORE_PATH" \
             -storepass "$KEY_PASSWORD" \
-            -alias spectro >/dev/null 2>&1; then
-            echo "::error::Il keystore è stato decodificato ma password/alias non sono validi. Controlla SPECTRO_KEY_PASSWORD."
+            -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::Bundle firma non valido: il keystore interno non supera la verifica"
             exit 1
           fi
 
           echo "SPECTRO_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
-          echo "Firma Spectro pronta"
+          echo "SPECTRO_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "Firma Spectro verificata correttamente"
 
       - name: Test logica economica
-        env:
-          SPECTRO_KEY_PASSWORD: ${{ secrets.SPECTRO_KEY_PASSWORD }}
         run: gradle -p "$PROJECT_DIR" :app:testDebugUnitTest --stacktrace --no-daemon
 
       - name: Compila APK RELEASE firmato
-        env:
-          SPECTRO_KEY_PASSWORD: ${{ secrets.SPECTRO_KEY_PASSWORD }}
         run: gradle -p "$PROJECT_DIR" :app:assembleRelease --stacktrace --no-daemon
 
       - name: Verifica APK
@@ -172,7 +154,15 @@ jobs:
             find "$PROJECT_DIR/app/build/outputs" -maxdepth 5 -type f 2>/dev/null || true
             exit 1
           }
+
+          echo "APK creato:"
           ls -lh "$APK"
+
+          # Verifica anche che l'APK sia realmente firmato.
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -1)"
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --verbose "$APK"
+          fi
 
       - name: Salva APK
         uses: actions/upload-artifact@v7

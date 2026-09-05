@@ -1,0 +1,45 @@
+SPECTRO ERP v2.1.0 — CARICAMENTO CORRETTO SU GITHUB
+
+IMPORTANTE:
+NON selezionare tutti i file delle sottocartelle e caricarli insieme nella root di GitHub.
+La struttura delle cartelle deve rimanere identica.
+
+STRUTTURA MINIMA CORRETTA:
+
+.github/
+  workflows/
+    main.yml
+
+app/
+  build.gradle.kts
+  src/
+    main/
+      AndroidManifest.xml
+      java/
+        com/
+          spectro/
+            app/
+              MainActivity.kt
+              data/
+              ui/
+              util/
+      res/
+
+build.gradle.kts
+settings.gradle.kts
+gradle.properties
+
+METODO CONSIGLIATO:
+1. Estrai questo ZIP sul PC.
+2. Usa GitHub Desktop per pubblicare/importare l'intera cartella del progetto.
+3. NON caricare i singoli file Kotlin dalla pagina web di GitHub.
+4. Controlla su GitHub che dentro app/ sia visibile build.gradle.kts.
+5. Controlla che MainActivity.kt sia in:
+   app/src/main/java/com/spectro/app/MainActivity.kt
+6. I Repository Secrets devono essere:
+   SPECTRO_KEYSTORE_B64
+   SPECTRO_KEY_PASSWORD
+7. Poi vai in Actions > Build Spectro Native APK > Run workflow.
+
+Se su GitHub vedi AttachmentStore.kt, ClientsScreen.kt, Models.kt ecc. direttamente nella root,
+il caricamento è ERRATO e il progetto è stato appiattito.

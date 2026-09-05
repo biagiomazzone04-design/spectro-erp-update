@@ -1,0 +1,14 @@
+CHECK RAPIDO PRIMA DELLA BUILD
+
+Devono esistere:
+[ ] app/build.gradle.kts
+[ ] app/src/main/AndroidManifest.xml
+[ ] app/src/main/java/com/spectro/app/MainActivity.kt
+[ ] app/src/main/java/com/spectro/app/data/Models.kt
+[ ] app/src/main/java/com/spectro/app/data/SpectroDatabase.kt
+[ ] app/src/main/java/com/spectro/app/ui/SpectroApp.kt
+[ ] app/src/main/java/com/spectro/app/util/BackupManager.kt
+[ ] app/src/main/res/drawable/spectro_app_icon.png
+[ ] .github/workflows/main.yml
+[ ] settings.gradle.kts
+[ ] build.gradle.kts

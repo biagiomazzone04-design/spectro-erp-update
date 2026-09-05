@@ -26,8 +26,6 @@ jobs:
             SETTINGS_FILE="$(find . -maxdepth 4 -type f -name settings.gradle.kts -print -quit)"
             if [ -z "$SETTINGS_FILE" ]; then
               echo "::error::Non trovo settings.gradle.kts nel repository"
-              echo "Contenuto repository:"
-              find . -maxdepth 3 -type f | sort | head -200
               exit 1
             fi
 
@@ -35,7 +33,6 @@ jobs:
 
             if [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
               echo "::error::Trovato progetto in $PROJECT_DIR ma manca app/build.gradle.kts"
-              find "$PROJECT_DIR" -maxdepth 3 -type f | sort | head -200
               exit 1
             fi
           fi
@@ -43,8 +40,6 @@ jobs:
           PROJECT_DIR="$(cd "$PROJECT_DIR" && pwd)"
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
           echo "Progetto Android trovato in: $PROJECT_DIR"
-          ls -la "$PROJECT_DIR"
-          ls -la "$PROJECT_DIR/app"
 
       - name: Java 17
         uses: actions/setup-java@v6
@@ -82,18 +77,78 @@ jobs:
           }
 
           KEYSTORE_PATH="$RUNNER_TEMP/spectro-release.jks"
+          export KEYSTORE_PATH
 
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$KEYSTORE_PATH"
+          # Decodifica robusta:
+          # - accetta eventuali spazi/a-capo introdotti durante il copia/incolla
+          # - se è stato incollato per errore anche testo prima/dopo, estrae
+          #   automaticamente il blocco Base64 che inizia con "MII"
+          python3 <<'PY'
+          import os
+          import re
+          import base64
+          import binascii
+          from pathlib import Path
+
+          raw = os.environ.get("KEYSTORE_B64", "")
+          out = Path(os.environ["KEYSTORE_PATH"])
+
+          if not raw.strip():
+              raise SystemExit("SPECTRO_KEYSTORE_B64 è vuoto")
+
+          # Rimuove solo spazi e ritorni a capo per prima cosa.
+          compact = re.sub(r"\s+", "", raw)
+
+          # Se l'utente ha incollato anche etichette/testo, parte dal primo "MII".
+          start = compact.find("MII")
+          if start < 0:
+              raise SystemExit("Nel secret non trovo l'inizio Base64 atteso (MII)")
+          compact = compact[start:]
+
+          # Il keystore fornito termina con padding "=".
+          # Taglia eventuale testo accidentalmente incollato dopo il Base64.
+          pad = compact.find("=")
+          if pad >= 0:
+              end = pad + 1
+              while end < len(compact) and compact[end] == "=":
+                  end += 1
+              compact = compact[:end]
+
+          # Elimina eventuali caratteri non Base64 rimasti.
+          compact = re.sub(r"[^A-Za-z0-9+/=]", "", compact)
+
+          # Il padding deve rendere la lunghezza multipla di 4.
+          compact += "=" * ((4 - len(compact) % 4) % 4)
+
+          print(f"Lunghezza Base64 normalizzata: {len(compact)} caratteri")
+
+          try:
+              data = base64.b64decode(compact, validate=True)
+          except (binascii.Error, ValueError) as exc:
+              raise SystemExit(
+                  "Il secret SPECTRO_KEYSTORE_B64 risulta ancora corrotto o incompleto "
+                  f"dopo la normalizzazione: {exc}"
+              )
+
+          if not data:
+              raise SystemExit("Il keystore decodificato è vuoto")
+
+          out.write_bytes(data)
+          print(f"Keystore decodificato correttamente: {len(data)} byte")
+          PY
 
           test -s "$KEYSTORE_PATH" || {
             echo "::error::Il keystore decodificato è vuoto"
             exit 1
           }
 
-          keytool -list \
+          if ! keytool -list \
             -keystore "$KEYSTORE_PATH" \
             -storepass "$KEY_PASSWORD" \
-            -alias spectro >/dev/null
+            -alias spectro >/dev/null 2>&1; then
+            echo "::error::Il keystore è stato decodificato ma password/alias non sono validi. Controlla SPECTRO_KEY_PASSWORD."
+            exit 1
+          fi
 
           echo "SPECTRO_KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
           echo "Firma Spectro pronta"

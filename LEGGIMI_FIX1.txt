@@ -1,0 +1,19 @@
+SPECTRO ERP 3.0.0 BETA 1 - BUILD FIX 1
+
+Correzioni basate sui log GitHub Actions #14:
+1. CottonScreen.kt
+   - corretto uso di OutlinedButton: modifier ora è argomento nominato.
+2. CreateScreen.kt
+   - stessa correzione per OutlinedButton.
+3. ZenthaScreen.kt
+   - resi espliciti i tipi di attachments, drafts ed extras.
+   - evita l'inferenza errata che generava gli errori sumOf/filter/toMutableList/filterIndexed.
+
+ISTRUZIONI:
+- Restare sul branch spectro-3.0-beta.
+- Estrarre lo ZIP.
+- Copiare la cartella app dentro la root del repository e scegliere Sostituisci.
+- Commit: Fix Beta 1 Kotlin compilation
+- Push origin.
+- Attendere la nuova GitHub Actions build.
+- Non modificare main, secrets o firma.

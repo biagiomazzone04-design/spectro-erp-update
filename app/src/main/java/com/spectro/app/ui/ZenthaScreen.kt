@@ -121,16 +121,27 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var due by remember(editing?.id) { mutableStateOf(editing?.dueDate.orEmpty()) }
     var status by remember(editing?.id) { mutableStateOf(editing?.status ?: ZenthaOrderStatus.CONFIRMED) }
     var notes by remember(editing?.id) { mutableStateOf(editing?.notes.orEmpty()) }
-    var attachments by remember(editing?.id) { mutableStateOf(editing?.attachments ?: emptyList()) }
+    var attachments by remember(editing?.id) { mutableStateOf<List<String>>(editing?.attachments ?: emptyList()) }
     var splitA by remember(editing?.id) { mutableStateOf((editing?.splitPercentA ?: vm.state.settings.zenthaSplitA).toString()) }
     var splitB by remember(editing?.id) { mutableStateOf((editing?.splitPercentB ?: vm.state.settings.zenthaSplitB).toString()) }
     var drafts by remember(editing?.id, vm.state.zenthaItems) {
-        mutableStateOf(
-            editing?.let { o -> vm.state.zenthaItems.filter { it.orderId == o.id }.map { ZenthaItemDraft(it.productId, it.productName, it.quantity.toString(), it.unitPrice.toString(), it.unitCost.toString()) } }?.takeIf { it.isNotEmpty() } ?: listOf(ZenthaItemDraft())
+        mutableStateOf<List<ZenthaItemDraft>>(
+            editing?.let { o ->
+                vm.state.zenthaItems
+                    .filter { it.orderId == o.id }
+                    .map { ZenthaItemDraft(it.productId, it.productName, it.quantity.toString(), it.unitPrice.toString(), it.unitCost.toString()) }
+                    .takeIf { it.isNotEmpty() }
+            } ?: listOf(ZenthaItemDraft())
         )
     }
     var extras by remember(editing?.id, vm.state.zenthaExtraCosts) {
-        mutableStateOf(editing?.let { o -> vm.state.zenthaExtraCosts.filter { it.orderId == o.id }.map { ZenthaExtraDraft(it.label, it.amount.toString()) } } ?: emptyList())
+        mutableStateOf<List<ZenthaExtraDraft>>(
+            editing?.let { o ->
+                vm.state.zenthaExtraCosts
+                    .filter { it.orderId == o.id }
+                    .map { ZenthaExtraDraft(it.label, it.amount.toString()) }
+            } ?: emptyList()
+        )
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> attachments = attachments + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 

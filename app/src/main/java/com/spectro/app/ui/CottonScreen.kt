@@ -100,7 +100,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         SimpleSelectField("Tessuto magazzino", inventory?.let { "${it.fabricName} • ${meters(it.quantityMeters)}" } ?: "Seleziona", vm.state.inventory.filter { it.ownerType == OwnerType.HOUSE }.map { it.id to "${it.fabricName} • ${meters(it.quantityMeters)}" }) { id -> inventoryId = id; vm.state.inventory.firstOrNull { it.id == id }?.let { inv -> fabric = inv.fabricName; fabricCost = inv.purchasePricePerMeter.toString() }; allocations = emptyMap() }
                         SpectroTextField("Costo tessuto €/mt", fabricCost, { fabricCost = it }, numeric = true)
-                        OutlinedButton(enabled = inventoryId != null && needed > 0, onClick = { rollDialog = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Inventory2, null); Spacer(Modifier.width(6.dp)); Text(if (allocations.isEmpty()) "Scegli colli" else "${allocations.size} colli • ${meters(allocations.values.sum())}") }
+                        OutlinedButton(enabled = inventoryId != null && needed > 0, onClick = { rollDialog = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Inventory2, null); Spacer(Modifier.width(6.dp)); Text(if (allocations.isEmpty()) "Scegli colli" else "${allocations.size} colli • ${meters(allocations.values.sum())}") }
                     }
                 }
                 item { SectionTitle("Consuntivo produzione") }

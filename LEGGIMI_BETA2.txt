@@ -1,0 +1,31 @@
+SPECTRO ERP 3.0.0 BETA 2 - PATCH
+
+MODIFICHE:
+- Eliminazione ordini da Dashboard, elenco Ordini e scheda Storico.
+- Conferma prima dell'eliminazione.
+- Eliminazione sicura anche con produzione collegata: ripristino giacenze magazzino.
+- Storico/Timeline: testi principali bianchi nel tema scuro.
+- Vecchi stati tecnici inglesi (WAITING_MATERIAL, IN_PRODUCTION, ecc.) mostrati in italiano.
+- PDF ordine/storico tradotti in italiano.
+- versionCode 13
+- versionName 3.0.0-beta2
+- artifact GitHub: SpectroERP-v3.0.0-BETA2-RELEASE
+
+COME INSTALLARE LA PATCH NEL REPOSITORY:
+1. GitHub Desktop -> branch spectro-3.0-beta.
+2. Fetch origin / Pull se disponibile.
+3. Estrai questo ZIP.
+4. Copia tutto il contenuto estratto nella cartella locale del repository.
+5. Scegli Sostituisci quando richiesto.
+6. GitHub Desktop deve mostrare i file modificati.
+7. Commit: Spectro ERP 3.0 Beta 2 - elimina ordini e storico italiano
+8. Push origin.
+9. Attendi GitHub Actions.
+10. Se la build è verde, scarica l'artifact SpectroERP-v3.0.0-BETA2-RELEASE.
+11. Installa l'APK sopra l'attuale Beta: versionCode 13 permette l'aggiornamento.
+12. NON disinstallare l'app, così mantieni i dati già ripristinati.
+
+NOTA ELIMINAZIONE:
+L'eliminazione è definitiva. Se l'ordine ha una produzione collegata, la produzione viene
+eliminata e l'eventuale consumo di tessuto viene restituito automaticamente al magazzino.
+La timeline dell'ordine viene eliminata insieme all'ordine.

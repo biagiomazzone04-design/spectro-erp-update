@@ -28,6 +28,7 @@ fun WorkOrdersScreen(
 ) {
     var query by remember { mutableStateOf("") }
     var activeOnly by remember { mutableStateOf(true) }
+    var deleteTarget by remember { mutableStateOf<WorkOrder?>(null) }
     val finished = setOf(WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED)
     val orders = vm.state.workOrders.filter { item ->
         (!activeOnly || item.status !in finished) &&
@@ -79,15 +80,26 @@ fun WorkOrdersScreen(
                 }
                 if (overdue) { Spacer(Modifier.height(8.dp)); Text("CONSEGNA SCADUTA", color = p.danger, fontWeight = FontWeight.Black, fontSize = 11.sp) }
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(onClick = { onEdit(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(5.dp)); Text("Modifica") }
                     if (item.productionRecordId == null && item.status !in finished) {
                         Button(onClick = { onStartProduction(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text("Produzione") }
                     } else {
                         OutlinedButton(onClick = { onOpen(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
                     }
+                    IconButton(onClick = { deleteTarget = item }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
                 }
             }
         }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Eliminare definitivamente l'ordine?") },
+            text = { Text("${target.orderCode.ifBlank { target.title }} verrà eliminato insieme allo storico collegato. L'eventuale consumo di tessuto verrà ripristinato automaticamente.") },
+            confirmButton = { TextButton(onClick = { vm.deleteWorkOrder(target.id); deleteTarget = null }) { Text("Elimina", color = p.danger) } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Annulla") } }
+        )
     }
 }

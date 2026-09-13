@@ -19,6 +19,62 @@ import java.text.NumberFormat
 import java.util.Locale
 
 object ReportExporter {
+    private fun workStatusIt(v: com.spectro.app.data.WorkStatus): String = when (v) {
+        com.spectro.app.data.WorkStatus.DRAFT -> "Bozza"
+        com.spectro.app.data.WorkStatus.RECEIVED, com.spectro.app.data.WorkStatus.IN_PROCESS -> "In processo"
+        com.spectro.app.data.WorkStatus.TRANSFERRED_TO_PRODUCTION -> "Trasferito in produzione"
+        com.spectro.app.data.WorkStatus.WAITING_MATERIAL -> "Attesa materiale"
+        com.spectro.app.data.WorkStatus.WAITING_CLIENT -> "Attesa cliente"
+        com.spectro.app.data.WorkStatus.IN_PRODUCTION, com.spectro.app.data.WorkStatus.IN_PROGRESS -> "In produzione"
+        com.spectro.app.data.WorkStatus.PRINTED -> "Stampato"
+        com.spectro.app.data.WorkStatus.TRANSFERRED -> "Trasferito"
+        com.spectro.app.data.WorkStatus.READY -> "Pronto"
+        com.spectro.app.data.WorkStatus.COMPLETED -> "Completato"
+        com.spectro.app.data.WorkStatus.DELIVERED -> "Evaso"
+        com.spectro.app.data.WorkStatus.CLOSED -> "Chiuso"
+        com.spectro.app.data.WorkStatus.ON_HOLD -> "Sospeso"
+        com.spectro.app.data.WorkStatus.BLOCKED -> "Bloccato"
+        com.spectro.app.data.WorkStatus.CANCELLED -> "Annullato"
+    }
+    private fun timelineCategoryIt(v: com.spectro.app.data.TimelineCategory) = when (v) {
+        com.spectro.app.data.TimelineCategory.NOTE -> "Nota"
+        com.spectro.app.data.TimelineCategory.CLIENT -> "Cliente"
+        com.spectro.app.data.TimelineCategory.INTERNAL_PROBLEM -> "Problema interno"
+        com.spectro.app.data.TimelineCategory.GRAPHICS -> "Grafica"
+        com.spectro.app.data.TimelineCategory.FILE_ERROR -> "File errato"
+        com.spectro.app.data.TimelineCategory.MATERIAL -> "Materiale"
+        com.spectro.app.data.TimelineCategory.SAMPLE -> "Campionatura"
+        com.spectro.app.data.TimelineCategory.APPROVAL -> "Approvazione"
+        com.spectro.app.data.TimelineCategory.PRODUCTION -> "Produzione"
+        com.spectro.app.data.TimelineCategory.ORDER_CHANGE -> "Modifica ordine"
+        com.spectro.app.data.TimelineCategory.DELAY -> "Ritardo"
+        com.spectro.app.data.TimelineCategory.DELIVERY -> "Consegna"
+        com.spectro.app.data.TimelineCategory.STATUS_CHANGE -> "Cambio stato"
+    }
+    private fun timelineResponsibilityIt(v: com.spectro.app.data.TimelineResponsibility) = when (v) {
+        com.spectro.app.data.TimelineResponsibility.CLIENT -> "Cliente"
+        com.spectro.app.data.TimelineResponsibility.INTERNAL -> "Interna"
+        com.spectro.app.data.TimelineResponsibility.SUPPLIER -> "Fornitore"
+        com.spectro.app.data.TimelineResponsibility.NONE -> "Nessuna"
+    }
+    private fun timelineSeverityIt(v: com.spectro.app.data.TimelineSeverity) = when (v) {
+        com.spectro.app.data.TimelineSeverity.INFO -> "Informativa"
+        com.spectro.app.data.TimelineSeverity.LOW -> "Bassa"
+        com.spectro.app.data.TimelineSeverity.MEDIUM -> "Media"
+        com.spectro.app.data.TimelineSeverity.HIGH -> "Alta"
+        com.spectro.app.data.TimelineSeverity.BLOCKING -> "Bloccante"
+    }
+    private fun timelineStatusIt(v: com.spectro.app.data.TimelineStatus) = when (v) {
+        com.spectro.app.data.TimelineStatus.OPEN -> "Aperta"
+        com.spectro.app.data.TimelineStatus.RESOLVED -> "Risolta"
+    }
+    private fun localizeStatusTokens(text: String): String {
+        var result = text
+        com.spectro.app.data.WorkStatus.entries.sortedByDescending { it.name.length }.forEach { st ->
+            result = result.replace(Regex("\\b${Regex.escape(st.name)}\\b"), workStatusIt(st))
+        }
+        return result
+    }
     fun share(context: Context, r: ProductionRecord) {
         val dir = File(context.cacheDir, "shared").apply { mkdirs() }
         val file = File(dir, "Spectro_Report_${r.date}_${r.id}.pdf")
@@ -95,7 +151,7 @@ object ReportExporter {
         line("Titolo", w.title)
         line("Ricevuto", w.receivedDate)
         line("Consegna", w.dueDate.ifBlank { "-" })
-        line("Stato", w.status.name)
+        line("Stato", workStatusIt(w.status))
         line("Metri", if (w.orderedMeters > 0) "${w.orderedMeters} mt" else "-")
         line("Disegno", w.designCode.ifBlank { "-" })
         line("Allegati", w.images.size.toString())
@@ -167,7 +223,7 @@ object ReportExporter {
         row("Data ordine", order.receivedDate)
         row("Consegna prevista", order.dueDate.ifBlank { "-" })
         row("Consegna effettiva", order.effectiveDeliveryDate.ifBlank { "-" })
-        row("Stato", order.status.name)
+        row("Stato", workStatusIt(order.status))
         row("Metri", if (order.orderedMeters > 0) "${order.orderedMeters} mt" else "-")
         y += 8f
         canvas.drawText("CRONOLOGIA", 42f, y, h)
@@ -180,13 +236,13 @@ object ReportExporter {
                 ensure(100f)
                 canvas.drawText("${e.date}${if (e.time.isNotBlank()) " • ${e.time}" else ""}  —  ${e.title}", 42f, y, h)
                 y += 20f
-                canvas.drawText("${e.category.name} • ${e.responsibility.name} • ${e.severity.name} • ${e.status.name}", 42f, y, small)
+                canvas.drawText("${timelineCategoryIt(e.category)} • ${timelineResponsibilityIt(e.responsibility)} • ${timelineSeverityIt(e.severity)} • ${timelineStatusIt(e.status)}", 42f, y, small)
                 y += 17f
-                if (e.description.isNotBlank()) paragraph(e.description, 52f)
+                if (e.description.isNotBlank()) paragraph(localizeStatusTokens(e.description), 52f)
                 if (e.oldDueDate.isNotBlank() || e.newDueDate.isNotBlank()) {
                     paragraph("Consegna: ${e.oldDueDate.ifBlank { "-" }} → ${e.newDueDate.ifBlank { "-" }}", 52f)
                 }
-                if (e.resolutionNote.isNotBlank()) paragraph("Risoluzione: ${e.resolutionNote}", 52f)
+                if (e.resolutionNote.isNotBlank()) paragraph("Risoluzione: ${localizeStatusTokens(e.resolutionNote)}", 52f)
                 if (e.images.isNotEmpty()) {
                     ensure(20f)
                     canvas.drawText("Allegati (${e.images.size})", 52f, y, h)

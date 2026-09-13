@@ -119,10 +119,15 @@ class SpectroRepository(context: Context) {
         }
     }
 
-    fun deleteWorkOrder(id: Long) {
-        require(db.getProduction().none { it.workOrderId == id }) { "L'ordine è già collegato alla produzione e non può essere eliminato. Puoi annullarlo." }
-        require(db.getRollUsages().none { it.orderKind == OrderKind.WORK && it.orderId == id }) { "L'ordine ha movimenti di magazzino. Puoi annullarlo, non eliminarlo." }
-        db.transaction { sql -> db.getTimelineEvents(sql).filter { it.workOrderId == id }.forEach { db.deleteTimelineEvent(it.id, sql) }; db.deleteWorkOrder(id, sql) }
+    fun deleteWorkOrder(id: Long) = db.transaction { sql ->
+        // Eliminazione completa ma sicura: prima ripristina gli eventuali consumi di magazzino.
+        db.getProduction(sql).filter { it.workOrderId == id }.forEach { record ->
+            restoreProductionConsumption(record, sql)
+            db.deleteProduction(record.id, sql)
+        }
+        restoreOrderRollUsages(OrderKind.WORK, id, sql)
+        db.getTimelineEvents(sql).filter { it.workOrderId == id }.forEach { db.deleteTimelineEvent(it.id, sql) }
+        db.deleteWorkOrder(id, sql)
     }
 
     fun setWorkStatus(id: Long, status: WorkStatus, note: String = "") = db.transaction { sql ->

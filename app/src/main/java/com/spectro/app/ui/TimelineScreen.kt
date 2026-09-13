@@ -34,6 +34,7 @@ fun OrderTimelineScreen(
     onStartProduction: (WorkOrder) -> Unit
 ) {
     var addOpen by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val current = vm.state.workOrders.firstOrNull { it.id == order.id } ?: order
     val timeline = vm.timelineForOrder(current.id)
     val context = LocalContext.current
@@ -46,7 +47,8 @@ fun OrderTimelineScreen(
                     Text(current.orderCode.ifBlank { current.title }, fontSize = 24.sp, fontWeight = FontWeight.Black)
                     Text("${current.client} • ${workStatusLabel(current.status)}", color = p.textMuted)
                 }
-                IconButton(onClick = { onEdit(current) }) { Icon(Icons.Rounded.Edit, "Modifica") }
+                IconButton(onClick = { onEdit(current) }) { Icon(Icons.Rounded.Edit, "Modifica", tint = p.primary) }
+                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
             }
         }
         item {
@@ -69,7 +71,7 @@ fun OrderTimelineScreen(
         }
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Timeline ordine", fontSize = 20.sp, fontWeight = FontWeight.Black, modifier = Modifier.weight(1f))
+                Text("Timeline ordine", fontSize = 20.sp, fontWeight = FontWeight.Black, color = p.text, modifier = Modifier.weight(1f))
                 FilledTonalButton(onClick = { addOpen = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(5.dp)); Text("Aggiorna") }
             }
         }
@@ -78,6 +80,21 @@ fun OrderTimelineScreen(
     }
 
     if (addOpen) AddTimelineEventDialog(vm, p, current) { addOpen = false }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Eliminare definitivamente l'ordine?") },
+            text = { Text("Verranno eliminati l'ordine, la sua timeline e l'eventuale registrazione produttiva collegata. Se è stato consumato tessuto, la giacenza verrà ripristinata automaticamente.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    vm.deleteWorkOrder(current.id)
+                    onBack()
+                }) { Text("Elimina", color = p.danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annulla") } }
+        )
+    }
 }
 
 @Composable
@@ -92,20 +109,20 @@ private fun TimelineCard(vm: SpectroViewModel, p: SpectroPalette, event: OrderTi
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("${event.date}${if (event.time.isNotBlank()) " • ${event.time}" else ""}", fontSize = 11.sp, color = p.textMuted, fontWeight = FontWeight.Bold)
-                Text(event.title, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Text(event.title, fontWeight = FontWeight.Black, fontSize = 17.sp, color = p.text)
             }
             AssistChip(onClick = {}, label = { Text(timelineCategoryLabel(event.category), fontSize = 9.sp) })
         }
         Spacer(Modifier.height(8.dp))
-        Text(event.description)
+        Text(localizeWorkStatusTokens(event.description), color = p.text)
         Spacer(Modifier.height(8.dp))
         Text("Responsabilità: ${timelineResponsibilityLabel(event.responsibility)} • Gravità: ${timelineSeverityLabel(event.severity)}", color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        if (event.oldDueDate.isNotBlank() || event.newDueDate.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Consegna: ${event.oldDueDate.ifBlank { "-" }} → ${event.newDueDate.ifBlank { "-" }}", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+        if (event.oldDueDate.isNotBlank() || event.newDueDate.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Consegna: ${event.oldDueDate.ifBlank { "-" }} → ${event.newDueDate.ifBlank { "-" }}", color = p.text, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
         if (event.images.isNotEmpty()) { Spacer(Modifier.height(10.dp)); ImageStrip(event.images) }
         if (event.status == TimelineStatus.OPEN && event.severity != TimelineSeverity.INFO) {
             Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = { vm.resolveTimelineEvent(event.id, "Risolta da timeline ordine") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(6.dp)); Text("Segna come risolta") }
         }
-        if (event.status == TimelineStatus.RESOLVED && event.resolutionNote.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Risolta: ${event.resolutionNote}", color = p.success, fontSize = 12.sp) }
+        if (event.status == TimelineStatus.RESOLVED && event.resolutionNote.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Risolta: ${localizeWorkStatusTokens(event.resolutionNote)}", color = p.success, fontSize = 12.sp) }
     }
 }
 

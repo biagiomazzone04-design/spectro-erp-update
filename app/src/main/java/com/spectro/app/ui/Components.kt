@@ -318,6 +318,16 @@ fun workStatusLabel(status: com.spectro.app.data.WorkStatus): String = when (sta
     com.spectro.app.data.WorkStatus.CANCELLED -> "Annullato"
 }
 
+fun localizeWorkStatusTokens(text: String): String {
+    var result = text
+    com.spectro.app.data.WorkStatus.entries
+        .sortedByDescending { it.name.length }
+        .forEach { status ->
+            result = result.replace(Regex("\\b${Regex.escape(status.name)}\\b"), workStatusLabel(status))
+        }
+    return result
+}
+
 fun issueCategoryLabel(v: com.spectro.app.data.IssueCategory): String = when (v) {
     com.spectro.app.data.IssueCategory.GRAPHICS -> "File / grafica"
     com.spectro.app.data.IssueCategory.APPROVAL -> "Approvazione cliente"

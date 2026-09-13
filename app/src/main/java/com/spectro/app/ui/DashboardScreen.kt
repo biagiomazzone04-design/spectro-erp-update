@@ -38,6 +38,7 @@ fun DashboardScreen(
     var mode by remember { mutableStateOf("day") }
     var query by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var deleteTarget by remember { mutableStateOf<WorkOrder?>(null) }
     val days = vm.dashboardDays(query)
     val day = days.firstOrNull { it.date == selectedDate }
 
@@ -98,7 +99,7 @@ fun DashboardScreen(
             if (activeOrders.isNotEmpty()) {
                 item { SectionTitle("Ordini attivi") }
                 items(activeOrders, key = { "order-${it.id}" }) { order ->
-                    DashboardOrderCard(order, p, onOpenOrder, onEditOrder)
+                    DashboardOrderCard(order, p, onOpenOrder, onEditOrder, onDelete = { deleteTarget = it })
                 }
             }
             item {
@@ -121,6 +122,16 @@ fun DashboardScreen(
                 item { EmptyState(Icons.Rounded.Analytics, "Statistiche in attesa", "Inserisci alcune produzioni per generare grafici") }
             }
         }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Eliminare definitivamente l'ordine?") },
+            text = { Text("${target.orderCode.ifBlank { target.title }} verrà eliminato insieme alla timeline. Se esiste una produzione collegata, verrà rimossa e il magazzino verrà riallineato.") },
+            confirmButton = { TextButton(onClick = { vm.deleteWorkOrder(target.id); deleteTarget = null }) { Text("Elimina", color = p.danger) } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Annulla") } }
+        )
     }
 }
 
@@ -189,7 +200,7 @@ private fun RecordCard(record: ProductionRecord, p: SpectroPalette, onRecord: (P
 }
 
 @Composable
-private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit) {
+private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
     val overdue = order.dueDate.isNotBlank() && runCatching { LocalDate.parse(order.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
     val accent = when {
         order.status == WorkStatus.BLOCKED || overdue -> p.danger
@@ -207,6 +218,7 @@ private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (Wor
                 if (order.dueDate.isNotBlank()) Text("Consegna ${order.dueDate}${if (overdue) " • SCADUTA" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (overdue) FontWeight.Black else FontWeight.Normal)
             }
             IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
+            IconButton(onClick = { onDelete(order) }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
         }
     }
 }

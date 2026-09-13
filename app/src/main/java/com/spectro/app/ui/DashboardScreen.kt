@@ -23,15 +23,18 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.spectro.app.data.AnalyticsSlice
-import com.spectro.app.data.DashboardDay
-import com.spectro.app.data.RecordType
-import com.spectro.app.data.ProductionRecord
+import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import java.time.LocalDate
 
 @Composable
-fun DashboardScreen(vm: SpectroViewModel, p: SpectroPalette, onRecord: (ProductionRecord) -> Unit) {
+fun DashboardScreen(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    onRecord: (ProductionRecord) -> Unit,
+    onOpenOrder: (WorkOrder) -> Unit = {},
+    onEditOrder: (WorkOrder) -> Unit = {}
+) {
     var mode by remember { mutableStateOf("day") }
     var query by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -85,6 +88,17 @@ fun DashboardScreen(vm: SpectroViewModel, p: SpectroPalette, onRecord: (Producti
                             AlertMini("Ordini", overdueWork, p.danger, Modifier.weight(1f))
                         }
                     }
+                }
+            }
+            val activeOrders = vm.state.workOrders
+                .filter { it.status !in listOf(WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED) }
+                .sortedWith(compareByDescending<WorkOrder> { it.priority == Priority.HIGH || it.status == WorkStatus.BLOCKED }
+                    .thenBy { it.dueDate.ifBlank { "9999-12-31" } })
+                .take(5)
+            if (activeOrders.isNotEmpty()) {
+                item { SectionTitle("Ordini attivi") }
+                items(activeOrders, key = { "order-${it.id}" }) { order ->
+                    DashboardOrderCard(order, p, onOpenOrder, onEditOrder)
                 }
             }
             item {
@@ -170,6 +184,29 @@ private fun RecordCard(record: ProductionRecord, p: SpectroPalette, onRecord: (P
                 )
                 if (record.type == RecordType.PRODUCTION) Text("Utile ${euro(record.grossProfit)}", fontSize = 11.sp, color = p.textMuted)
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit) {
+    val overdue = order.dueDate.isNotBlank() && runCatching { LocalDate.parse(order.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
+    val accent = when {
+        order.status == WorkStatus.BLOCKED || overdue -> p.danger
+        order.status in listOf(WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.ON_HOLD) -> p.warning
+        order.status in listOf(WorkStatus.IN_PRODUCTION, WorkStatus.IN_PROGRESS, WorkStatus.PRINTED, WorkStatus.TRANSFERRED) -> p.success
+        else -> p.primary
+    }
+    SpectroCard(p = p, onClick = { onOpen(order) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(5.dp).height(58.dp).background(accent, RoundedCornerShape(99.dp)))
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Text(order.orderCode.ifBlank { order.title }, fontWeight = FontWeight.Black, maxLines = 1)
+                Text("${order.client} • ${workStatusLabel(order.status)}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
+                if (order.dueDate.isNotBlank()) Text("Consegna ${order.dueDate}${if (overdue) " • SCADUTA" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (overdue) FontWeight.Black else FontWeight.Normal)
+            }
+            IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
         }
     }
 }

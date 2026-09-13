@@ -287,15 +287,15 @@ private fun PaymentsPane(vm: SpectroViewModel, p: SpectroPalette, modifier: Modi
     var unpaidOnly by remember { mutableStateOf(true) }
     var editing by remember { mutableStateOf<PaymentDeadline?>(null) }
     var showNew by remember { mutableStateOf(false) }
-    val items = vm.state.payments.filter { !unpaidOnly || !it.paid }
+    val paymentItems = vm.state.payments.filter { !unpaidOnly || !it.paid }
     LazyColumn(modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Row(verticalAlignment = Alignment.CenterVertically) { FilterChip(unpaidOnly, { unpaidOnly = !unpaidOnly }, label = { Text(if (unpaidOnly) "Da incassare" else "Tutte") }); Spacer(Modifier.weight(1f)); FilledIconButton(onClick = { showNew = true }) { Icon(Icons.Rounded.Add, null) } } }
         item {
             val open = vm.state.payments.filter { !it.paid }.sumOf { it.amount }; val overdue = vm.overduePayments().sumOf { it.amount }
             SpectroCard(p = p) { Row { Metric("Da incassare", euro(open), p.warning, Modifier.weight(1f)); Metric("Scaduto", euro(overdue), if (overdue > 0) p.danger else p.success, Modifier.weight(1f)) } }
         }
-        if (items.isEmpty()) item { EmptyState(Icons.Rounded.Payments, "Nessuna scadenza", "Registra importi e date di pagamento") }
-        items(items, key = { it.id }) { item ->
+        if (paymentItems.isEmpty()) item { EmptyState(Icons.Rounded.Payments, "Nessuna scadenza", "Registra importi e date di pagamento") }
+        items(paymentItems, key = { it.id }) { item ->
             val overdue = !item.paid && runCatching { LocalDate.parse(item.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
             SpectroCard(p = p) {
                 Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(item.clientName, fontWeight = FontWeight.Black, fontSize = 17.sp); Text("Scadenza ${item.dueDate}${if (item.orderRef.isNotBlank()) " • ${item.orderRef}" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 12.sp) }; Text(euro(item.amount), fontWeight = FontWeight.Black, color = if (item.paid) p.success else if (overdue) p.danger else p.warning) }

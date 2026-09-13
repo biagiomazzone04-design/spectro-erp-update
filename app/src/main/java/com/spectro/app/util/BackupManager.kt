@@ -20,16 +20,19 @@ object BackupManager {
         val dir = File(context.cacheDir, "shared").apply { mkdirs() }
         val file = File(dir, "Spectro_Backup_${System.currentTimeMillis()}.spectrobackup")
         val replacements = linkedMapOf<String, String>()
-        val allImages = buildList {
+        val allAttachments = buildList {
             snapshot.inventory.forEach { addAll(it.images) }
             snapshot.production.forEach { addAll(it.images) }
             snapshot.workOrders.forEach { addAll(it.images) }
             snapshot.clientIssues.forEach { addAll(it.evidenceImages) }
             snapshot.issueUpdates.forEach { addAll(it.images) }
+            snapshot.timelineEvents.forEach { addAll(it.images) }
+            snapshot.zenthaProducts.forEach { if (it.imagePath.isNotBlank()) add(it.imagePath) }
+            snapshot.zenthaOrders.forEach { addAll(it.attachments) }
         }.distinct()
 
         ZipOutputStream(FileOutputStream(file)).use { zip ->
-            allImages.forEachIndexed { index, path ->
+            allAttachments.forEachIndexed { index, path ->
                 val source = File(path)
                 if (!source.isFile) return@forEachIndexed
                 val safeName = source.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
@@ -37,14 +40,12 @@ object BackupManager {
                 replacements[path] = ATTACHMENT_PREFIX + entryName
                 zip.putNextEntry(ZipEntry(entryName)); source.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
             }
-            val portable = snapshot.mapImages { replacements[it] ?: it }
+            val portable = snapshot.mapAttachments { replacements[it] ?: it }
             zip.putNextEntry(ZipEntry(DATA_ENTRY)); zip.write(portable.toJson().toString(2).toByteArray(Charsets.UTF_8)); zip.closeEntry()
         }
 
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-            type = "application/zip"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }, "Salva o condividi backup Spectro"))
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "application/zip"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Salva o condividi backup Spectro"))
     }
 
     fun readBackup(context: Context, uri: android.net.Uri): SpectroSnapshot {
@@ -73,42 +74,63 @@ object BackupManager {
                 zip.closeEntry(); entry = zip.nextEntry
             }
         }
-        return JSONObject(requireNotNull(jsonText) { "Backup Spectro non valido: manca data.json." }).toSnapshot().mapImages { restoredPaths[it] ?: it }
+        return JSONObject(requireNotNull(jsonText) { "Backup Spectro non valido: manca data.json." }).toSnapshot().mapAttachments { restoredPaths[it] ?: it }
     }
 
-    private fun SpectroSnapshot.mapImages(transform: (String) -> String) = copy(
+    private fun SpectroSnapshot.mapAttachments(transform: (String) -> String) = copy(
         inventory = inventory.map { it.copy(images = it.images.map(transform)) },
         production = production.map { it.copy(images = it.images.map(transform)) },
         workOrders = workOrders.map { it.copy(images = it.images.map(transform)) },
         clientIssues = clientIssues.map { it.copy(evidenceImages = it.evidenceImages.map(transform)) },
-        issueUpdates = issueUpdates.map { it.copy(images = it.images.map(transform)) }
+        issueUpdates = issueUpdates.map { it.copy(images = it.images.map(transform)) },
+        timelineEvents = timelineEvents.map { it.copy(images = it.images.map(transform)) },
+        zenthaProducts = zenthaProducts.map { it.copy(imagePath = it.imagePath.takeIf { path -> path.isNotBlank() }?.let(transform).orEmpty()) },
+        zenthaOrders = zenthaOrders.map { it.copy(attachments = it.attachments.map(transform)) }
     )
 
     private fun SpectroSnapshot.toJson() = JSONObject().apply {
-        put("format", "spectro-native-backup"); put("version", 4)
-        put("clients", JSONArray().apply { clients.forEach { put(it.toJson()) } })
-        put("inventory", JSONArray().apply { inventory.forEach { put(it.toJson()) } })
-        put("production", JSONArray().apply { production.forEach { put(it.toJson()) } })
-        put("workOrders", JSONArray().apply { workOrders.forEach { put(it.toJson()) } })
-        put("clientIssues", JSONArray().apply { clientIssues.forEach { put(it.toJson()) } })
-        put("issueUpdates", JSONArray().apply { issueUpdates.forEach { put(it.toJson()) } })
-        put("payments", JSONArray().apply { payments.forEach { put(it.toJson()) } })
+        put("format", "spectro-native-backup"); put("version", 5)
+        put("clients", clients.jsonArray { it.toJson() })
+        put("inventory", inventory.jsonArray { it.toJson() })
+        put("production", production.jsonArray { it.toJson() })
+        put("workOrders", workOrders.jsonArray { it.toJson() })
+        put("clientIssues", clientIssues.jsonArray { it.toJson() })
+        put("issueUpdates", issueUpdates.jsonArray { it.toJson() })
+        put("payments", payments.jsonArray { it.toJson() })
+        put("fabricRolls", fabricRolls.jsonArray { it.toJson() })
+        put("stockMovements", stockMovements.jsonArray { it.toJson() })
+        put("rollUsages", rollUsages.jsonArray { it.toJson() })
+        put("timelineEvents", timelineEvents.jsonArray { it.toJson() })
+        put("cottonOrders", cottonOrders.jsonArray { it.toJson() })
+        put("zenthaProducts", zenthaProducts.jsonArray { it.toJson() })
+        put("zenthaOrders", zenthaOrders.jsonArray { it.toJson() })
+        put("zenthaItems", zenthaItems.jsonArray { it.toJson() })
+        put("zenthaExtraCosts", zenthaExtraCosts.jsonArray { it.toJson() })
+        put("zenthaPayments", zenthaPayments.jsonArray { it.toJson() })
         put("settings", settings.toJson())
     }
 
+    private fun <T> List<T>.jsonArray(block: (T) -> JSONObject) = JSONArray().apply { this@jsonArray.forEach { put(block(it)) } }
     private fun Client.toJson() = JSONObject().apply { put("id", id); put("name", name); put("defaultPrintPrice", defaultPrintPrice) }
-    private fun InventoryItem.toJson() = JSONObject().apply { put("id", id); put("ownerType", ownerType.name); put("ownerName", ownerName); put("fabricName", fabricName); put("quantityMeters", quantityMeters); put("purchasePricePerMeter", purchasePricePerMeter); put("createdDate", createdDate); put("images", JSONArray(images)); put("minimumQuantityMeters", minimumQuantityMeters) }
+    private fun InventoryItem.toJson() = JSONObject().apply { put("id", id); put("ownerType", ownerType.name); put("ownerName", ownerName); put("fabricName", fabricName); put("quantityMeters", quantityMeters); put("purchasePricePerMeter", purchasePricePerMeter); put("createdDate", createdDate); put("images", JSONArray(images)); put("minimumQuantityMeters", minimumQuantityMeters); put("supplierName", supplierName); put("composition", composition); put("weightGsm", weightGsm); put("variant", variant); put("lotCode", lotCode) }
+    private fun FabricRoll.toJson() = JSONObject().apply { put("id", id); put("inventoryId", inventoryId); put("rollCode", rollCode); put("initialMeters", initialMeters); put("availableMeters", availableMeters); put("createdDate", createdDate); put("note", note); put("status", status.name) }
+    private fun StockMovement.toJson() = JSONObject().apply { put("id", id); put("inventoryId", inventoryId); put("rollId", rollId); put("type", type.name); put("dateTime", dateTime); put("meters", meters); put("orderKind", orderKind?.name ?: JSONObject.NULL); put("orderId", orderId ?: JSONObject.NULL); put("orderRef", orderRef); put("note", note) }
+    private fun RollUsage.toJson() = JSONObject().apply { put("id", id); put("orderKind", orderKind.name); put("orderId", orderId); put("orderRef", orderRef); put("inventoryId", inventoryId); put("rollId", rollId); put("meters", meters); put("createdAt", createdAt) }
     private fun ProductionRecord.toJson() = JSONObject().apply {
-        put("id", id); put("type", type.name); put("date", date); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderRef", orderRef); put("designs", JSONArray(designs)); put("printPricePerMeter", printPricePerMeter); put("plotter", plotter)
-        put("printedPaperMeters", printedPaperMeters); put("protectionPaperMeters", protectionPaperMeters); put("paperWasteMeters", paperWasteMeters); put("fabricMode", fabricMode.name); put("fabricId", fabricId ?: JSONObject.NULL); put("fabricUsedMeters", fabricUsedMeters); put("fabricWasteMeters", fabricWasteMeters)
-        put("fabricSalePricePerMeter", fabricSalePricePerMeter); put("manualFabricName", manualFabricName); put("fabricDisplayName", fabricDisplayName); put("technicalNotes", technicalNotes); put("images", JSONArray(images)); put("refundCost", refundCost); put("fabricLossCost", fabricLossCost); put("applyFixedCosts", applyFixedCosts)
-        put("paperPrintCost", paperPrintCost); put("protectionPaperCost", protectionPaperCost); put("fabricUsedCost", fabricUsedCost); put("materialCostTotal", materialCostTotal); put("grossRevenue", grossRevenue); put("grossProfit", grossProfit)
+        put("id", id); put("type", type.name); put("date", date); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderRef", orderRef); put("designs", JSONArray(designs)); put("printPricePerMeter", printPricePerMeter); put("plotter", plotter); put("printedPaperMeters", printedPaperMeters); put("protectionPaperMeters", protectionPaperMeters); put("paperWasteMeters", paperWasteMeters); put("fabricMode", fabricMode.name); put("fabricId", fabricId ?: JSONObject.NULL); put("fabricUsedMeters", fabricUsedMeters); put("fabricWasteMeters", fabricWasteMeters); put("fabricSalePricePerMeter", fabricSalePricePerMeter); put("manualFabricName", manualFabricName); put("fabricDisplayName", fabricDisplayName); put("technicalNotes", technicalNotes); put("images", JSONArray(images)); put("refundCost", refundCost); put("fabricLossCost", fabricLossCost); put("applyFixedCosts", applyFixedCosts); put("paperPrintCost", paperPrintCost); put("protectionPaperCost", protectionPaperCost); put("fabricUsedCost", fabricUsedCost); put("materialCostTotal", materialCostTotal); put("grossRevenue", grossRevenue); put("grossProfit", grossProfit); put("workOrderId", workOrderId ?: JSONObject.NULL)
     }
-    private fun WorkOrder.toJson() = JSONObject().apply { put("id", id); put("receivedDate", receivedDate); put("client", client); put("title", title); put("description", description); put("images", JSONArray(images)); put("status", status.name); put("dueDate", dueDate); put("priority", priority.name); put("blocker", blocker.name) }
+    private fun WorkOrder.toJson() = JSONObject().apply { put("id", id); put("receivedDate", receivedDate); put("client", client); put("title", title); put("description", description); put("images", JSONArray(images)); put("status", status.name); put("dueDate", dueDate); put("priority", priority.name); put("blocker", blocker.name); put("clientId", clientId ?: JSONObject.NULL); put("orderCode", orderCode); put("fabricInventoryId", fabricInventoryId ?: JSONObject.NULL); put("orderedMeters", orderedMeters); put("printPricePerMeter", printPricePerMeter); put("designCode", designCode); put("productionRecordId", productionRecordId ?: JSONObject.NULL); put("effectiveDeliveryDate", effectiveDeliveryDate); put("cancelReason", cancelReason) }
+    private fun OrderTimelineEvent.toJson() = JSONObject().apply { put("id", id); put("workOrderId", workOrderId); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderRef", orderRef); put("date", date); put("time", time); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("title", title); put("description", description); put("oldDueDate", oldDueDate); put("newDueDate", newDueDate); put("images", JSONArray(images)); put("resolutionNote", resolutionNote); put("resolvedDate", resolvedDate) }
     private fun ClientIssue.toJson() = JSONObject().apply { put("id", id); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderRef", orderRef); put("title", title); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("openedDate", openedDate); put("expectedDeliveryDate", expectedDeliveryDate); put("revisedDeliveryDate", revisedDeliveryDate); put("delayDays", delayDays); put("description", description); put("internalNotes", internalNotes); put("evidenceImages", JSONArray(evidenceImages)) }
     private fun IssueUpdate.toJson() = JSONObject().apply { put("id", id); put("issueId", issueId); put("date", date); put("note", note); put("images", JSONArray(images)) }
     private fun PaymentDeadline.toJson() = JSONObject().apply { put("id", id); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderRef", orderRef); put("amount", amount); put("dueDate", dueDate); put("paid", paid); put("paidDate", paidDate); put("method", method.name); put("notes", notes) }
-    private fun AppSettings.toJson() = JSONObject().apply { put("dailyFixedCost", dailyFixedCost); put("plotterX1Cost", plotterX1Cost); put("plotterX2Cost", plotterX2Cost); put("protectionPaperCost", protectionPaperCost); put("themeKey", themeKey) }
+    private fun CottonOrder.toJson() = JSONObject().apply { put("id", id); put("orderCode", orderCode); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderDate", orderDate); put("dueDate", dueDate); put("fabricName", fabricName); put("printType", printType.name); put("orderedMeters", orderedMeters); put("actualProducedMeters", actualProducedMeters); put("deliveredMeters", deliveredMeters); put("defectiveMeters", defectiveMeters); put("sampleMeters", sampleMeters); put("leftoverMeters", leftoverMeters); put("productionCostPerMeter", productionCostPerMeter); put("printPricePerMeter", printPricePerMeter); put("fabricOwnerType", fabricOwnerType.name); put("inventoryId", inventoryId ?: JSONObject.NULL); put("fabricCostPerMeter", fabricCostPerMeter); put("notes", notes); put("status", status.name) }
+    private fun ZenthaProduct.toJson() = JSONObject().apply { put("id", id); put("name", name); put("sku", sku); put("category", category); put("standardCost", standardCost); put("standardPrice", standardPrice); put("description", description); put("imagePath", imagePath); put("active", active) }
+    private fun ZenthaOrder.toJson() = JSONObject().apply { put("id", id); put("orderCode", orderCode); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderDate", orderDate); put("dueDate", dueDate); put("status", status.name); put("notes", notes); put("attachments", JSONArray(attachments)); put("splitPercentA", splitPercentA); put("splitPercentB", splitPercentB) }
+    private fun ZenthaOrderItem.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("productId", productId ?: JSONObject.NULL); put("productName", productName); put("quantity", quantity); put("unitPrice", unitPrice); put("unitCost", unitCost) }
+    private fun ZenthaExtraCost.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("label", label); put("amount", amount) }
+    private fun ZenthaPayment.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("date", date); put("amount", amount); put("method", method.name); put("notes", notes) }
+    private fun AppSettings.toJson() = JSONObject().apply { put("dailyFixedCost", dailyFixedCost); put("plotterX1Cost", plotterX1Cost); put("plotterX2Cost", plotterX2Cost); put("protectionPaperCost", protectionPaperCost); put("themeKey", themeKey); put("zenthaSplitA", zenthaSplitA); put("zenthaSplitB", zenthaSplitB) }
 
     private fun JSONObject.toSnapshot(): SpectroSnapshot {
         if (optString("format") != "spectro-native-backup") return toLegacySnapshot()
@@ -120,7 +142,17 @@ object BackupManager {
             settings = optJSONObject("settings")?.toSettings() ?: AppSettings(),
             clientIssues = optJSONArray("clientIssues").objects().map { it.toIssue() },
             issueUpdates = optJSONArray("issueUpdates").objects().map { it.toIssueUpdate() },
-            payments = optJSONArray("payments").objects().map { it.toPayment() }
+            payments = optJSONArray("payments").objects().map { it.toPayment() },
+            fabricRolls = optJSONArray("fabricRolls").objects().map { it.toFabricRoll() },
+            stockMovements = optJSONArray("stockMovements").objects().map { it.toStockMovement() },
+            rollUsages = optJSONArray("rollUsages").objects().map { it.toRollUsage() },
+            timelineEvents = optJSONArray("timelineEvents").objects().map { it.toTimelineEvent() },
+            cottonOrders = optJSONArray("cottonOrders").objects().map { it.toCottonOrder() },
+            zenthaProducts = optJSONArray("zenthaProducts").objects().map { it.toZenthaProduct() },
+            zenthaOrders = optJSONArray("zenthaOrders").objects().map { it.toZenthaOrder() },
+            zenthaItems = optJSONArray("zenthaItems").objects().map { it.toZenthaItem() },
+            zenthaExtraCosts = optJSONArray("zenthaExtraCosts").objects().map { it.toZenthaExtraCost() },
+            zenthaPayments = optJSONArray("zenthaPayments").objects().map { it.toZenthaPayment() }
         )
     }
 
@@ -132,22 +164,33 @@ object BackupManager {
             val negative = o.optString("tipo") == "negativo"
             ProductionRecord(id = o.optString("id").toLongOrNull() ?: (3_000_000L + i), type = if (negative) RecordType.NEGATIVE else RecordType.PRODUCTION, date = o.optString("data"), clientId = o.optString("clienteId").toLongOrNull(), clientName = o.optString("clienteNome"), orderRef = o.optString("ordineStampa"), designs = o.optJSONArray("disegni").strings(), printPricePerMeter = o.optDouble("prezzoStampaMt"), plotter = o.optString("plotter", "X1"), printedPaperMeters = o.optDouble("cartaStampataMt"), protectionPaperMeters = o.optDouble("cartaProtezioneMt"), paperWasteMeters = o.optDouble("sfridoCartaMt"), fabricMode = when (o.optString("modalitaTessuto")) { "magazzino" -> FabricMode.INVENTORY; "manuale" -> FabricMode.MANUAL; else -> FabricMode.NONE }, fabricId = o.optString("tessutoId").toLongOrNull(), fabricUsedMeters = o.optDouble("tessutoUsatoMt"), fabricWasteMeters = o.optDouble("sfridoTessutoMt"), fabricSalePricePerMeter = o.optDouble("prezzoVenditaTessuto"), manualFabricName = o.optString("tessutoManuale"), fabricDisplayName = o.optString("tessutoNomeVisualizzato", "Nessuno"), technicalNotes = if (negative) o.optString("descrizione") else o.optString("noteTecniche"), images = o.optJSONArray("immagini").strings(), refundCost = o.optDouble("costoRimborso"), fabricLossCost = o.optDouble("costoTessuto"), applyFixedCosts = o.optBoolean("applicaCostiFissi", true), paperPrintCost = o.optDouble("costoCartaStampa"), protectionPaperCost = o.optDouble("costoCartaProtezione"), fabricUsedCost = o.optDouble("costoTessutoUsato"), materialCostTotal = o.optDouble("totaleCostiMateria"), grossRevenue = o.optDouble("fatturatoLordo"), grossProfit = o.optDouble("utileLordoNota"))
         }
-        val legacyWork = optJSONArray("workOrders").objects().mapIndexed { i, o -> WorkOrder(id = o.optString("id").toLongOrNull() ?: (4_000_000L + i), receivedDate = o.optString("data", o.optString("receivedDate")), client = o.optString("cliente", o.optString("client")), title = o.optString("titolo", o.optString("title")), description = o.optString("descrizione", o.optString("description")), images = o.optJSONArray("immagini").strings().ifEmpty { o.optJSONArray("images").strings() }, status = if (o.optString("stato") == "trasferito") WorkStatus.DELIVERED else enumOr(o.optString("status"), WorkStatus.RECEIVED), dueDate = o.optString("dataConsegna", o.optString("dueDate")), priority = if (o.optString("urgenza") == "alta") Priority.HIGH else enumOr(o.optString("priority"), Priority.NORMAL), blocker = when (o.optString("impedimento")) { "attesa_cliente" -> Blocker.WAITING_CLIENT; "attesa_materiale" -> Blocker.WAITING_MATERIAL; else -> enumOr(o.optString("blocker"), Blocker.NONE) }) }
+        val legacyWork = optJSONArray("workOrders").objects().mapIndexed { i, o -> WorkOrder(id = o.optString("id").toLongOrNull() ?: (4_000_000L + i), receivedDate = o.optString("data", o.optString("receivedDate")), client = o.optString("cliente", o.optString("client")), title = o.optString("titolo", o.optString("title")), description = o.optString("descrizione", o.optString("description")), images = o.optJSONArray("immagini").strings().ifEmpty { o.optJSONArray("images").strings() }, status = if (o.optString("stato") == "trasferito") WorkStatus.DELIVERED else enumOr(o.optString("status"), WorkStatus.IN_PROCESS), dueDate = o.optString("dataConsegna", o.optString("dueDate")), priority = if (o.optString("urgenza") == "alta") Priority.HIGH else enumOr(o.optString("priority"), Priority.NORMAL), blocker = when (o.optString("impedimento")) { "attesa_cliente" -> Blocker.WAITING_CLIENT; "attesa_materiale" -> Blocker.WAITING_MATERIAL; else -> enumOr(o.optString("blocker"), Blocker.NONE) }) }
         val oldS = optJSONObject("settings")
         return SpectroSnapshot(clients = legacyClients, inventory = legacyInventory, production = legacyProduction, workOrders = legacyWork, settings = AppSettings(oldS?.optDouble("dailyFixedCost", 760.0) ?: 760.0, oldS?.optDouble("costoPlotterX1", .8) ?: .8, oldS?.optDouble("costoPlotterX2", 1.0) ?: 1.0, oldS?.optDouble("costoProtezione", .1) ?: .1))
     }
 
     private fun JSONObject.toClient() = Client(optLong("id"), optString("name"), optDouble("defaultPrintPrice"))
-    private fun JSONObject.toInventory() = InventoryItem(optLong("id"), enumOr(optString("ownerType"), OwnerType.CLIENT), optString("ownerName"), optString("fabricName"), optDouble("quantityMeters"), optDouble("purchasePricePerMeter"), optString("createdDate"), optJSONArray("images").strings(), optDouble("minimumQuantityMeters"))
-    private fun JSONObject.toProduction() = ProductionRecord(id = optLong("id"), type = enumOr(optString("type"), RecordType.PRODUCTION), date = optString("date"), clientId = nullableLong("clientId"), clientName = optString("clientName"), orderRef = optString("orderRef"), designs = optJSONArray("designs").strings(), printPricePerMeter = optDouble("printPricePerMeter"), plotter = optString("plotter", "X1"), printedPaperMeters = optDouble("printedPaperMeters"), protectionPaperMeters = optDouble("protectionPaperMeters"), paperWasteMeters = optDouble("paperWasteMeters"), fabricMode = enumOr(optString("fabricMode"), FabricMode.NONE), fabricId = nullableLong("fabricId"), fabricUsedMeters = optDouble("fabricUsedMeters"), fabricWasteMeters = optDouble("fabricWasteMeters"), fabricSalePricePerMeter = optDouble("fabricSalePricePerMeter"), manualFabricName = optString("manualFabricName"), fabricDisplayName = optString("fabricDisplayName", "Nessuno"), technicalNotes = optString("technicalNotes"), images = optJSONArray("images").strings(), refundCost = optDouble("refundCost"), fabricLossCost = optDouble("fabricLossCost"), applyFixedCosts = optBoolean("applyFixedCosts", true), paperPrintCost = optDouble("paperPrintCost"), protectionPaperCost = optDouble("protectionPaperCost"), fabricUsedCost = optDouble("fabricUsedCost"), materialCostTotal = optDouble("materialCostTotal"), grossRevenue = optDouble("grossRevenue"), grossProfit = optDouble("grossProfit"))
-    private fun JSONObject.toWorkOrder() = WorkOrder(optLong("id"), optString("receivedDate"), optString("client"), optString("title"), optString("description"), optJSONArray("images").strings(), enumOr(optString("status"), WorkStatus.RECEIVED), optString("dueDate"), enumOr(optString("priority"), Priority.NORMAL), enumOr(optString("blocker"), Blocker.NONE))
+    private fun JSONObject.toInventory() = InventoryItem(optLong("id"), enumOr(optString("ownerType"), OwnerType.CLIENT), optString("ownerName"), optString("fabricName"), optDouble("quantityMeters"), optDouble("purchasePricePerMeter"), optString("createdDate"), optJSONArray("images").strings(), optDouble("minimumQuantityMeters"), optString("supplierName"), optString("composition"), optString("weightGsm"), optString("variant"), optString("lotCode"))
+    private fun JSONObject.toFabricRoll() = FabricRoll(optLong("id"), optLong("inventoryId"), optString("rollCode"), optDouble("initialMeters"), optDouble("availableMeters"), optString("createdDate"), optString("note"), enumOr(optString("status"), RollStatus.OPEN))
+    private fun JSONObject.toStockMovement() = StockMovement(optLong("id"), optLong("inventoryId"), optLong("rollId"), enumOr(optString("type"), StockMovementType.ADJUSTMENT), optString("dateTime"), optDouble("meters"), nullableString("orderKind")?.let { enumOr(it, OrderKind.WORK) }, nullableLong("orderId"), optString("orderRef"), optString("note"))
+    private fun JSONObject.toRollUsage() = RollUsage(optLong("id"), enumOr(optString("orderKind"), OrderKind.WORK), optLong("orderId"), optString("orderRef"), optLong("inventoryId"), optLong("rollId"), optDouble("meters"), optString("createdAt"))
+    private fun JSONObject.toProduction() = ProductionRecord(id = optLong("id"), type = enumOr(optString("type"), RecordType.PRODUCTION), date = optString("date"), clientId = nullableLong("clientId"), clientName = optString("clientName"), orderRef = optString("orderRef"), designs = optJSONArray("designs").strings(), printPricePerMeter = optDouble("printPricePerMeter"), plotter = optString("plotter", "X1"), printedPaperMeters = optDouble("printedPaperMeters"), protectionPaperMeters = optDouble("protectionPaperMeters"), paperWasteMeters = optDouble("paperWasteMeters"), fabricMode = enumOr(optString("fabricMode"), FabricMode.NONE), fabricId = nullableLong("fabricId"), fabricUsedMeters = optDouble("fabricUsedMeters"), fabricWasteMeters = optDouble("fabricWasteMeters"), fabricSalePricePerMeter = optDouble("fabricSalePricePerMeter"), manualFabricName = optString("manualFabricName"), fabricDisplayName = optString("fabricDisplayName", "Nessuno"), technicalNotes = optString("technicalNotes"), images = optJSONArray("images").strings(), refundCost = optDouble("refundCost"), fabricLossCost = optDouble("fabricLossCost"), applyFixedCosts = optBoolean("applyFixedCosts", true), paperPrintCost = optDouble("paperPrintCost"), protectionPaperCost = optDouble("protectionPaperCost"), fabricUsedCost = optDouble("fabricUsedCost"), materialCostTotal = optDouble("materialCostTotal"), grossRevenue = optDouble("grossRevenue"), grossProfit = optDouble("grossProfit"), workOrderId = nullableLong("workOrderId"))
+    private fun JSONObject.toWorkOrder() = WorkOrder(optLong("id"), optString("receivedDate"), optString("client"), optString("title"), optString("description"), optJSONArray("images").strings(), enumOr(optString("status"), WorkStatus.IN_PROCESS), optString("dueDate"), enumOr(optString("priority"), Priority.NORMAL), enumOr(optString("blocker"), Blocker.NONE), nullableLong("clientId"), optString("orderCode"), nullableLong("fabricInventoryId"), optDouble("orderedMeters"), optDouble("printPricePerMeter"), optString("designCode"), nullableLong("productionRecordId"), optString("effectiveDeliveryDate"), optString("cancelReason"))
+    private fun JSONObject.toTimelineEvent() = OrderTimelineEvent(optLong("id"), optLong("workOrderId"), nullableLong("clientId"), optString("clientName"), optString("orderRef"), optString("date"), optString("time"), enumOr(optString("category"), TimelineCategory.NOTE), enumOr(optString("responsibility"), TimelineResponsibility.NONE), enumOr(optString("severity"), TimelineSeverity.INFO), enumOr(optString("status"), TimelineStatus.OPEN), optString("title"), optString("description"), optString("oldDueDate"), optString("newDueDate"), optJSONArray("images").strings(), optString("resolutionNote"), optString("resolvedDate"))
     private fun JSONObject.toIssue() = ClientIssue(optLong("id"), nullableLong("clientId"), optString("clientName"), optString("orderRef"), optString("title"), enumOr(optString("category"), IssueCategory.OTHER), enumOr(optString("responsibility"), IssueResponsibility.TO_VERIFY), enumOr(optString("severity"), IssueSeverity.MEDIUM), enumOr(optString("status"), IssueStatus.OPEN), optString("openedDate"), optString("expectedDeliveryDate"), optString("revisedDeliveryDate"), optInt("delayDays"), optString("description"), optString("internalNotes"), optJSONArray("evidenceImages").strings())
     private fun JSONObject.toIssueUpdate() = IssueUpdate(optLong("id"), optLong("issueId"), optString("date"), optString("note"), optJSONArray("images").strings())
     private fun JSONObject.toPayment() = PaymentDeadline(optLong("id"), nullableLong("clientId"), optString("clientName"), optString("orderRef"), optDouble("amount"), optString("dueDate"), optBoolean("paid"), optString("paidDate"), enumOr(optString("method"), PaymentMethod.UNSPECIFIED), optString("notes"))
-    private fun JSONObject.toSettings() = AppSettings(optDouble("dailyFixedCost", 760.0), optDouble("plotterX1Cost", .8), optDouble("plotterX2Cost", 1.0), optDouble("protectionPaperCost", .1), optString("themeKey", "spectro"))
+    private fun JSONObject.toCottonOrder() = CottonOrder(optLong("id"), optString("orderCode"), nullableLong("clientId"), optString("clientName"), optString("orderDate"), optString("dueDate"), optString("fabricName"), enumOr(optString("printType"), CottonPrintType.REACTIVE), optDouble("orderedMeters"), optDouble("actualProducedMeters"), optDouble("deliveredMeters"), optDouble("defectiveMeters"), optDouble("sampleMeters"), optDouble("leftoverMeters"), optDouble("productionCostPerMeter"), optDouble("printPricePerMeter"), enumOr(optString("fabricOwnerType"), OwnerType.CLIENT), nullableLong("inventoryId"), optDouble("fabricCostPerMeter"), optString("notes"), enumOr(optString("status"), WorkStatus.IN_PROCESS))
+    private fun JSONObject.toZenthaProduct() = ZenthaProduct(optLong("id"), optString("name"), optString("sku"), optString("category"), optDouble("standardCost"), optDouble("standardPrice"), optString("description"), optString("imagePath"), optBoolean("active", true))
+    private fun JSONObject.toZenthaOrder() = ZenthaOrder(optLong("id"), optString("orderCode"), nullableLong("clientId"), optString("clientName"), optString("orderDate"), optString("dueDate"), enumOr(optString("status"), ZenthaOrderStatus.CONFIRMED), optString("notes"), optJSONArray("attachments").strings(), optDouble("splitPercentA", 50.0), optDouble("splitPercentB", 50.0))
+    private fun JSONObject.toZenthaItem() = ZenthaOrderItem(optLong("id"), optLong("orderId"), nullableLong("productId"), optString("productName"), optInt("quantity"), optDouble("unitPrice"), optDouble("unitCost"))
+    private fun JSONObject.toZenthaExtraCost() = ZenthaExtraCost(optLong("id"), optLong("orderId"), optString("label"), optDouble("amount"))
+    private fun JSONObject.toZenthaPayment() = ZenthaPayment(optLong("id"), optLong("orderId"), optString("date"), optDouble("amount"), enumOr(optString("method"), PaymentMethod.UNSPECIFIED), optString("notes"))
+    private fun JSONObject.toSettings() = AppSettings(optDouble("dailyFixedCost", 760.0), optDouble("plotterX1Cost", .8), optDouble("plotterX2Cost", 1.0), optDouble("protectionPaperCost", .1), optString("themeKey", "spectro"), optDouble("zenthaSplitA", 50.0), optDouble("zenthaSplitB", 50.0))
 
     private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else List(length()) { optJSONObject(it) }.filterNotNull()
     private fun JSONArray?.strings(): List<String> = if (this == null) emptyList() else List(length()) { optString(it) }.filter { it.isNotBlank() }
     private fun JSONObject.nullableLong(key: String): Long? = if (!has(key) || isNull(key)) null else optLong(key)
+    private fun JSONObject.nullableString(key: String): String? = if (!has(key) || isNull(key)) null else optString(key)
     private inline fun <reified T : Enum<T>> enumOr(value: String, default: T): T = enumValues<T>().firstOrNull { it.name == value } ?: default
 }

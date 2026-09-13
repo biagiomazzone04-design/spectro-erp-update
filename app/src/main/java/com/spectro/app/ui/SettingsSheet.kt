@@ -32,6 +32,8 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
     var x1 by remember(vm.state.settings) { mutableStateOf(vm.state.settings.plotterX1Cost.toString()) }
     var x2 by remember(vm.state.settings) { mutableStateOf(vm.state.settings.plotterX2Cost.toString()) }
     var protection by remember(vm.state.settings) { mutableStateOf(vm.state.settings.protectionPaperCost.toString()) }
+    var zenthaA by remember(vm.state.settings) { mutableStateOf(vm.state.settings.zenthaSplitA.toString()) }
+    var zenthaB by remember(vm.state.settings) { mutableStateOf(vm.state.settings.zenthaSplitB.toString()) }
     var theme by remember(vm.state.settings) { mutableStateOf(vm.state.settings.themeKey) }
     var confirmReset by remember { mutableStateOf(false) }
     var restoreError by remember { mutableStateOf<String?>(null) }
@@ -61,6 +63,20 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
             }
             item {
                 SpectroCard(p = p) {
+                    Text("ZENTHA • Ripartizione utile", fontWeight = FontWeight.Black, fontSize = 17.sp)
+                    Text("Le due quote devono totalizzare 100%. Il valore viene copiato nei nuovi ordini e resta congelato negli ordini già creati.", color = p.textMuted, fontSize = 12.sp)
+                    Spacer(Modifier.height(14.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SpectroTextField("Quota A %", zenthaA, { zenthaA = it }, Modifier.weight(1f), numeric = true)
+                        SpectroTextField("Quota B %", zenthaB, { zenthaB = it }, Modifier.weight(1f), numeric = true)
+                    }
+                    val total = zenthaA.toDoubleSafe() + zenthaB.toDoubleSafe()
+                    Spacer(Modifier.height(6.dp))
+                    Text("Totale: ${"%.1f".format(total)}%", color = if (kotlin.math.abs(total - 100.0) < .01) p.success else p.danger, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                }
+            }
+            item {
+                SpectroCard(p = p) {
                     Text("Tema grafico", fontWeight = FontWeight.Black, fontSize = 17.sp)
                     Spacer(Modifier.height(14.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -82,7 +98,15 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
             }
             item {
                 GradientButton("Salva impostazioni", p) {
-                    vm.saveSettings(AppSettings(daily.toDoubleSafe(), x1.toDoubleSafe(), x2.toDoubleSafe(), protection.toDoubleSafe(), theme))
+                    vm.saveSettings(AppSettings(
+                        dailyFixedCost = daily.toDoubleSafe(),
+                        plotterX1Cost = x1.toDoubleSafe(),
+                        plotterX2Cost = x2.toDoubleSafe(),
+                        protectionPaperCost = protection.toDoubleSafe(),
+                        themeKey = theme,
+                        zenthaSplitA = zenthaA.toDoubleSafe(),
+                        zenthaSplitB = zenthaB.toDoubleSafe()
+                    ))
                     onDismiss()
                 }
             }

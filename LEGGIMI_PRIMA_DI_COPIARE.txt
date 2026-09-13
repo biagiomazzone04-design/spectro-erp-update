@@ -1,0 +1,30 @@
+SPECTRO ERP 3.0.0 BETA 1 - PATCH GITHUB
+
+Questo ZIP contiene SOLO i file nuovi o modificati rispetto alla base Spectro ERP 2.1.
+
+USO CONSIGLIATO:
+1. Apri GitHub Desktop.
+2. Repository: spectro-erp-update.
+3. Fai Fetch origin / Pull origin.
+4. Crea un branch chiamato: spectro-3.0-beta
+5. Chiudi l'app Spectro sul telefono. NON disinstallarla.
+6. Estrai questo ZIP.
+7. Copia TUTTO il contenuto estratto nella cartella locale del repository.
+8. Quando Windows chiede se sostituire i file, scegli Sostituisci.
+9. NON cancellare la cartella .git del repository.
+10. GitHub Desktop mostrerà i file modificati.
+11. Commit: Spectro ERP 3.0.0 Beta 1
+12. Push/Publish branch.
+13. GitHub Actions compilerà il branch spectro-3.0-beta.
+14. Se la build fallisce, scarica il log archive e invialo a ChatGPT.
+15. Se la build è verde, NON installare ancora alla cieca: fai un backup aggiornato
+    dell'app attuale, poi usa l'APK firmato Beta per il test di aggiornamento.
+
+IMPORTANTISSIMO:
+- package mantenuto: com.spectro.app
+- versionCode: 12
+- versionName: 3.0.0-beta1
+- firma: usa lo stesso secret GitHub SPECTRO_SIGNING_BUNDLE_B64
+- NON caricare keystore/password nel repository
+- NON eliminare i dati dell'app
+- NON disinstallare l'app prima del test aggiornamento, salvo mismatch di firma

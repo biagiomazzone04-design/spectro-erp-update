@@ -301,16 +301,21 @@ fun <T> SimpleSelectField(
 }
 
 fun workStatusLabel(status: com.spectro.app.data.WorkStatus): String = when (status) {
-    com.spectro.app.data.WorkStatus.RECEIVED -> "Ricevuto"
+    com.spectro.app.data.WorkStatus.DRAFT -> "Bozza"
+    com.spectro.app.data.WorkStatus.RECEIVED, com.spectro.app.data.WorkStatus.IN_PROCESS -> "In processo"
+    com.spectro.app.data.WorkStatus.TRANSFERRED_TO_PRODUCTION -> "Trasferito in produzione"
     com.spectro.app.data.WorkStatus.WAITING_MATERIAL -> "Attesa materiale"
     com.spectro.app.data.WorkStatus.WAITING_CLIENT -> "Attesa cliente"
-    com.spectro.app.data.WorkStatus.IN_PRODUCTION, com.spectro.app.data.WorkStatus.IN_PROGRESS -> "In lavorazione"
+    com.spectro.app.data.WorkStatus.IN_PRODUCTION, com.spectro.app.data.WorkStatus.IN_PROGRESS -> "In produzione"
     com.spectro.app.data.WorkStatus.PRINTED -> "Stampato"
     com.spectro.app.data.WorkStatus.TRANSFERRED -> "Trasferito"
     com.spectro.app.data.WorkStatus.READY -> "Pronto"
-    com.spectro.app.data.WorkStatus.DELIVERED, com.spectro.app.data.WorkStatus.COMPLETED -> "Consegnato"
+    com.spectro.app.data.WorkStatus.COMPLETED -> "Completato"
+    com.spectro.app.data.WorkStatus.DELIVERED -> "Evaso"
+    com.spectro.app.data.WorkStatus.CLOSED -> "Chiuso"
     com.spectro.app.data.WorkStatus.ON_HOLD -> "Sospeso"
     com.spectro.app.data.WorkStatus.BLOCKED -> "Bloccato"
+    com.spectro.app.data.WorkStatus.CANCELLED -> "Annullato"
 }
 
 fun issueCategoryLabel(v: com.spectro.app.data.IssueCategory): String = when (v) {
@@ -345,4 +350,35 @@ fun issueStatusLabel(v: com.spectro.app.data.IssueStatus): String = when (v) {
     com.spectro.app.data.IssueStatus.MONITORING -> "Monitoraggio"
     com.spectro.app.data.IssueStatus.RESOLVED -> "Risolta"
     com.spectro.app.data.IssueStatus.CLOSED -> "Chiusa"
+}
+
+fun timelineCategoryLabel(v: com.spectro.app.data.TimelineCategory): String = when (v) {
+    com.spectro.app.data.TimelineCategory.NOTE -> "Nota"
+    com.spectro.app.data.TimelineCategory.CLIENT -> "Cliente"
+    com.spectro.app.data.TimelineCategory.INTERNAL_PROBLEM -> "Problema interno"
+    com.spectro.app.data.TimelineCategory.GRAPHICS -> "Grafica"
+    com.spectro.app.data.TimelineCategory.FILE_ERROR -> "File errato"
+    com.spectro.app.data.TimelineCategory.MATERIAL -> "Materiale"
+    com.spectro.app.data.TimelineCategory.SAMPLE -> "Campionatura"
+    com.spectro.app.data.TimelineCategory.APPROVAL -> "Approvazione"
+    com.spectro.app.data.TimelineCategory.PRODUCTION -> "Produzione"
+    com.spectro.app.data.TimelineCategory.ORDER_CHANGE -> "Modifica ordine"
+    com.spectro.app.data.TimelineCategory.DELAY -> "Ritardo"
+    com.spectro.app.data.TimelineCategory.DELIVERY -> "Consegna"
+    com.spectro.app.data.TimelineCategory.STATUS_CHANGE -> "Cambio stato"
+}
+
+fun timelineResponsibilityLabel(v: com.spectro.app.data.TimelineResponsibility): String = when (v) {
+    com.spectro.app.data.TimelineResponsibility.CLIENT -> "Cliente"
+    com.spectro.app.data.TimelineResponsibility.INTERNAL -> "Interna"
+    com.spectro.app.data.TimelineResponsibility.SUPPLIER -> "Fornitore"
+    com.spectro.app.data.TimelineResponsibility.NONE -> "Nessuna"
+}
+
+fun timelineSeverityLabel(v: com.spectro.app.data.TimelineSeverity): String = when (v) {
+    com.spectro.app.data.TimelineSeverity.INFO -> "Informativa"
+    com.spectro.app.data.TimelineSeverity.LOW -> "Bassa"
+    com.spectro.app.data.TimelineSeverity.MEDIUM -> "Media"
+    com.spectro.app.data.TimelineSeverity.HIGH -> "Alta"
+    com.spectro.app.data.TimelineSeverity.BLOCKING -> "Bloccante"
 }

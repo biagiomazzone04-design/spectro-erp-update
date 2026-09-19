@@ -1,0 +1,32 @@
+SPECTRO ERP 3.0.0 BETA 3 - BUILD FIX 1
+
+Diagnosi GitHub Actions:
+la build falliva in :app:compileDebugKotlin.
+
+Tutti i 31 errori del log derivano dalla stessa inferenza di tipo Kotlin:
+la variabile Compose `allocations` veniva inferita come Any? invece di
+Map<Long, Double> nei form Sublimazione/Produzione e Cotone.
+
+Correzione:
+- CottonScreen.kt: `allocations` ora usa esplicitamente MutableState<Map<Long, Double>>.
+- CreateScreen.kt: stessa correzione.
+
+Questa patch NON modifica:
+- database/migrazioni;
+- package name;
+- versionCode/versionName;
+- firma GitHub;
+- workflow;
+- dati dell'app.
+
+ISTRUZIONI
+1. Resta sul branch: spectro-3.0-beta
+2. Estrai questo ZIP.
+3. Copia la cartella `app` nella root locale del repository.
+4. Scegli Sostituisci per i 2 file.
+5. GitHub Desktop -> commit:
+   Fix Beta 3 allocations type inference
+6. Push origin.
+7. Attendi una NUOVA build GitHub Actions.
+8. Non fare Re-run della vecchia build.
+9. Se è rossa, invia il nuovo log archive completo.

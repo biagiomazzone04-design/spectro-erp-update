@@ -111,7 +111,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     var clientDialog by remember { mutableStateOf(false) }
     var fabricDialog by remember { mutableStateOf(false) }
     var rollDialog by remember { mutableStateOf(false) }
-    var allocations by remember(editing?.id, source?.id) { mutableStateOf(if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.PRODUCTION && it.orderId == editing.id }.associate { it.rollId to it.meters } else savedDraft?.allocations ?: emptyMap()) }
+    var allocations by remember(editing?.id, source?.id) { mutableStateOf<Map<Long, Double>>(if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.PRODUCTION && it.orderId == editing.id }.associate { it.rollId to it.meters } else savedDraft?.allocations ?: emptyMap()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     val consumeMeters = fabricUsed.toDoubleSafe() + fabricWaste.toDoubleSafe()

@@ -69,7 +69,15 @@ data class FabricRoll(
     val availableMeters: Double,
     val createdDate: String,
     val note: String = "",
-    val status: RollStatus = RollStatus.INTACT
+    val status: RollStatus = RollStatus.INTACT,
+    val images: List<String> = emptyList()
+)
+
+data class FabricRollInput(
+    val meters: Double,
+    val images: List<String> = emptyList(),
+    val code: String = "",
+    val note: String = ""
 )
 
 data class StockMovement(
@@ -234,7 +242,9 @@ data class CottonOrder(
     val inventoryId: Long? = null,
     val fabricCostPerMeter: Double = 0.0,
     val notes: String = "",
-    val status: WorkStatus = WorkStatus.IN_PROCESS
+    val status: WorkStatus = WorkStatus.IN_PROCESS,
+    val title: String = "",
+    val images: List<String> = emptyList()
 ) {
     val revenueMeters: Double get() = if (deliveredMeters > 0) deliveredMeters else orderedMeters
     val costMeters: Double get() = if (actualProducedMeters > 0) actualProducedMeters else orderedMeters
@@ -322,6 +332,33 @@ data class DashboardDay(
 )
 
 data class AnalyticsSlice(val label: String, val value: Double)
+
+
+data class ClientMonthlyStat(
+    val clientName: String,
+    val revenue: Double,
+    val paperMeters: Double,
+    val cottonMeters: Double,
+    val profit: Double,
+    val records: Int
+)
+
+data class MonthlyStats(
+    val month: String,
+    val productionRevenue: Double,
+    val cottonRevenue: Double,
+    val materialCosts: Double,
+    val cottonCosts: Double,
+    val fixedCosts: Double,
+    val totalRevenue: Double,
+    val totalCosts: Double,
+    val netProfit: Double,
+    val printedPaperMeters: Double,
+    val cottonMeters: Double,
+    val productionCount: Int,
+    val cottonOrderCount: Int,
+    val clients: List<ClientMonthlyStat>
+)
 
 data class SpectroSnapshot(
     val clients: List<Client> = emptyList(),

@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.YearMonth
 
 data class SpectroUiState(
     val loading: Boolean = true,
@@ -76,8 +77,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteClient(id: Long) = runWrite("Cliente eliminato") { repo.deleteClient(id) }
 
     fun saveInventory(v: InventoryItem) = runWrite("Magazzino aggiornato") { repo.saveInventory(v) }
-    fun createInventoryWithRolls(v: InventoryItem, rolls: List<Double>) = runWrite("Carico tessuto salvato") { repo.createInventoryWithRolls(v, rolls) }
-    fun addRoll(inventoryId: Long, code: String, meters: Double, note: String = "") = runWrite("Collo aggiunto") { repo.addRoll(inventoryId, code, meters, note) }
+    fun createInventoryWithRolls(v: InventoryItem, rolls: List<FabricRollInput>) = runWrite("Carico tessuto salvato") { repo.createInventoryWithRolls(v, rolls) }
+    fun addRoll(inventoryId: Long, code: String, meters: Double, note: String = "", images: List<String> = emptyList()) = runWrite("Collo aggiunto") { repo.addRoll(inventoryId, code, meters, note, images) }
     fun adjustRoll(rollId: Long, newMeters: Double, note: String) = runWrite("Giacenza collo rettificata") { repo.adjustRoll(rollId, newMeters, note) }
     fun deleteInventory(id: Long) = runWrite("Tessuto eliminato") { repo.deleteInventory(id) }
 
@@ -154,6 +155,62 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
 
     fun topClients(limit: Int = 5): List<AnalyticsSlice> = state.production.filter { it.type == RecordType.PRODUCTION }.groupBy { it.clientName.ifBlank { "Senza cliente" } }.map { AnalyticsSlice(it.key, it.value.sumOf { r -> r.grossRevenue }) }.filter { it.value > 0 }.sortedByDescending { it.value }.take(limit)
     fun topFabrics(limit: Int = 5): List<AnalyticsSlice> = state.production.filter { it.type == RecordType.PRODUCTION && it.fabricDisplayName != "Nessuno" }.groupBy { it.fabricDisplayName.substringBefore(" (") }.map { AnalyticsSlice(it.key, it.value.sumOf { r -> r.fabricUsedMeters }) }.filter { it.value > 0 }.sortedByDescending { it.value }.take(limit)
+
+    fun monthlyStats(month: YearMonth = YearMonth.now()): MonthlyStats {
+        val prefix = month.toString()
+        val productions = state.production.filter { it.date.startsWith(prefix) }
+        val productive = productions.filter { it.type == RecordType.PRODUCTION }
+        val cotton = state.cottonOrders.filter { it.orderDate.startsWith(prefix) }
+
+        val productionRevenue = productive.sumOf { it.grossRevenue }
+        val cottonRevenue = cotton.sumOf { it.grossRevenue }
+        val materialCosts = productions.sumOf { it.materialCostTotal }
+        val cottonCosts = cotton.sumOf { it.totalCost }
+        val fixedDays = productions.filter { it.applyFixedCosts }.map { it.date }.distinct().size
+        val fixedCosts = fixedDays * state.settings.dailyFixedCost
+        val totalRevenue = productionRevenue + cottonRevenue
+        val totalCosts = materialCosts + cottonCosts + fixedCosts
+        val netProfit = totalRevenue - totalCosts
+        val paperMeters = productive.sumOf { it.printedPaperMeters }
+        val cottonMeters = cotton.sumOf { if (it.actualProducedMeters > 0) it.actualProducedMeters else it.orderedMeters }
+
+        val names = (productive.map { it.clientName.ifBlank { "Senza cliente" } } + cotton.map { it.clientName.ifBlank { "Senza cliente" } }).distinct()
+        val clients = names.map { name ->
+            val prods = productive.filter { it.clientName.equals(name, true) }
+            val cottonRows = cotton.filter { it.clientName.equals(name, true) }
+            ClientMonthlyStat(
+                clientName = name,
+                revenue = prods.sumOf { it.grossRevenue } + cottonRows.sumOf { it.grossRevenue },
+                paperMeters = prods.sumOf { it.printedPaperMeters },
+                cottonMeters = cottonRows.sumOf { if (it.actualProducedMeters > 0) it.actualProducedMeters else it.orderedMeters },
+                profit = prods.sumOf { it.grossProfit } + cottonRows.sumOf { it.margin },
+                records = prods.size + cottonRows.size
+            )
+        }.sortedByDescending { it.revenue }
+
+        return MonthlyStats(
+            month = prefix,
+            productionRevenue = productionRevenue,
+            cottonRevenue = cottonRevenue,
+            materialCosts = materialCosts,
+            cottonCosts = cottonCosts,
+            fixedCosts = fixedCosts,
+            totalRevenue = totalRevenue,
+            totalCosts = totalCosts,
+            netProfit = netProfit,
+            printedPaperMeters = paperMeters,
+            cottonMeters = cottonMeters,
+            productionCount = productive.size,
+            cottonOrderCount = cotton.size,
+            clients = clients
+        )
+    }
+
+    fun monthlyRevenueByClient(month: YearMonth = YearMonth.now(), limit: Int = 8): List<AnalyticsSlice> =
+        monthlyStats(month).clients.map { AnalyticsSlice(it.clientName, it.revenue) }.filter { it.value > 0 }.take(limit)
+
+    fun monthlyPaperMetersByClient(month: YearMonth = YearMonth.now(), limit: Int = 8): List<AnalyticsSlice> =
+        monthlyStats(month).clients.map { AnalyticsSlice(it.clientName, it.paperMeters) }.filter { it.value > 0 }.sortedByDescending { it.value }.take(limit)
 
     fun openIssues(): List<OrderTimelineEvent> = state.timelineEvents.filter { it.status == TimelineStatus.OPEN && it.severity != TimelineSeverity.INFO }
     fun overduePayments(): List<PaymentDeadline> = state.payments.filter { !it.paid && runCatching { LocalDate.parse(it.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false) }

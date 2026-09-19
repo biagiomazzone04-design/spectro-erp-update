@@ -1,5 +1,7 @@
 package com.spectro.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -10,24 +12,36 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
+import com.spectro.app.util.AttachmentStore
 import java.time.LocalDate
+
+private data class NewRollDraft(
+    val meters: String = "",
+    val images: List<String> = emptyList()
+)
 
 @Composable
 fun InventoryScreen(vm: SpectroViewModel, p: SpectroPalette) {
     var query by remember { mutableStateOf("") }
     var ownerFilter by remember { mutableStateOf("ALL") }
     var loadOpen by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<InventoryItem?>(null) }
+    var selectedOwner by remember { mutableStateOf<String?>(null) }
+    var selectedGroup by remember { mutableStateOf<List<InventoryItem>?>(null) }
+    var selectedItem by remember { mutableStateOf<InventoryItem?>(null) }
 
-    val filtered = vm.state.inventory.filter { item ->
+    val matchingItems = vm.state.inventory.filter { item ->
         val matchOwner = ownerFilter == "ALL" || (ownerFilter == "HOUSE" && item.ownerType == OwnerType.HOUSE) || (ownerFilter == "CLIENT" && item.ownerType == OwnerType.CLIENT)
-        matchOwner && (query.isBlank() || item.fabricName.contains(query, true) || item.ownerName.contains(query, true) || item.lotCode.contains(query, true) || vm.rollsForInventory(item.id).any { it.rollCode.contains(query, true) })
+        val matchQuery = query.isBlank() || item.fabricName.contains(query, true) || item.ownerName.contains(query, true) || item.lotCode.contains(query, true) || vm.rollsForInventory(item.id).any { it.rollCode.contains(query, true) }
+        matchOwner && matchQuery
     }
+    val groups = matchingItems.groupBy { if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName }
+        .toList().sortedBy { it.first.lowercase() }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -38,7 +52,7 @@ fun InventoryScreen(vm: SpectroViewModel, p: SpectroPalette) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Magazzino", fontSize = 28.sp, fontWeight = FontWeight.Black)
-                    Text("Tessuti per cliente e azienda, colli e giacenza reale.", color = p.textMuted)
+                    Text("Organizzato per cliente → tessuto → collo.", color = p.textMuted)
                 }
                 FilledIconButton(onClick = { loadOpen = true }) { Icon(Icons.Rounded.Add, "Nuovo carico") }
             }
@@ -48,40 +62,175 @@ fun InventoryScreen(vm: SpectroViewModel, p: SpectroPalette) {
             SegmentedChoice(listOf("ALL" to "TUTTI", "CLIENT" to "CLIENTI", "HOUSE" to "AZIENDA"), ownerFilter, p) { ownerFilter = it }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Metric("Tessuti", filtered.size.toString(), modifier = Modifier.weight(1f))
-                Metric("Colli", filtered.sumOf { vm.rollsForInventory(it.id).count { r -> r.availableMeters > 0 } }.toString(), modifier = Modifier.weight(1f))
-                Metric("Metri", meters(filtered.sumOf { it.quantityMeters }), modifier = Modifier.weight(1f))
+                Metric("Clienti", groups.size.toString(), modifier = Modifier.weight(1f))
+                Metric("Colli", matchingItems.sumOf { vm.rollsForInventory(it.id).count { r -> r.availableMeters > 0 } }.toString(), modifier = Modifier.weight(1f))
+                Metric("Metri", meters(matchingItems.sumOf { it.quantityMeters }), modifier = Modifier.weight(1f))
             }
         }
-        if (filtered.isEmpty()) item { EmptyState(Icons.Rounded.Inventory2, "Nessun tessuto", "Premi + per caricare tessuto e colli") }
-        items(filtered, key = { it.id }) { item ->
-            val rolls = vm.rollsForInventory(item.id)
-            val low = item.minimumQuantityMeters > 0 && item.quantityMeters <= item.minimumQuantityMeters
-            SpectroCard(p = p, onClick = { selected = item }) {
+
+        if (groups.isEmpty()) item { EmptyState(Icons.Rounded.Inventory2, "Nessun magazzino", "Premi + per caricare tessuti e colli") }
+
+        items(groups, key = { it.first }) { (owner, fabrics) ->
+            val rolls = fabrics.flatMap { vm.rollsForInventory(it.id) }
+            SpectroCard(p = p, onClick = { selectedOwner = owner }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(item.fabricName, fontWeight = FontWeight.Black, fontSize = 18.sp)
-                        Text(if (item.ownerType == OwnerType.HOUSE) "AZIENDA" else item.ownerName, color = p.textMuted, fontSize = 12.sp)
+                    Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+                        Icon(if (owner == "AZIENDA") Icons.Rounded.Warehouse else Icons.Rounded.Person, null, tint = p.primary, modifier = Modifier.size(30.dp))
                     }
-                    Text(meters(item.quantityMeters), fontWeight = FontWeight.Black, color = if (low) p.danger else p.primary)
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(owner, fontWeight = FontWeight.Black, fontSize = 19.sp)
+                        Text("${fabrics.size} tessuti • ${rolls.count { it.availableMeters > 0 }} colli", color = p.textMuted, fontSize = 12.sp)
+                    }
+                    Text(meters(fabrics.sumOf { it.quantityMeters }), fontWeight = FontWeight.Black, color = p.primary)
+                    Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
                 }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Metric("Colli", rolls.count { it.availableMeters > 0 }.toString(), modifier = Modifier.weight(1f))
-                    Metric("Lotto", item.lotCode.ifBlank { "-" }, modifier = Modifier.weight(1f))
-                    Metric("Costo", if (item.ownerType == OwnerType.HOUSE) euro(item.purchasePricePerMeter) + "/mt" else "Cliente", modifier = Modifier.weight(1f))
-                }
-                if (low) { Spacer(Modifier.height(8.dp)); Text("SCORTA BASSA", color = p.danger, fontWeight = FontWeight.Black, fontSize = 11.sp) }
             }
         }
     }
 
     if (loadOpen) NewInventoryLoadDialog(vm, p, onDismiss = { loadOpen = false })
-    selected?.let { item -> InventoryDetailDialog(vm, p, item, onDismiss = { selected = null }) }
+    selectedOwner?.let { owner ->
+        InventoryOwnerSheet(vm, p, owner, onDismiss = { selectedOwner = null }, onOpenGroup = {
+            selectedOwner = null
+            selectedGroup = it
+        })
+    }
+    selectedGroup?.let { group ->
+        InventoryFabricGroupSheet(vm, p, group, onDismiss = { selectedGroup = null }, onOpenItem = {
+            selectedGroup = null
+            selectedItem = it
+        })
+    }
+    selectedItem?.let { item -> InventoryDetailSheet(vm, p, item, onDismiss = { selectedItem = null }) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InventoryOwnerSheet(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    owner: String,
+    onDismiss: () -> Unit,
+    onOpenGroup: (List<InventoryItem>) -> Unit
+) {
+    val fabrics = vm.state.inventory.filter { (if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName).equals(owner, true) }
+        .sortedWith(compareBy<InventoryItem> { it.fabricName.lowercase() }.thenBy { it.variant.lowercase() })
+    val groups = fabrics.groupBy { it.fabricName.trim().uppercase() }.toList().sortedBy { it.first }
+    val totalMeters = fabrics.sumOf { it.quantityMeters }
+    val rolls = fabrics.flatMap { vm.rollsForInventory(it.id) }
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Text(owner, fontSize = 27.sp, fontWeight = FontWeight.Black, color = p.text)
+                Text("Magazzino tessuti", color = p.textMuted)
+            }
+            item {
+                SpectroCard(p = p) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Tessuti", groups.size.toString(), modifier = Modifier.weight(1f))
+                        Metric("Colli attivi", rolls.count { it.availableMeters > 0 }.toString(), modifier = Modifier.weight(1f))
+                        Metric("Giacenza", meters(totalMeters), p.primary, Modifier.weight(1f))
+                    }
+                }
+            }
+            item { SectionTitle("Tessuti presenti") }
+            if (groups.isEmpty()) item { Text("Nessun tessuto caricato per questo cliente.", color = p.textMuted) }
+            items(groups, key = { it.first }) { (fabricName, entries) ->
+                val groupRolls = entries.flatMap { vm.rollsForInventory(it.id) }
+                SpectroCard(p = p, onClick = { onOpenGroup(entries) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(fabricName, fontWeight = FontWeight.Black, fontSize = 18.sp, color = p.text)
+                            val lots = entries.mapNotNull { it.lotCode.takeIf { code -> code.isNotBlank() } }.distinct()
+                            Text(
+                                "${entries.size} carichi${if (lots.isNotEmpty()) " • ${lots.size} lotti" else ""} • ${groupRolls.count { it.availableMeters > 0 }} colli",
+                                color = p.textMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(meters(entries.sumOf { it.quantityMeters }), fontWeight = FontWeight.Black, color = p.primary)
+                            Text("giacenza attuale", color = p.textMuted, fontSize = 10.sp)
+                        }
+                        Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InventoryFabricGroupSheet(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    initialItems: List<InventoryItem>,
+    onDismiss: () -> Unit,
+    onOpenItem: (InventoryItem) -> Unit
+) {
+    val ids = remember(initialItems) { initialItems.map { it.id }.toSet() }
+    val entries = vm.state.inventory.filter { it.id in ids }.sortedByDescending { it.createdDate }
+    val fabricName = entries.firstOrNull()?.fabricName?.uppercase() ?: initialItems.firstOrNull()?.fabricName?.uppercase().orEmpty()
+    val ownerName = entries.firstOrNull()?.ownerName ?: initialItems.firstOrNull()?.ownerName.orEmpty()
+    val allRolls = entries.flatMap { vm.rollsForInventory(it.id) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                Text(fabricName, fontSize = 26.sp, fontWeight = FontWeight.Black, color = p.text)
+                Text(ownerName, color = p.textMuted)
+            }
+            item {
+                SpectroCard(p = p) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Giacenza", meters(entries.sumOf { it.quantityMeters }), p.primary, Modifier.weight(1f))
+                        Metric("Carichi", entries.size.toString(), modifier = Modifier.weight(1f))
+                        Metric("Colli attivi", allRolls.count { it.availableMeters > 0 }.toString(), modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            item { SectionTitle("Carichi, lotti e colli") }
+            items(entries, key = { it.id }) { item ->
+                val rolls = vm.rollsForInventory(item.id)
+                SpectroCard(p = p) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(item.lotCode.takeIf { it.isNotBlank() }?.let { "LOTTO $it" } ?: "CARICO ${item.createdDate}", fontWeight = FontWeight.Black, color = p.text)
+                            val details = listOf(item.variant, item.weightGsm.takeIf { it.isNotBlank() }?.let { "$it g/m²" }.orEmpty(), item.composition).filter { it.isNotBlank() }
+                            if (details.isNotEmpty()) Text(details.joinToString(" • "), color = p.textMuted, fontSize = 11.sp)
+                        }
+                        Text(meters(item.quantityMeters), color = p.primary, fontWeight = FontWeight.Black)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (rolls.isEmpty()) {
+                        Text("Nessun collo registrato.", color = p.textMuted, fontSize = 11.sp)
+                    } else {
+                        rolls.forEach { roll ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(roll.rollCode, Modifier.weight(1f), color = p.text, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text("${meters(roll.availableMeters)} / ${meters(roll.initialMeters)}", color = p.textMuted, fontSize = 11.sp)
+                            }
+                            if (roll.images.isNotEmpty()) {
+                                Spacer(Modifier.height(5.dp))
+                                ImageStrip(roll.images)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                        }
+                    }
+                    OutlinedButton(onClick = { onOpenItem(item) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Rounded.ManageSearch, null); Spacer(Modifier.width(6.dp)); Text("Apri e gestisci questo carico")
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
 private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     var ownerType by remember { mutableStateOf(OwnerType.CLIENT) }
     var clientId by remember { mutableStateOf<Long?>(null) }
     var fabric by remember { mutableStateOf("") }
@@ -93,18 +242,23 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
     var cost by remember { mutableStateOf("") }
     var minimum by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var rolls by remember { mutableStateOf(listOf("")) }
+    var rolls by remember { mutableStateOf(listOf(NewRollDraft())) }
+    var imageTarget by remember { mutableStateOf<Int?>(null) }
     val ownerName = if (ownerType == OwnerType.HOUSE) "AZIENDA" else vm.state.clients.firstOrNull { it.id == clientId }?.name.orEmpty()
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val index = imageTarget ?: return@rememberLauncherForActivityResult
+        val imported = uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }
+        if (imported.isNotEmpty() && index in rolls.indices) rolls = rolls.toMutableList().also { list -> list[index] = list[index].copy(images = list[index].images + imported) }
+        imageTarget = null
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Nuovo carico tessuto", fontWeight = FontWeight.Black) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 610.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(Modifier.heightIn(max = 650.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { SegmentedChoice(listOf("CLIENT" to "CLIENTE", "HOUSE" to "AZIENDA"), ownerType.name, p) { ownerType = OwnerType.valueOf(it) } }
-                if (ownerType == OwnerType.CLIENT) item {
-                    SimpleSelectField("Cliente", ownerName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { clientId = it }
-                }
+                if (ownerType == OwnerType.CLIENT) item { SimpleSelectField("Cliente", ownerName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { clientId = it } }
                 item { SpectroTextField("Nome tessuto", fabric, { fabric = it }, placeholder = "Es. Piquet 140") }
                 item { SpectroTextField("Fornitore", supplier, { supplier = it }, placeholder = "Facoltativo") }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Composizione", composition, { composition = it }, Modifier.weight(1f)); SpectroTextField("Grammatura", weight, { weight = it }, Modifier.weight(1f)) } }
@@ -112,22 +266,27 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
                 if (ownerType == OwnerType.HOUSE) item { SpectroTextField("Costo €/mt", cost, { cost = it }, numeric = true) }
                 item { SpectroTextField("Soglia minima mt", minimum, { minimum = it }, numeric = true) }
                 item { WheelDateField("Data ingresso", date, { date = it }) }
-                item { SectionTitle("Colli", "+ Aggiungi") { rolls = rolls + "" } }
+                item { SectionTitle("Colli", "+ Aggiungi") { rolls = rolls + NewRollDraft() } }
                 items(rolls.size) { index ->
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        SpectroTextField("Collo ${index + 1} - metri", rolls[index], { value -> rolls = rolls.toMutableList().also { it[index] = value } }, Modifier.weight(1f), numeric = true)
-                        if (rolls.size > 1) IconButton(onClick = { rolls = rolls.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
+                    SpectroCard(p = p) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SpectroTextField("Collo ${index + 1} - metri", rolls[index].meters, { value -> rolls = rolls.toMutableList().also { it[index] = it[index].copy(meters = value) } }, Modifier.weight(1f), numeric = true)
+                            if (rolls.size > 1) IconButton(onClick = { rolls = rolls.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        OutlinedButton(onClick = { imageTarget = index; picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Foto del collo") }
+                        if (rolls[index].images.isNotEmpty()) { Spacer(Modifier.height(8.dp)); ImageStrip(rolls[index].images) { removeIndex -> rolls = rolls.toMutableList().also { list -> list[index] = list[index].copy(images = list[index].images.filterIndexed { i, _ -> i != removeIndex }) } } }
                     }
                 }
-                item { Text("Totale carico: ${meters(rolls.sumOf { it.toDoubleSafe() })}", fontWeight = FontWeight.Black, color = p.primary) }
+                item { Text("Totale carico: ${meters(rolls.sumOf { it.meters.toDoubleSafe() })}", fontWeight = FontWeight.Black, color = p.primary) }
             }
         },
         confirmButton = {
             Button(onClick = {
-                if (fabric.isNotBlank() && ownerName.isNotBlank() && rolls.any { it.toDoubleSafe() > 0 }) {
+                if (fabric.isNotBlank() && ownerName.isNotBlank() && rolls.any { it.meters.toDoubleSafe() > 0 }) {
                     vm.createInventoryWithRolls(
                         InventoryItem(ownerType = ownerType, ownerName = ownerName, fabricName = fabric.trim(), quantityMeters = 0.0, purchasePricePerMeter = cost.toDoubleSafe(), createdDate = date, minimumQuantityMeters = minimum.toDoubleSafe(), supplierName = supplier.trim(), composition = composition.trim(), weightGsm = weight.trim(), variant = variant.trim(), lotCode = lot.trim()),
-                        rolls.map { it.toDoubleSafe() }
+                        rolls.map { FabricRollInput(it.meters.toDoubleSafe(), it.images) }
                     ); onDismiss()
                 }
             }) { Text("Salva carico") }
@@ -136,44 +295,65 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InventoryDetailDialog(vm: SpectroViewModel, p: SpectroPalette, item: InventoryItem, onDismiss: () -> Unit) {
+fun InventoryDetailSheet(vm: SpectroViewModel, p: SpectroPalette, item: InventoryItem, onDismiss: () -> Unit) {
     var addRoll by remember { mutableStateOf(false) }
     var adjust by remember { mutableStateOf<FabricRoll?>(null) }
-    val rolls = vm.rollsForInventory(item.id)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("${item.fabricName} • ${item.ownerName}", fontWeight = FontWeight.Black) },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 600.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { Text("Giacenza totale ${meters(item.quantityMeters)} • ${rolls.count { it.availableMeters > 0 }} colli disponibili", color = p.textMuted) }
-                items(rolls, key = { it.id }) { roll ->
-                    SpectroCard(p = p) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) { Text(roll.rollCode, fontWeight = FontWeight.Black); Text("Iniziali ${meters(roll.initialMeters)}", color = p.textMuted, fontSize = 12.sp) }
-                            Text(meters(roll.availableMeters), fontWeight = FontWeight.Black, color = if (roll.availableMeters <= 0) p.danger else p.primary)
-                        }
-                        val moves = vm.movementsForRoll(roll.id).take(3)
-                        if (moves.isNotEmpty()) { Spacer(Modifier.height(8.dp)); moves.forEach { m -> Text("${m.dateTime.take(16).replace('T', ' ')}  ${if (m.meters >= 0) "+" else ""}${"%.1f".format(m.meters)} mt  ${m.orderRef}", fontSize = 11.sp, color = p.textMuted) } }
-                        Spacer(Modifier.height(8.dp)); OutlinedButton(onClick = { adjust = roll }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Tune, null); Spacer(Modifier.width(6.dp)); Text("Rettifica / inventario") }
+    val current = vm.state.inventory.firstOrNull { it.id == item.id } ?: item
+    val rolls = vm.rollsForInventory(current.id)
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                Text(current.fabricName.uppercase(), fontSize = 25.sp, fontWeight = FontWeight.Black, color = p.text)
+                Text(current.ownerName, color = p.textMuted)
+            }
+            item {
+                SpectroCard(p = p) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Giacenza", meters(current.quantityMeters), p.primary, Modifier.weight(1f))
+                        Metric("Colli", rolls.count { it.availableMeters > 0 }.toString(), modifier = Modifier.weight(1f))
+                        Metric("Lotto", current.lotCode.ifBlank { "-" }, modifier = Modifier.weight(1f))
                     }
                 }
-                item { OutlinedButton(onClick = { addRoll = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi collo") } }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } }
-    )
-
-    if (addRoll) AddRollDialog(vm, item.id) { addRoll = false }
+            item { SectionTitle("Colli caricati") }
+            items(rolls, key = { it.id }) { roll ->
+                SpectroCard(p = p) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { Text(roll.rollCode, fontWeight = FontWeight.Black, color = p.text); Text("Iniziali ${meters(roll.initialMeters)}", color = p.textMuted, fontSize = 12.sp) }
+                        Text(meters(roll.availableMeters), fontWeight = FontWeight.Black, color = if (roll.availableMeters <= 0) p.danger else p.primary)
+                    }
+                    if (roll.images.isNotEmpty()) { Spacer(Modifier.height(10.dp)); ImageStrip(roll.images) }
+                    val moves = vm.movementsForRoll(roll.id).take(4)
+                    if (moves.isNotEmpty()) { Spacer(Modifier.height(8.dp)); moves.forEach { m -> Text("${m.dateTime.take(16).replace('T', ' ')}  ${if (m.meters >= 0) "+" else ""}${"%.1f".format(m.meters)} mt  ${m.orderRef}", fontSize = 11.sp, color = p.textMuted) } }
+                    Spacer(Modifier.height(8.dp)); OutlinedButton(onClick = { adjust = roll }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Tune, null); Spacer(Modifier.width(6.dp)); Text("Rettifica / inventario") }
+                }
+            }
+            item { OutlinedButton(onClick = { addRoll = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi collo") } }
+        }
+    }
+    if (addRoll) AddRollDialog(vm, current.id) { addRoll = false }
     adjust?.let { roll -> AdjustRollDialog(vm, roll) { adjust = null } }
 }
 
 @Composable
 private fun AddRollDialog(vm: SpectroViewModel, inventoryId: Long, onDismiss: () -> Unit) {
+    val context = LocalContext.current
     var code by remember { mutableStateOf("") }
     var meters by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text("Aggiungi collo") }, text = { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { SpectroTextField("Codice collo", code, { code = it }, placeholder = "Automatico se vuoto"); SpectroTextField("Metri", meters, { meters = it }, numeric = true); SpectroTextField("Nota", note, { note = it }) } }, confirmButton = { Button(onClick = { if (meters.toDoubleSafe() > 0) { vm.addRoll(inventoryId, code, meters.toDoubleSafe(), note); onDismiss() } }) { Text("Aggiungi") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } })
+    var images by remember { mutableStateOf<List<String>>(emptyList()) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Aggiungi collo") }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            SpectroTextField("Codice collo", code, { code = it }, placeholder = "Automatico se vuoto")
+            SpectroTextField("Metri", meters, { meters = it }, numeric = true)
+            SpectroTextField("Nota", note, { note = it })
+            OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi immagini") }
+            if (images.isNotEmpty()) ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } }
+        }
+    }, confirmButton = { Button(onClick = { if (meters.toDoubleSafe() > 0) { vm.addRoll(inventoryId, code, meters.toDoubleSafe(), note, images); onDismiss() } }) { Text("Aggiungi") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } })
 }
 
 @Composable

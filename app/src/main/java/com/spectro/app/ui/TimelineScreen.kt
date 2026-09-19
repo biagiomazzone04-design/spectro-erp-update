@@ -44,8 +44,9 @@ fun OrderTimelineScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Indietro") }
                 Column(Modifier.weight(1f)) {
-                    Text(current.orderCode.ifBlank { current.title }, fontSize = 24.sp, fontWeight = FontWeight.Black)
+                    Text(current.title.ifBlank { current.orderCode }, fontSize = 24.sp, fontWeight = FontWeight.Black, color = p.text)
                     Text("${current.client} • ${workStatusLabel(current.status)}", color = p.textMuted)
+                    if (current.orderCode.isNotBlank()) Text(current.orderCode, color = p.textMuted, fontSize = 10.sp)
                 }
                 IconButton(onClick = { onEdit(current) }) { Icon(Icons.Rounded.Edit, "Modifica", tint = p.primary) }
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
@@ -158,7 +159,7 @@ private fun AddTimelineEventDialog(vm: SpectroViewModel, p: SpectroPalette, orde
         confirmButton = {
             Button(onClick = {
                 if (title.isNotBlank() && (description.isNotBlank() || images.isNotEmpty())) {
-                    vm.saveTimelineEvent(OrderTimelineEvent(workOrderId = order.id, clientId = order.clientId, clientName = order.client, orderRef = order.orderCode.ifBlank { order.title }, date = date, time = LocalTime.now().withSecond(0).withNano(0).toString(), category = category, responsibility = responsibility, severity = severity, status = if (severity == TimelineSeverity.INFO) TimelineStatus.RESOLVED else TimelineStatus.OPEN, title = title.trim(), description = description.trim(), oldDueDate = if (newDue.isNotBlank() && newDue != order.dueDate) order.dueDate else "", newDueDate = if (newDue != order.dueDate) newDue else "", images = images))
+                    vm.saveTimelineEvent(OrderTimelineEvent(workOrderId = order.id, clientId = order.clientId, clientName = order.client, orderRef = order.title.ifBlank { order.orderCode }, date = date, time = LocalTime.now().withSecond(0).withNano(0).toString(), category = category, responsibility = responsibility, severity = severity, status = if (severity == TimelineSeverity.INFO) TimelineStatus.RESOLVED else TimelineStatus.OPEN, title = title.trim(), description = description.trim(), oldDueDate = if (newDue.isNotBlank() && newDue != order.dueDate) order.dueDate else "", newDueDate = if (newDue != order.dueDate) newDue else "", images = images))
                     if (newDue.isNotBlank() && newDue != order.dueDate) vm.saveWorkOrder(order.copy(dueDate = newDue))
                     onDismiss()
                 }

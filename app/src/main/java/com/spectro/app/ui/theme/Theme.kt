@@ -18,7 +18,7 @@ data class SpectroPalette(
     val surfaceAlt: Color = Color(0xFF17171D),
     val border: Color = Color(0xFF2A2A31),
     val text: Color = Color(0xFFF8F8FA),
-    val textMuted: Color = Color(0xFFA6A6B0),
+    val textMuted: Color = Color(0xFFD8D8E0),
     val success: Color = Color(0xFF22C55E),
     val warning: Color = Color(0xFFF59E0B),
     val danger: Color = Color(0xFFFF3B3B)
@@ -50,6 +50,9 @@ fun SpectroTheme(themeKey: String, content: @Composable () -> Unit) {
             onSecondary = Color.White,
             onBackground = p.text,
             onSurface = p.text,
+            onSurfaceVariant = p.textMuted,
+            outline = Color(0xFF858590),
+            outlineVariant = Color(0xFF4C4C56),
             error = p.danger
         ),
         content = content

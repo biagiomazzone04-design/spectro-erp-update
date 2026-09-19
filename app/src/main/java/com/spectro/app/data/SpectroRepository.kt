@@ -43,29 +43,32 @@ class SpectroRepository(context: Context) {
         validateInventory(item)
         return if (item.id == 0L) db.transaction { sql ->
             val id = db.insertInventory(item.copy(quantityMeters = 0.0), sql)
-            if (item.quantityMeters > 0) addRollInternal(id, "COLLO-001", item.quantityMeters, item.createdDate, "Carico iniziale", sql)
+            if (item.quantityMeters > 0) addRollInternal(id, "COLLO-001", item.quantityMeters, item.createdDate, "Carico iniziale", emptyList(), sql)
             syncInventoryQuantity(id, sql)
             id
         } else { db.updateInventory(item.copy(quantityMeters = rollTotal(item.id))); item.id }
     }
 
-    fun createInventoryWithRolls(item: InventoryItem, rollMeters: List<Double>): Long {
+    fun createInventoryWithRolls(item: InventoryItem, rolls: List<FabricRollInput>): Long {
         validateInventory(item)
-        val clean = rollMeters.filter { it > 0 }
+        val clean = rolls.filter { it.meters > 0 }
         require(clean.isNotEmpty()) { "Inserisci almeno un collo con metraggio maggiore di zero." }
         return db.transaction { sql ->
-            val id = db.insertInventory(item.copy(id = 0, quantityMeters = clean.sum()), sql)
-            clean.forEachIndexed { index, meters -> addRollInternal(id, "COLLO-${(index + 1).toString().padStart(3, '0')}", meters, item.createdDate, "Carico tessuto", sql) }
+            val id = db.insertInventory(item.copy(id = 0, quantityMeters = clean.sumOf { it.meters }), sql)
+            clean.forEachIndexed { index, input ->
+                val code = input.code.trim().ifBlank { "COLLO-${(index + 1).toString().padStart(3, '0')}" }
+                addRollInternal(id, code, input.meters, item.createdDate, input.note.ifBlank { "Carico tessuto" }, input.images, sql)
+            }
             syncInventoryQuantity(id, sql)
             id
         }
     }
 
-    fun addRoll(inventoryId: Long, rollCode: String, meters: Double, note: String = ""): Long = db.transaction { sql ->
+    fun addRoll(inventoryId: Long, rollCode: String, meters: Double, note: String = "", images: List<String> = emptyList()): Long = db.transaction { sql ->
         require(meters > 0) { "Il metraggio del collo deve essere maggiore di zero." }
         require(db.getInventoryById(inventoryId, sql) != null) { "Tessuto non trovato." }
         val code = rollCode.trim().ifBlank { nextRollCode(inventoryId, sql) }
-        val id = addRollInternal(inventoryId, code, meters, LocalDate.now().toString(), note.ifBlank { "Nuovo collo" }, sql)
+        val id = addRollInternal(inventoryId, code, meters, LocalDate.now().toString(), note.ifBlank { "Nuovo collo" }, images, sql)
         syncInventoryQuantity(inventoryId, sql)
         id
     }
@@ -315,6 +318,7 @@ class SpectroRepository(context: Context) {
 
     private fun validateCotton(input: CottonOrder) {
         require(input.clientName.isNotBlank()) { "Inserisci il cliente." }
+        require(input.title.isNotBlank()) { "Inserisci il nome dell'ordine cotone." }
         require(validDate(input.orderDate)) { "Data ordine non valida." }
         require(input.dueDate.isBlank() || validDate(input.dueDate)) { "Data consegna non valida." }
         require(input.fabricName.isNotBlank()) { "Inserisci il tessuto." }
@@ -323,8 +327,8 @@ class SpectroRepository(context: Context) {
         if (input.fabricOwnerType == OwnerType.HOUSE) require(input.inventoryId != null) { "Seleziona il tessuto aziendale dal magazzino." }
     }
 
-    private fun addRollInternal(inventoryId: Long, code: String, meters: Double, date: String, note: String, sql: SQLiteDatabase): Long {
-        val roll = FabricRoll(inventoryId = inventoryId, rollCode = code, initialMeters = meters, availableMeters = meters, createdDate = date, note = note, status = if (meters > 0) RollStatus.INTACT else RollStatus.DEPLETED)
+    private fun addRollInternal(inventoryId: Long, code: String, meters: Double, date: String, note: String, images: List<String>, sql: SQLiteDatabase): Long {
+        val roll = FabricRoll(inventoryId = inventoryId, rollCode = code, initialMeters = meters, availableMeters = meters, createdDate = date, note = note, status = if (meters > 0) RollStatus.INTACT else RollStatus.DEPLETED, images = images)
         val id = db.insertFabricRoll(roll, sql)
         db.insertStockMovement(StockMovement(inventoryId = inventoryId, rollId = id, type = StockMovementType.LOAD, dateTime = "${date}T00:00", meters = meters, note = note), sql)
         return id

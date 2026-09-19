@@ -23,9 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.R
-import com.spectro.app.data.ProductionRecord
-import com.spectro.app.data.RecordType
-import com.spectro.app.data.WorkOrder
+import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.ui.theme.SpectroTheme
 import com.spectro.app.ui.theme.paletteFor
@@ -47,6 +45,10 @@ fun SpectroApp(vm: SpectroViewModel) {
     var editingWork by remember { mutableStateOf<WorkOrder?>(null) }
     var sourceWork by remember { mutableStateOf<WorkOrder?>(null) }
     var createMode by remember { mutableStateOf(CreateMode.PRODUCTION) }
+    var selectedClient by remember { mutableStateOf<Client?>(null) }
+    var selectedInventory by remember { mutableStateOf<InventoryItem?>(null) }
+    var cottonOpenId by remember { mutableStateOf<Long?>(null) }
+    var zenthaOpenId by remember { mutableStateOf<Long?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() } }
@@ -106,8 +108,8 @@ fun SpectroApp(vm: SpectroViewModel) {
                         AppTab.INVENTORY -> InventoryScreen(vm, palette)
                         AppTab.CLIENTS -> ClientsScreen(vm, palette)
                         AppTab.ISSUES -> IssuesCenterScreen(vm, palette, onOpenOrder = ::openOrder)
-                        AppTab.COTTON -> CottonScreen(vm, palette)
-                        AppTab.ZENTHA -> ZenthaScreen(vm, palette)
+                        AppTab.COTTON -> CottonScreen(vm, palette, initialOpenOrderId = cottonOpenId, onOpenConsumed = { cottonOpenId = null })
+                        AppTab.ZENTHA -> ZenthaScreen(vm, palette, initialOpenOrderId = zenthaOpenId, onOpenConsumed = { zenthaOpenId = null })
                         AppTab.MORE -> MoreModulesScreen(vm, palette) { tab = it }
                     }
                 }
@@ -115,7 +117,30 @@ fun SpectroApp(vm: SpectroViewModel) {
         }
 
         if (settingsOpen) SettingsSheet(vm, palette) { settingsOpen = false }
-        if (searchOpen) GlobalSearchSheet(vm, palette, onDismiss = { searchOpen = false }, onOpenOrder = ::openOrder, onOpenCotton = { tab = AppTab.COTTON }, onOpenZentha = { tab = AppTab.ZENTHA }, onOpenInventory = { tab = AppTab.INVENTORY })
+        if (searchOpen) GlobalSearchSheet(
+            vm = vm,
+            p = palette,
+            onDismiss = { searchOpen = false },
+            onOpenClient = { selectedClient = it },
+            onOpenOrder = ::openOrder,
+            onOpenProduction = { detail = it },
+            onOpenCotton = { cottonOpenId = it.id; tab = AppTab.COTTON },
+            onOpenZentha = { zenthaOpenId = it.id; tab = AppTab.ZENTHA },
+            onOpenInventory = { selectedInventory = it }
+        )
+        selectedClient?.let { client ->
+            SearchClientProfileSheet(
+                vm = vm,
+                p = palette,
+                client = client,
+                onDismiss = { selectedClient = null },
+                onOpenOrder = { selectedClient = null; openOrder(it) },
+                onOpenProduction = { selectedClient = null; detail = it },
+                onOpenInventory = { selectedClient = null; selectedInventory = it },
+                onOpenCotton = { selectedClient = null; cottonOpenId = it.id; tab = AppTab.COTTON }
+            )
+        }
+        selectedInventory?.let { item -> InventoryDetailSheet(vm, palette, item, onDismiss = { selectedInventory = null }) }
         selectedOrder?.let { order -> OrderTimelineScreen(vm, palette, order, onBack = { selectedOrder = null }, onEdit = ::editOrder, onStartProduction = ::startProduction) }
         detail?.let { r ->
             RecordDetailSheet(r, palette, onDismiss = { detail = null }, onEdit = { editingProduction = r; editingWork = null; sourceWork = null; createMode = if (r.type == RecordType.NEGATIVE) CreateMode.NEGATIVE else CreateMode.PRODUCTION; detail = null; tab = AppTab.CREATE }, onDelete = { vm.deleteProduction(r.id); detail = null })

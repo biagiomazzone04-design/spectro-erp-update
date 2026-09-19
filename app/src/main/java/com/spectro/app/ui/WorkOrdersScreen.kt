@@ -66,8 +66,9 @@ fun WorkOrdersScreen(
                     Box(Modifier.width(5.dp).height(62.dp).background(accent, RoundedCornerShape(99.dp)))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(item.orderCode.ifBlank { item.title }, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1)
-                        Text("${item.client} • ${item.title}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
+                        Text(item.title.ifBlank { item.orderCode }, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1)
+                        Text("${item.client} • ${workStatusLabel(item.status)}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
+                        if (item.orderCode.isNotBlank()) Text(item.orderCode, color = p.textMuted, fontSize = 10.sp)
                         if (item.designCode.isNotBlank()) Text("Disegno ${item.designCode}", color = p.textMuted, fontSize = 11.sp)
                     }
                     AssistChip(onClick = {}, label = { Text(workStatusLabel(item.status).uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Black) })
@@ -97,7 +98,7 @@ fun WorkOrdersScreen(
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
             title = { Text("Eliminare definitivamente l'ordine?") },
-            text = { Text("${target.orderCode.ifBlank { target.title }} verrà eliminato insieme allo storico collegato. L'eventuale consumo di tessuto verrà ripristinato automaticamente.") },
+            text = { Text("${target.title.ifBlank { target.orderCode }} verrà eliminato insieme allo storico collegato. L'eventuale consumo di tessuto verrà ripristinato automaticamente.") },
             confirmButton = { TextButton(onClick = { vm.deleteWorkOrder(target.id); deleteTarget = null }) { Text("Elimina", color = p.danger) } },
             dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Annulla") } }
         )

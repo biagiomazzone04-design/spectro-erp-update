@@ -13,7 +13,7 @@ private fun String.toStringList(): List<String> = try {
     List(a.length()) { a.optString(it) }.filter { it.isNotBlank() }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 3) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 4) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -148,6 +148,11 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             migrateLegacyInventoryToRolls(db)
             populateMissingOrderCodes(db)
         }
+        if (oldVersion < 4) {
+            safeAlter(db, "ALTER TABLE fabric_rolls ADD COLUMN images_json TEXT NOT NULL DEFAULT '[]'")
+            safeAlter(db, "ALTER TABLE cotton_orders ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+            safeAlter(db, "ALTER TABLE cotton_orders ADD COLUMN images_json TEXT NOT NULL DEFAULT '[]'")
+        }
         createIndexes(db)
     }
 
@@ -209,7 +214,8 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 available_m REAL NOT NULL DEFAULT 0,
                 created_date TEXT NOT NULL,
                 note TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT 'INTACT'
+                status TEXT NOT NULL DEFAULT 'INTACT',
+                images_json TEXT NOT NULL DEFAULT '[]'
             )
         """.trimIndent())
         db.execSQL("""
@@ -282,7 +288,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 inventory_id INTEGER,
                 fabric_cost_m REAL NOT NULL DEFAULT 0,
                 notes TEXT NOT NULL DEFAULT '',
-                status TEXT NOT NULL DEFAULT 'IN_PROCESS'
+                status TEXT NOT NULL DEFAULT 'IN_PROCESS',
+                title TEXT NOT NULL DEFAULT '',
+                images_json TEXT NOT NULL DEFAULT '[]'
             )
         """.trimIndent())
         db.execSQL("""
@@ -523,7 +531,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
 
     private fun Cursor.client() = Client(long("id"), string("name"), double("default_print_price"))
     private fun Cursor.inventory() = InventoryItem(long("id"), enumValueOrDefault(string("owner_type"), OwnerType.CLIENT), string("owner_name"), string("fabric_name"), double("quantity_m"), double("purchase_price_m"), string("created_date"), string("images_json").toStringList(), optionalDouble("minimum_quantity_m"), optionalString("supplier_name"), optionalString("composition"), optionalString("weight_gsm"), optionalString("variant"), optionalString("lot_code"))
-    private fun Cursor.fabricRoll() = FabricRoll(long("id"), long("inventory_id"), string("roll_code"), double("initial_m"), double("available_m"), string("created_date"), string("note"), enumValueOrDefault(string("status"), RollStatus.OPEN))
+    private fun Cursor.fabricRoll() = FabricRoll(long("id"), long("inventory_id"), string("roll_code"), double("initial_m"), double("available_m"), string("created_date"), string("note"), enumValueOrDefault(string("status"), RollStatus.OPEN), optionalString("images_json").toStringList())
     private fun Cursor.stockMovement() = StockMovement(long("id"), long("inventory_id"), long("roll_id"), enumValueOrDefault(string("type"), StockMovementType.ADJUSTMENT), string("date_time"), double("meters"), nullableString("order_kind")?.let { enumValueOrDefault(it, OrderKind.WORK) }, nullableLong("order_id"), string("order_ref"), string("note"))
     private fun Cursor.rollUsage() = RollUsage(long("id"), enumValueOrDefault(string("order_kind"), OrderKind.WORK), long("order_id"), string("order_ref"), long("inventory_id"), long("roll_id"), double("meters"), string("created_at"))
     private fun Cursor.production() = ProductionRecord(
@@ -538,7 +546,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun Cursor.clientIssue() = ClientIssue(long("id"), nullableLong("client_id"), string("client_name"), string("order_ref"), string("title"), enumValueOrDefault(string("category"), IssueCategory.OTHER), enumValueOrDefault(string("responsibility"), IssueResponsibility.TO_VERIFY), enumValueOrDefault(string("severity"), IssueSeverity.MEDIUM), enumValueOrDefault(string("status"), IssueStatus.OPEN), string("opened_date"), string("expected_delivery_date"), string("revised_delivery_date"), int("delay_days"), string("description"), string("internal_notes"), string("evidence_images_json").toStringList())
     private fun Cursor.issueUpdate() = IssueUpdate(long("id"), long("issue_id"), string("date"), string("note"), string("images_json").toStringList())
     private fun Cursor.payment() = PaymentDeadline(long("id"), nullableLong("client_id"), string("client_name"), string("order_ref"), double("amount"), string("due_date"), int("paid") == 1, string("paid_date"), enumValueOrDefault(string("method"), PaymentMethod.UNSPECIFIED), string("notes"))
-    private fun Cursor.cottonOrder() = CottonOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), string("fabric_name"), enumValueOrDefault(string("print_type"), CottonPrintType.REACTIVE), double("ordered_m"), double("actual_produced_m"), double("delivered_m"), double("defective_m"), double("sample_m"), double("leftover_m"), double("production_cost_m"), double("print_price_m"), enumValueOrDefault(string("fabric_owner_type"), OwnerType.CLIENT), nullableLong("inventory_id"), double("fabric_cost_m"), string("notes"), enumValueOrDefault(string("status"), WorkStatus.IN_PROCESS))
+    private fun Cursor.cottonOrder() = CottonOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), string("fabric_name"), enumValueOrDefault(string("print_type"), CottonPrintType.REACTIVE), double("ordered_m"), double("actual_produced_m"), double("delivered_m"), double("defective_m"), double("sample_m"), double("leftover_m"), double("production_cost_m"), double("print_price_m"), enumValueOrDefault(string("fabric_owner_type"), OwnerType.CLIENT), nullableLong("inventory_id"), double("fabric_cost_m"), string("notes"), enumValueOrDefault(string("status"), WorkStatus.IN_PROCESS), optionalString("title"), optionalString("images_json").toStringList())
     private fun Cursor.zenthaProduct() = ZenthaProduct(long("id"), string("name"), string("sku"), string("category"), double("standard_cost"), double("standard_price"), string("description"), string("image_path"), int("active") == 1)
     private fun Cursor.zenthaOrder() = ZenthaOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), enumValueOrDefault(string("status"), ZenthaOrderStatus.CONFIRMED), string("notes"), string("attachments_json").toStringList(), double("split_a"), double("split_b"))
     private fun Cursor.zenthaItem() = ZenthaOrderItem(long("id"), long("order_id"), nullableLong("product_id"), string("product_name"), int("quantity"), double("unit_price"), double("unit_cost"))
@@ -546,7 +554,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun Cursor.zenthaPayment() = ZenthaPayment(long("id"), long("order_id"), string("payment_date"), double("amount"), enumValueOrDefault(string("method"), PaymentMethod.UNSPECIFIED), string("notes"))
 
     private fun InventoryItem.inventoryValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("owner_type", ownerType.name); put("owner_name", ownerName); put("fabric_name", fabricName); put("quantity_m", quantityMeters); put("purchase_price_m", purchasePricePerMeter); put("created_date", createdDate); put("images_json", images.toJsonArrayString()); put("minimum_quantity_m", minimumQuantityMeters); put("supplier_name", supplierName); put("composition", composition); put("weight_gsm", weightGsm); put("variant", variant); put("lot_code", lotCode) }
-    private fun FabricRoll.fabricRollValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_code", rollCode); put("initial_m", initialMeters); put("available_m", availableMeters); put("created_date", createdDate); put("note", note); put("status", status.name) }
+    private fun FabricRoll.fabricRollValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_code", rollCode); put("initial_m", initialMeters); put("available_m", availableMeters); put("created_date", createdDate); put("note", note); put("status", status.name); put("images_json", images.toJsonArrayString()) }
     private fun StockMovement.stockMovementValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_id", rollId); put("type", type.name); put("date_time", dateTime); put("meters", meters); if (orderKind == null) putNull("order_kind") else put("order_kind", orderKind.name); if (orderId == null) putNull("order_id") else put("order_id", orderId); put("order_ref", orderRef); put("note", note) }
     private fun RollUsage.rollUsageValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_kind", orderKind.name); put("order_id", orderId); put("order_ref", orderRef); put("inventory_id", inventoryId); put("roll_id", rollId); put("meters", meters); put("created_at", createdAt) }
     private fun ProductionRecord.productionValues(includeId: Boolean) = ContentValues().apply {
@@ -560,7 +568,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun ClientIssue.issueValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("title", title); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("opened_date", openedDate); put("expected_delivery_date", expectedDeliveryDate); put("revised_delivery_date", revisedDeliveryDate); put("delay_days", delayDays); put("description", description); put("internal_notes", internalNotes); put("evidence_images_json", evidenceImages.toJsonArrayString()) }
     private fun IssueUpdate.issueUpdateValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("issue_id", issueId); put("date", date); put("note", note); put("images_json", images.toJsonArrayString()) }
     private fun PaymentDeadline.paymentValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("amount", amount); put("due_date", dueDate); put("paid", if (paid) 1 else 0); put("paid_date", paidDate); put("method", method.name); put("notes", notes) }
-    private fun CottonOrder.cottonValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("fabric_name", fabricName); put("print_type", printType.name); put("ordered_m", orderedMeters); put("actual_produced_m", actualProducedMeters); put("delivered_m", deliveredMeters); put("defective_m", defectiveMeters); put("sample_m", sampleMeters); put("leftover_m", leftoverMeters); put("production_cost_m", productionCostPerMeter); put("print_price_m", printPricePerMeter); put("fabric_owner_type", fabricOwnerType.name); if (inventoryId == null) putNull("inventory_id") else put("inventory_id", inventoryId); put("fabric_cost_m", fabricCostPerMeter); put("notes", notes); put("status", status.name) }
+    private fun CottonOrder.cottonValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("fabric_name", fabricName); put("print_type", printType.name); put("ordered_m", orderedMeters); put("actual_produced_m", actualProducedMeters); put("delivered_m", deliveredMeters); put("defective_m", defectiveMeters); put("sample_m", sampleMeters); put("leftover_m", leftoverMeters); put("production_cost_m", productionCostPerMeter); put("print_price_m", printPricePerMeter); put("fabric_owner_type", fabricOwnerType.name); if (inventoryId == null) putNull("inventory_id") else put("inventory_id", inventoryId); put("fabric_cost_m", fabricCostPerMeter); put("notes", notes); put("status", status.name); put("title", title); put("images_json", images.toJsonArrayString()) }
     private fun ZenthaProduct.zenthaProductValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("name", name); put("sku", sku); put("category", category); put("standard_cost", standardCost); put("standard_price", standardPrice); put("description", description); put("image_path", imagePath); put("active", if (active) 1 else 0) }
     private fun ZenthaOrder.zenthaOrderValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("status", status.name); put("notes", notes); put("attachments_json", attachments.toJsonArrayString()); put("split_a", splitPercentA); put("split_b", splitPercentB) }
     private fun ZenthaOrderItem.zenthaItemValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); if (productId == null) putNull("product_id") else put("product_id", productId); put("product_name", productName); put("quantity", quantity); put("unit_price", unitPrice); put("unit_cost", unitCost) }

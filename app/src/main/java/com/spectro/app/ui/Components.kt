@@ -65,7 +65,7 @@ fun SpectroTextField(
     singleLine: Boolean = true
 ) {
     Column(modifier) {
-        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
         Spacer(Modifier.height(7.dp))
         OutlinedTextField(
             value = value,
@@ -125,7 +125,7 @@ fun SegmentedChoice(options: List<Pair<String, String>>, selected: String, p: Sp
 @Composable
 fun Metric(label: String, value: String, valueColor: Color = MaterialTheme.colorScheme.onSurface, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Text(label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .52f))
+        Text(label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .80f))
         Spacer(Modifier.height(4.dp))
         Text(value, fontSize = 20.sp, fontWeight = FontWeight.Black, color = valueColor)
     }
@@ -138,7 +138,7 @@ fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
         Spacer(Modifier.height(12.dp))
         Text(title, fontWeight = FontWeight.Black, fontSize = 18.sp)
         Spacer(Modifier.height(6.dp))
-        Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
+        Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
     }
 }
 
@@ -171,7 +171,7 @@ private fun FullScreenImage(path: String, onDismiss: () -> Unit) {
 @Composable
 fun SectionTitle(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+        Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .90f))
         if (actionLabel != null && onAction != null) TextButton(onClick = onAction) { Text(actionLabel) }
     }
 }
@@ -214,7 +214,7 @@ fun WheelDateField(
     var open by remember { mutableStateOf(false) }
     Column(modifier) {
         if (label.isNotBlank()) {
-            Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+            Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
             Spacer(Modifier.height(7.dp))
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -287,7 +287,7 @@ fun <T> SimpleSelectField(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(modifier) {
-        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
         Spacer(Modifier.height(7.dp))
         Box {
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {

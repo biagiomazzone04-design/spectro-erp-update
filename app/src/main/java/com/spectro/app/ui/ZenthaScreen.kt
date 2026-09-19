@@ -32,7 +32,12 @@ private data class ZenthaItemDraft(
 private data class ZenthaExtraDraft(val label: String = "", val amount: String = "")
 
 @Composable
-fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette) {
+fun ZenthaScreen(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    initialOpenOrderId: Long? = null,
+    onOpenConsumed: () -> Unit = {}
+) {
     var mode by remember { mutableStateOf("ORDERS") }
     var query by remember { mutableStateOf("") }
     var newProduct by remember { mutableStateOf(false) }
@@ -40,6 +45,13 @@ fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette) {
     var newOrder by remember { mutableStateOf(false) }
     var editingOrder by remember { mutableStateOf<ZenthaOrder?>(null) }
     var detailOrder by remember { mutableStateOf<ZenthaOrder?>(null) }
+
+    LaunchedEffect(initialOpenOrderId, vm.state.zenthaOrders) {
+        if (initialOpenOrderId != null) {
+            vm.state.zenthaOrders.firstOrNull { it.id == initialOpenOrderId }?.let { detailOrder = it }
+            onOpenConsumed()
+        }
+    }
 
     val orders = vm.state.zenthaOrders.filter { query.isBlank() || it.clientName.contains(query, true) || it.orderCode.contains(query, true) || it.notes.contains(query, true) }
     val products = vm.state.zenthaProducts.filter { query.isBlank() || it.name.contains(query, true) || it.sku.contains(query, true) || it.category.contains(query, true) }

@@ -6,6 +6,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import org.json.JSONArray
+import org.json.JSONObject
 
 private fun List<String>.toJsonArrayString(): String = JSONArray(this).toString()
 private fun String.toStringList(): List<String> = try {
@@ -13,7 +14,25 @@ private fun String.toStringList(): List<String> = try {
     List(a.length()) { a.optString(it) }.filter { it.isNotBlank() }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 4) {
+private fun List<EconomicMaterialUsage>.toEconomicMaterialsJson(): String = JSONArray().apply {
+    this@toEconomicMaterialsJson.forEach { item ->
+        put(JSONObject().apply {
+            put("name", item.name)
+            put("quantity", item.quantity)
+            put("unitCost", item.unitCost)
+        })
+    }
+}.toString()
+
+private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
+    val a = JSONArray(this)
+    List(a.length()) { index ->
+        val o = a.optJSONObject(index) ?: JSONObject()
+        EconomicMaterialUsage(o.optString("name"), o.optDouble("quantity"), o.optDouble("unitCost"))
+    }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
+} catch (_: Exception) { emptyList() }
+
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 5) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -100,6 +119,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         """.trimIndent())
         createIssueTables(db)
         createV3Tables(db)
+        createV5Tables(db)
         db.execSQL("""
             CREATE TABLE settings(
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -152,6 +172,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             safeAlter(db, "ALTER TABLE fabric_rolls ADD COLUMN images_json TEXT NOT NULL DEFAULT '[]'")
             safeAlter(db, "ALTER TABLE cotton_orders ADD COLUMN title TEXT NOT NULL DEFAULT ''")
             safeAlter(db, "ALTER TABLE cotton_orders ADD COLUMN images_json TEXT NOT NULL DEFAULT '[]'")
+        }
+        if (oldVersion < 5) {
+            createV5Tables(db)
         }
         createIndexes(db)
     }
@@ -352,6 +375,42 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         """.trimIndent())
     }
 
+    private fun createV5Tables(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS economic_works(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                work_date TEXT NOT NULL,
+                client_id INTEGER,
+                client_name TEXT NOT NULL DEFAULT '',
+                title TEXT NOT NULL,
+                quantity REAL NOT NULL DEFAULT 0,
+                unit_price REAL NOT NULL DEFAULT 0,
+                manual_gross REAL NOT NULL DEFAULT 0,
+                materials_json TEXT NOT NULL DEFAULT '[]',
+                other_costs REAL NOT NULL DEFAULT 0,
+                notes TEXT NOT NULL DEFAULT '',
+                images_json TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'OPEN'
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS operational_tasks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_date TEXT NOT NULL,
+                due_date TEXT NOT NULL DEFAULT '',
+                client_id INTEGER,
+                client_name TEXT NOT NULL DEFAULT '',
+                work_order_id INTEGER,
+                title TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'OTHER',
+                description TEXT NOT NULL DEFAULT '',
+                priority TEXT NOT NULL DEFAULT 'NORMAL',
+                status TEXT NOT NULL DEFAULT 'TODO',
+                images_json TEXT NOT NULL DEFAULT '[]'
+            )
+        """.trimIndent())
+    }
+
     private fun migrateLegacyInventoryToRolls(db: SQLiteDatabase) {
         db.execSQL("""
             INSERT INTO fabric_rolls(inventory_id, roll_code, initial_m, available_m, created_date, note, status)
@@ -398,6 +457,10 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_zentha_order_date ON zentha_orders(order_date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_zentha_items_order ON zentha_order_items(order_id)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_zentha_payments_order ON zentha_payments(order_id)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_economic_work_date ON economic_works(work_date)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_economic_work_client ON economic_works(client_id, client_name)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_operational_task_status ON operational_tasks(status, due_date)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_operational_task_client ON operational_tasks(client_id, client_name)")
     }
 
     fun getClients(db: SQLiteDatabase = readableDatabase): List<Client> =
@@ -486,6 +549,20 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun insertZenthaPayment(item: ZenthaPayment, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("zentha_payments", null, item.zenthaPaymentValues(false))
     fun deleteZenthaPayment(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("zentha_payments", "id=?", arrayOf(id.toString())) }
 
+    fun getEconomicWorks(db: SQLiteDatabase = readableDatabase): List<EconomicWork> =
+        db.query("economic_works", null, null, null, null, null, "work_date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.economicWork()) } }
+    fun getEconomicWorkById(id: Long, db: SQLiteDatabase = readableDatabase): EconomicWork? =
+        db.query("economic_works", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.economicWork() else null }
+    fun insertEconomicWork(item: EconomicWork, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("economic_works", null, item.economicWorkValues(false))
+    fun updateEconomicWork(item: EconomicWork, db: SQLiteDatabase = writableDatabase) { db.update("economic_works", item.economicWorkValues(false), "id=?", arrayOf(item.id.toString())) }
+    fun deleteEconomicWork(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("economic_works", "id=?", arrayOf(id.toString())) }
+
+    fun getOperationalTasks(db: SQLiteDatabase = readableDatabase): List<OperationalTask> =
+        db.query("operational_tasks", null, null, null, null, null, "CASE status WHEN 'DONE' THEN 1 WHEN 'CANCELLED' THEN 1 ELSE 0 END, due_date ASC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.operationalTask()) } }
+    fun insertOperationalTask(item: OperationalTask, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("operational_tasks", null, item.operationalTaskValues(false))
+    fun updateOperationalTask(item: OperationalTask, db: SQLiteDatabase = writableDatabase) { db.update("operational_tasks", item.operationalTaskValues(false), "id=?", arrayOf(item.id.toString())) }
+    fun deleteOperationalTask(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("operational_tasks", "id=?", arrayOf(id.toString())) }
+
     fun getSettings(db: SQLiteDatabase = readableDatabase): AppSettings = db.query("settings", null, "id=1", null, null, null, null).use { c ->
         if (!c.moveToFirst()) return AppSettings()
         AppSettings(c.double("daily_fixed_cost"), c.double("plotter_x1_cost"), c.double("plotter_x2_cost"), c.double("protection_cost"), c.string("theme_key"), c.optionalDouble("zentha_split_a", 50.0), c.optionalDouble("zentha_split_b", 50.0))
@@ -493,7 +570,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun saveSettings(settings: AppSettings, db: SQLiteDatabase = writableDatabase) { db.update("settings", ContentValues().apply { put("daily_fixed_cost", settings.dailyFixedCost); put("plotter_x1_cost", settings.plotterX1Cost); put("plotter_x2_cost", settings.plotterX2Cost); put("protection_cost", settings.protectionPaperCost); put("theme_key", settings.themeKey); put("zentha_split_a", settings.zenthaSplitA); put("zentha_split_b", settings.zenthaSplitB) }, "id=1", null) }
 
     fun clearAll(db: SQLiteDatabase = writableDatabase) {
-        listOf("zentha_payments", "zentha_extra_costs", "zentha_order_items", "zentha_orders", "zentha_products", "cotton_orders", "order_timeline", "roll_usages", "stock_movements", "fabric_rolls", "issue_updates", "client_issues", "payments", "production", "work_orders", "inventory", "clients").forEach { db.delete(it, null, null) }
+        listOf("operational_tasks", "economic_works", "zentha_payments", "zentha_extra_costs", "zentha_order_items", "zentha_orders", "zentha_products", "cotton_orders", "order_timeline", "roll_usages", "stock_movements", "fabric_rolls", "issue_updates", "client_issues", "payments", "production", "work_orders", "inventory", "clients").forEach { db.delete(it, null, null) }
         saveSettings(AppSettings(), db)
     }
 
@@ -517,6 +594,8 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             snapshot.zenthaItems.forEach { insertOrThrow("zentha_order_items", null, it.zenthaItemValues(true)) }
             snapshot.zenthaExtraCosts.forEach { insertOrThrow("zentha_extra_costs", null, it.zenthaExtraCostValues(true)) }
             snapshot.zenthaPayments.forEach { insertOrThrow("zentha_payments", null, it.zenthaPaymentValues(true)) }
+            snapshot.economicWorks.forEach { insertOrThrow("economic_works", null, it.economicWorkValues(true)) }
+            snapshot.operationalTasks.forEach { insertOrThrow("operational_tasks", null, it.operationalTaskValues(true)) }
             if (snapshot.fabricRolls.isEmpty() && snapshot.inventory.isNotEmpty()) migrateLegacyInventoryToRolls(this)
             populateMissingOrderCodes(this)
             saveSettings(snapshot.settings, this)
@@ -552,6 +631,19 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun Cursor.zenthaItem() = ZenthaOrderItem(long("id"), long("order_id"), nullableLong("product_id"), string("product_name"), int("quantity"), double("unit_price"), double("unit_cost"))
     private fun Cursor.zenthaExtraCost() = ZenthaExtraCost(long("id"), long("order_id"), string("label"), double("amount"))
     private fun Cursor.zenthaPayment() = ZenthaPayment(long("id"), long("order_id"), string("payment_date"), double("amount"), enumValueOrDefault(string("method"), PaymentMethod.UNSPECIFIED), string("notes"))
+    private fun Cursor.economicWork() = EconomicWork(
+        id = long("id"), date = string("work_date"), clientId = optionalNullableLong("client_id"), clientName = string("client_name"),
+        title = string("title"), quantity = double("quantity"), unitPrice = double("unit_price"), manualGrossRevenue = double("manual_gross"),
+        materials = string("materials_json").toEconomicMaterials(), otherCosts = double("other_costs"), notes = string("notes"),
+        images = string("images_json").toStringList(), status = enumValueOrDefault(string("status"), EconomicWorkStatus.OPEN)
+    )
+    private fun Cursor.operationalTask() = OperationalTask(
+        id = long("id"), createdDate = string("created_date"), dueDate = string("due_date"), clientId = optionalNullableLong("client_id"),
+        clientName = string("client_name"), workOrderId = optionalNullableLong("work_order_id"), title = string("title"),
+        type = enumValueOrDefault(string("type"), OperationalTaskType.OTHER), description = string("description"),
+        priority = enumValueOrDefault(string("priority"), Priority.NORMAL), status = enumValueOrDefault(string("status"), OperationalTaskStatus.TODO),
+        images = string("images_json").toStringList()
+    )
 
     private fun InventoryItem.inventoryValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("owner_type", ownerType.name); put("owner_name", ownerName); put("fabric_name", fabricName); put("quantity_m", quantityMeters); put("purchase_price_m", purchasePricePerMeter); put("created_date", createdDate); put("images_json", images.toJsonArrayString()); put("minimum_quantity_m", minimumQuantityMeters); put("supplier_name", supplierName); put("composition", composition); put("weight_gsm", weightGsm); put("variant", variant); put("lot_code", lotCode) }
     private fun FabricRoll.fabricRollValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_code", rollCode); put("initial_m", initialMeters); put("available_m", availableMeters); put("created_date", createdDate); put("note", note); put("status", status.name); put("images_json", images.toJsonArrayString()) }
@@ -574,6 +666,16 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun ZenthaOrderItem.zenthaItemValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); if (productId == null) putNull("product_id") else put("product_id", productId); put("product_name", productName); put("quantity", quantity); put("unit_price", unitPrice); put("unit_cost", unitCost) }
     private fun ZenthaExtraCost.zenthaExtraCostValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); put("label", label); put("amount", amount) }
     private fun ZenthaPayment.zenthaPaymentValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); put("payment_date", date); put("amount", amount); put("method", method.name); put("notes", notes) }
+    private fun EconomicWork.economicWorkValues(includeId: Boolean) = ContentValues().apply {
+        if (includeId) put("id", id); put("work_date", date); if (clientId == null) putNull("client_id") else put("client_id", clientId)
+        put("client_name", clientName); put("title", title); put("quantity", quantity); put("unit_price", unitPrice); put("manual_gross", manualGrossRevenue)
+        put("materials_json", materials.toEconomicMaterialsJson()); put("other_costs", otherCosts); put("notes", notes); put("images_json", images.toJsonArrayString()); put("status", status.name)
+    }
+    private fun OperationalTask.operationalTaskValues(includeId: Boolean) = ContentValues().apply {
+        if (includeId) put("id", id); put("created_date", createdDate); put("due_date", dueDate); if (clientId == null) putNull("client_id") else put("client_id", clientId)
+        put("client_name", clientName); if (workOrderId == null) putNull("work_order_id") else put("work_order_id", workOrderId); put("title", title)
+        put("type", type.name); put("description", description); put("priority", priority.name); put("status", status.name); put("images_json", images.toJsonArrayString())
+    }
 
     private fun Cursor.string(name: String) = getString(getColumnIndexOrThrow(name)) ?: ""
     private fun Cursor.optionalString(name: String): String { val i = getColumnIndex(name); return if (i < 0 || isNull(i)) "" else getString(i) ?: "" }

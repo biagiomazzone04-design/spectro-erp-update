@@ -33,6 +33,8 @@ data class SpectroUiState(
     val zenthaItems: List<ZenthaOrderItem> = emptyList(),
     val zenthaExtraCosts: List<ZenthaExtraCost> = emptyList(),
     val zenthaPayments: List<ZenthaPayment> = emptyList(),
+    val economicWorks: List<EconomicWork> = emptyList(),
+    val operationalTasks: List<OperationalTask> = emptyList(),
     val message: String? = null
 )
 
@@ -113,6 +115,12 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun addZenthaPayment(v: ZenthaPayment) = runWrite("Pagamento Zentha registrato") { repo.addZenthaPayment(v) }
     fun deleteZenthaPayment(id: Long) = runWrite("Pagamento Zentha eliminato") { repo.deleteZenthaPayment(id) }
 
+    fun saveEconomicWork(v: EconomicWork) = runWrite("Lavoro economico salvato") { repo.saveEconomicWork(v) }
+    fun deleteEconomicWork(id: Long) = runWrite("Lavoro economico eliminato") { repo.deleteEconomicWork(id) }
+
+    fun saveOperationalTask(v: OperationalTask) = runWrite("Attività salvata") { repo.saveOperationalTask(v) }
+    fun deleteOperationalTask(id: Long) = runWrite("Attività eliminata") { repo.deleteOperationalTask(id) }
+
     fun saveSettings(v: AppSettings) = runWrite("Impostazioni salvate") { repo.saveSettings(v) }
     fun resetAll() = runWrite("Archivio azzerato") { repo.resetAll() }
     fun restore(s: SpectroSnapshot) = runWrite("Backup ripristinato e migrato") { repo.replaceAll(s) }
@@ -122,7 +130,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         settings = state.settings, clientIssues = state.clientIssues, issueUpdates = state.issueUpdates, payments = state.payments,
         fabricRolls = state.fabricRolls, stockMovements = state.stockMovements, rollUsages = state.rollUsages, timelineEvents = state.timelineEvents,
         cottonOrders = state.cottonOrders, zenthaProducts = state.zenthaProducts, zenthaOrders = state.zenthaOrders, zenthaItems = state.zenthaItems,
-        zenthaExtraCosts = state.zenthaExtraCosts, zenthaPayments = state.zenthaPayments
+        zenthaExtraCosts = state.zenthaExtraCosts, zenthaPayments = state.zenthaPayments,
+        economicWorks = state.economicWorks, operationalTasks = state.operationalTasks
     )
 
     fun rollsForInventory(inventoryId: Long): List<FabricRoll> = state.fabricRolls.filter { it.inventoryId == inventoryId }.sortedBy { it.id }
@@ -161,30 +170,46 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         val productions = state.production.filter { it.date.startsWith(prefix) }
         val productive = productions.filter { it.type == RecordType.PRODUCTION }
         val cotton = state.cottonOrders.filter { it.orderDate.startsWith(prefix) }
+        val economic = state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED }
+        val criticalEvents = state.timelineEvents.filter { it.date.startsWith(prefix) && it.severity != TimelineSeverity.INFO }
+        val legacyIssues = state.clientIssues.filter { it.openedDate.startsWith(prefix) }
 
         val productionRevenue = productive.sumOf { it.grossRevenue }
         val cottonRevenue = cotton.sumOf { it.grossRevenue }
+        val otherRevenue = economic.sumOf { it.grossRevenue }
         val materialCosts = productions.sumOf { it.materialCostTotal }
         val cottonCosts = cotton.sumOf { it.totalCost }
+        val otherCosts = economic.sumOf { it.totalCosts }
         val fixedDays = productions.filter { it.applyFixedCosts }.map { it.date }.distinct().size
         val fixedCosts = fixedDays * state.settings.dailyFixedCost
-        val totalRevenue = productionRevenue + cottonRevenue
-        val totalCosts = materialCosts + cottonCosts + fixedCosts
+        val totalRevenue = productionRevenue + cottonRevenue + otherRevenue
+        val totalCosts = materialCosts + cottonCosts + otherCosts + fixedCosts
         val netProfit = totalRevenue - totalCosts
         val paperMeters = productive.sumOf { it.printedPaperMeters }
         val cottonMeters = cotton.sumOf { if (it.actualProducedMeters > 0) it.actualProducedMeters else it.orderedMeters }
 
-        val names = (productive.map { it.clientName.ifBlank { "Senza cliente" } } + cotton.map { it.clientName.ifBlank { "Senza cliente" } }).distinct()
+        val names = (
+            productive.map { it.clientName.ifBlank { "Senza cliente" } } +
+            cotton.map { it.clientName.ifBlank { "Senza cliente" } } +
+            economic.map { it.clientName.ifBlank { "Senza cliente" } } +
+            criticalEvents.map { it.clientName.ifBlank { "Senza cliente" } } +
+            legacyIssues.map { it.clientName.ifBlank { "Senza cliente" } }
+        ).distinct()
+
         val clients = names.map { name ->
             val prods = productive.filter { it.clientName.equals(name, true) }
             val cottonRows = cotton.filter { it.clientName.equals(name, true) }
+            val economicRows = economic.filter { it.clientName.equals(name, true) }
+            val crits = criticalEvents.count { it.clientName.equals(name, true) } + legacyIssues.count { it.clientName.equals(name, true) }
             ClientMonthlyStat(
                 clientName = name,
-                revenue = prods.sumOf { it.grossRevenue } + cottonRows.sumOf { it.grossRevenue },
+                revenue = prods.sumOf { it.grossRevenue } + cottonRows.sumOf { it.grossRevenue } + economicRows.sumOf { it.grossRevenue },
                 paperMeters = prods.sumOf { it.printedPaperMeters },
                 cottonMeters = cottonRows.sumOf { if (it.actualProducedMeters > 0) it.actualProducedMeters else it.orderedMeters },
-                profit = prods.sumOf { it.grossProfit } + cottonRows.sumOf { it.margin },
-                records = prods.size + cottonRows.size
+                profit = prods.sumOf { it.grossProfit } + cottonRows.sumOf { it.margin } + economicRows.sumOf { it.netProfit },
+                records = prods.size + cottonRows.size + economicRows.size,
+                criticalities = crits,
+                otherRevenue = economicRows.sumOf { it.grossRevenue }
             )
         }.sortedByDescending { it.revenue }
 
@@ -202,7 +227,12 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
             cottonMeters = cottonMeters,
             productionCount = productive.size,
             cottonOrderCount = cotton.size,
-            clients = clients
+            clients = clients,
+            otherRevenue = otherRevenue,
+            otherCosts = otherCosts,
+            otherNetProfit = otherRevenue - otherCosts,
+            economicWorkCount = economic.size,
+            criticalityCount = criticalEvents.size + legacyIssues.size
         )
     }
 
@@ -212,6 +242,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun monthlyPaperMetersByClient(month: YearMonth = YearMonth.now(), limit: Int = 8): List<AnalyticsSlice> =
         monthlyStats(month).clients.map { AnalyticsSlice(it.clientName, it.paperMeters) }.filter { it.value > 0 }.sortedByDescending { it.value }.take(limit)
 
+    fun openTasks(): List<OperationalTask> = state.operationalTasks.filter { it.status !in listOf(OperationalTaskStatus.DONE, OperationalTaskStatus.CANCELLED) }
     fun openIssues(): List<OrderTimelineEvent> = state.timelineEvents.filter { it.status == TimelineStatus.OPEN && it.severity != TimelineSeverity.INFO }
     fun overduePayments(): List<PaymentDeadline> = state.payments.filter { !it.paid && runCatching { LocalDate.parse(it.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false) }
     fun lowStock(): List<InventoryItem> = state.inventory.filter { it.minimumQuantityMeters > 0 && it.quantityMeters <= it.minimumQuantityMeters }
@@ -222,6 +253,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         clientIssues = clientIssues, issueUpdates = issueUpdates, payments = payments, settings = settings,
         fabricRolls = fabricRolls, stockMovements = stockMovements, rollUsages = rollUsages, timelineEvents = timelineEvents,
         cottonOrders = cottonOrders, zenthaProducts = zenthaProducts, zenthaOrders = zenthaOrders, zenthaItems = zenthaItems,
-        zenthaExtraCosts = zenthaExtraCosts, zenthaPayments = zenthaPayments, message = message
+        zenthaExtraCosts = zenthaExtraCosts, zenthaPayments = zenthaPayments, economicWorks = economicWorks,
+        operationalTasks = operationalTasks, message = message
     )
 }

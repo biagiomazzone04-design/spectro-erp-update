@@ -31,6 +31,8 @@ object BackupManager {
             snapshot.cottonOrders.forEach { addAll(it.images) }
             snapshot.zenthaProducts.forEach { if (it.imagePath.isNotBlank()) add(it.imagePath) }
             snapshot.zenthaOrders.forEach { addAll(it.attachments) }
+            snapshot.economicWorks.forEach { addAll(it.images) }
+            snapshot.operationalTasks.forEach { addAll(it.images) }
         }.distinct()
 
         ZipOutputStream(FileOutputStream(file)).use { zip ->
@@ -89,11 +91,13 @@ object BackupManager {
         timelineEvents = timelineEvents.map { it.copy(images = it.images.map(transform)) },
         cottonOrders = cottonOrders.map { it.copy(images = it.images.map(transform)) },
         zenthaProducts = zenthaProducts.map { it.copy(imagePath = it.imagePath.takeIf { path -> path.isNotBlank() }?.let(transform).orEmpty()) },
-        zenthaOrders = zenthaOrders.map { it.copy(attachments = it.attachments.map(transform)) }
+        zenthaOrders = zenthaOrders.map { it.copy(attachments = it.attachments.map(transform)) },
+        economicWorks = economicWorks.map { it.copy(images = it.images.map(transform)) },
+        operationalTasks = operationalTasks.map { it.copy(images = it.images.map(transform)) }
     )
 
     private fun SpectroSnapshot.toJson() = JSONObject().apply {
-        put("format", "spectro-native-backup"); put("version", 6)
+        put("format", "spectro-native-backup"); put("version", 7)
         put("clients", clients.jsonArray { it.toJson() })
         put("inventory", inventory.jsonArray { it.toJson() })
         put("production", production.jsonArray { it.toJson() })
@@ -111,6 +115,8 @@ object BackupManager {
         put("zenthaItems", zenthaItems.jsonArray { it.toJson() })
         put("zenthaExtraCosts", zenthaExtraCosts.jsonArray { it.toJson() })
         put("zenthaPayments", zenthaPayments.jsonArray { it.toJson() })
+        put("economicWorks", economicWorks.jsonArray { it.toJson() })
+        put("operationalTasks", operationalTasks.jsonArray { it.toJson() })
         put("settings", settings.toJson())
     }
 
@@ -134,6 +140,8 @@ object BackupManager {
     private fun ZenthaOrderItem.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("productId", productId ?: JSONObject.NULL); put("productName", productName); put("quantity", quantity); put("unitPrice", unitPrice); put("unitCost", unitCost) }
     private fun ZenthaExtraCost.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("label", label); put("amount", amount) }
     private fun ZenthaPayment.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("date", date); put("amount", amount); put("method", method.name); put("notes", notes) }
+    private fun EconomicWork.toJson() = JSONObject().apply { put("id", id); put("date", date); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("title", title); put("quantity", quantity); put("unitPrice", unitPrice); put("manualGrossRevenue", manualGrossRevenue); put("materials", JSONArray().apply { materials.forEach { m -> put(JSONObject().apply { put("name", m.name); put("quantity", m.quantity); put("unitCost", m.unitCost) }) } }); put("otherCosts", otherCosts); put("notes", notes); put("images", JSONArray(images)); put("status", status.name) }
+    private fun OperationalTask.toJson() = JSONObject().apply { put("id", id); put("createdDate", createdDate); put("dueDate", dueDate); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("workOrderId", workOrderId ?: JSONObject.NULL); put("title", title); put("type", type.name); put("description", description); put("priority", priority.name); put("status", status.name); put("images", JSONArray(images)) }
     private fun AppSettings.toJson() = JSONObject().apply { put("dailyFixedCost", dailyFixedCost); put("plotterX1Cost", plotterX1Cost); put("plotterX2Cost", plotterX2Cost); put("protectionPaperCost", protectionPaperCost); put("themeKey", themeKey); put("zenthaSplitA", zenthaSplitA); put("zenthaSplitB", zenthaSplitB) }
 
     private fun JSONObject.toSnapshot(): SpectroSnapshot {
@@ -156,7 +164,9 @@ object BackupManager {
             zenthaOrders = optJSONArray("zenthaOrders").objects().map { it.toZenthaOrder() },
             zenthaItems = optJSONArray("zenthaItems").objects().map { it.toZenthaItem() },
             zenthaExtraCosts = optJSONArray("zenthaExtraCosts").objects().map { it.toZenthaExtraCost() },
-            zenthaPayments = optJSONArray("zenthaPayments").objects().map { it.toZenthaPayment() }
+            zenthaPayments = optJSONArray("zenthaPayments").objects().map { it.toZenthaPayment() },
+            economicWorks = optJSONArray("economicWorks").objects().map { it.toEconomicWork() },
+            operationalTasks = optJSONArray("operationalTasks").objects().map { it.toOperationalTask() }
         )
     }
 
@@ -190,6 +200,8 @@ object BackupManager {
     private fun JSONObject.toZenthaItem() = ZenthaOrderItem(optLong("id"), optLong("orderId"), nullableLong("productId"), optString("productName"), optInt("quantity"), optDouble("unitPrice"), optDouble("unitCost"))
     private fun JSONObject.toZenthaExtraCost() = ZenthaExtraCost(optLong("id"), optLong("orderId"), optString("label"), optDouble("amount"))
     private fun JSONObject.toZenthaPayment() = ZenthaPayment(optLong("id"), optLong("orderId"), optString("date"), optDouble("amount"), enumOr(optString("method"), PaymentMethod.UNSPECIFIED), optString("notes"))
+    private fun JSONObject.toEconomicWork() = EconomicWork(optLong("id"), optString("date"), nullableLong("clientId"), optString("clientName"), optString("title"), optDouble("quantity"), optDouble("unitPrice"), optDouble("manualGrossRevenue"), optJSONArray("materials").objects().map { m -> EconomicMaterialUsage(m.optString("name"), m.optDouble("quantity"), m.optDouble("unitCost")) }, optDouble("otherCosts"), optString("notes"), optJSONArray("images").strings(), enumOr(optString("status"), EconomicWorkStatus.OPEN))
+    private fun JSONObject.toOperationalTask() = OperationalTask(optLong("id"), optString("createdDate"), optString("dueDate"), nullableLong("clientId"), optString("clientName"), nullableLong("workOrderId"), optString("title"), enumOr(optString("type"), OperationalTaskType.OTHER), optString("description"), enumOr(optString("priority"), Priority.NORMAL), enumOr(optString("status"), OperationalTaskStatus.TODO), optJSONArray("images").strings())
     private fun JSONObject.toSettings() = AppSettings(optDouble("dailyFixedCost", 760.0), optDouble("plotterX1Cost", .8), optDouble("plotterX2Cost", 1.0), optDouble("protectionPaperCost", .1), optString("themeKey", "spectro"), optDouble("zenthaSplitA", 50.0), optDouble("zenthaSplitB", 50.0))
 
     private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else List(length()) { optJSONObject(it) }.filterNotNull()

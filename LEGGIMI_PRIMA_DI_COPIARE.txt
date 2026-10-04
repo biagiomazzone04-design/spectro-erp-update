@@ -1,30 +1,22 @@
-SPECTRO ERP 3.0.0 BETA 1 - PATCH GITHUB
+SPECTRO ERP 3.0.0 BETA 4 - PATCH GITHUB
 
-Questo ZIP contiene SOLO i file nuovi o modificati rispetto alla base Spectro ERP 2.1.
+1. GitHub Desktop -> repository spectro-erp-update.
+2. Rimani sul branch spectro-3.0-beta.
+3. Fetch origin / Pull origin se disponibile.
+4. Estrai questo ZIP.
+5. Copia TUTTO il contenuto estratto nella root locale del repository.
+6. Scegli Sostituisci file. NON cancellare .git.
+7. Commit suggerito: Spectro ERP 3.0 Beta 4 - bozze, storico, ricavi, attività e PDF
+8. Push origin.
+9. GitHub Actions deve diventare verde.
+10. Se rossa: scarica il log archive completo.
+11. Se verde: fai prima un backup dall'app attuale, poi installa l'APK sopra la versione presente SENZA disinstallare.
 
-USO CONSIGLIATO:
-1. Apri GitHub Desktop.
-2. Repository: spectro-erp-update.
-3. Fai Fetch origin / Pull origin.
-4. Crea un branch chiamato: spectro-3.0-beta
-5. Chiudi l'app Spectro sul telefono. NON disinstallarla.
-6. Estrai questo ZIP.
-7. Copia TUTTO il contenuto estratto nella cartella locale del repository.
-8. Quando Windows chiede se sostituire i file, scegli Sostituisci.
-9. NON cancellare la cartella .git del repository.
-10. GitHub Desktop mostrerà i file modificati.
-11. Commit: Spectro ERP 3.0.0 Beta 1
-12. Push/Publish branch.
-13. GitHub Actions compilerà il branch spectro-3.0-beta.
-14. Se la build fallisce, scarica il log archive e invialo a ChatGPT.
-15. Se la build è verde, NON installare ancora alla cieca: fai un backup aggiornato
-    dell'app attuale, poi usa l'APK firmato Beta per il test di aggiornamento.
+IDENTITÀ
+- package com.spectro.app
+- versionCode 15
+- versionName 3.0.0-beta4
+- artifact SpectroERP-v3.0.0-BETA4-RELEASE
+- stessa firma SPECTRO_SIGNING_BUNDLE_B64
 
-IMPORTANTISSIMO:
-- package mantenuto: com.spectro.app
-- versionCode: 12
-- versionName: 3.0.0-beta1
-- firma: usa lo stesso secret GitHub SPECTRO_SIGNING_BUNDLE_B64
-- NON caricare keystore/password nel repository
-- NON eliminare i dati dell'app
-- NON disinstallare l'app prima del test aggiornamento, salvo mismatch di firma
+La migrazione database è non distruttiva.

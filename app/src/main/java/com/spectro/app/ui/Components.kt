@@ -392,3 +392,25 @@ fun timelineSeverityLabel(v: com.spectro.app.data.TimelineSeverity): String = wh
     com.spectro.app.data.TimelineSeverity.HIGH -> "Alta"
     com.spectro.app.data.TimelineSeverity.BLOCKING -> "Bloccante"
 }
+
+fun economicWorkStatusLabel(v: com.spectro.app.data.EconomicWorkStatus): String = when (v) {
+    com.spectro.app.data.EconomicWorkStatus.OPEN -> "Aperto"
+    com.spectro.app.data.EconomicWorkStatus.COMPLETED -> "Completato"
+    com.spectro.app.data.EconomicWorkStatus.PAID -> "Incassato"
+    com.spectro.app.data.EconomicWorkStatus.CANCELLED -> "Annullato"
+}
+
+fun operationalTaskTypeLabel(v: com.spectro.app.data.OperationalTaskType): String = when (v) {
+    com.spectro.app.data.OperationalTaskType.SAMPLE -> "Campione da fare"
+    com.spectro.app.data.OperationalTaskType.GRAPHICS_SEARCH -> "Ricerca grafica"
+    com.spectro.app.data.OperationalTaskType.CLIENT_REQUEST -> "Richiesta cliente"
+    com.spectro.app.data.OperationalTaskType.PREPARATION -> "Preparazione lavoro"
+    com.spectro.app.data.OperationalTaskType.OTHER -> "Altro"
+}
+
+fun operationalTaskStatusLabel(v: com.spectro.app.data.OperationalTaskStatus): String = when (v) {
+    com.spectro.app.data.OperationalTaskStatus.TODO -> "Da fare"
+    com.spectro.app.data.OperationalTaskStatus.IN_PROGRESS -> "In corso"
+    com.spectro.app.data.OperationalTaskStatus.DONE -> "Completata"
+    com.spectro.app.data.OperationalTaskStatus.CANCELLED -> "Annullata"
+}

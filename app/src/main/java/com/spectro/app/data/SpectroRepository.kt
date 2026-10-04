@@ -16,7 +16,8 @@ class SpectroRepository(context: Context) {
         clientIssues = db.getClientIssues(), issueUpdates = db.getIssueUpdates(), payments = db.getPayments(),
         fabricRolls = db.getFabricRolls(), stockMovements = db.getStockMovements(), rollUsages = db.getRollUsages(), timelineEvents = db.getTimelineEvents(),
         cottonOrders = db.getCottonOrders(), zenthaProducts = db.getZenthaProducts(), zenthaOrders = db.getZenthaOrders(), zenthaItems = db.getZenthaItems(),
-        zenthaExtraCosts = db.getZenthaExtraCosts(), zenthaPayments = db.getZenthaPayments()
+        zenthaExtraCosts = db.getZenthaExtraCosts(), zenthaPayments = db.getZenthaPayments(),
+        economicWorks = db.getEconomicWorks(), operationalTasks = db.getOperationalTasks()
     )
 
     fun saveClient(client: Client): Long {
@@ -34,7 +35,9 @@ class SpectroRepository(context: Context) {
             db.getClientIssues().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
             db.getPayments().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
             db.getCottonOrders().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
-            db.getZenthaOrders().any { it.clientId == id || it.clientName.equals(client.name, true) }
+            db.getZenthaOrders().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
+            db.getEconomicWorks().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
+            db.getOperationalTasks().any { it.clientId == id || it.clientName.equals(client.name, true) }
         require(!used) { "Cliente presente nello storico. Per proteggere ordini, produzione e contabilità non può essere eliminato." }
         db.deleteClient(id)
     }
@@ -215,7 +218,25 @@ class SpectroRepository(context: Context) {
                 db.getWorkOrderById(workId, sql)?.let { w ->
                     val updated = w.copy(status = WorkStatus.IN_PRODUCTION, productionRecordId = savedId)
                     db.updateWorkOrder(updated, sql)
-                    if (w.status != WorkStatus.IN_PRODUCTION) insertSystemTimeline(updated, "Ordine trasferito in produzione", "Creato ordine produttivo e collegato alla registrazione #$savedId.", TimelineCategory.PRODUCTION, sql)
+                    if (w.status != WorkStatus.IN_PRODUCTION || w.productionRecordId != savedId) {
+                        insertSystemTimeline(updated, "Ordine trasferito in produzione", "Creato ordine produttivo e collegato alla registrazione #$savedId. Tutto lo storico precedente resta associato allo stesso ordine.", TimelineCategory.PRODUCTION, sql)
+                    }
+                    val oldNote = previous?.technicalNotes?.trim().orEmpty()
+                    val newNote = saved.technicalNotes.trim()
+                    if (newNote.isNotBlank() && newNote != oldNote) {
+                        val description = if (oldNote.isBlank()) {
+                            newNote
+                        } else {
+                            "Nota precedente:\n$oldNote\n\nNuova nota di produzione:\n$newNote"
+                        }
+                        insertSystemTimeline(
+                            updated,
+                            if (oldNote.isBlank()) "Nota di produzione" else "Nota di produzione aggiornata",
+                            description,
+                            TimelineCategory.PRODUCTION,
+                            sql
+                        )
+                    }
                 }
             }
             savedId
@@ -282,6 +303,23 @@ class SpectroRepository(context: Context) {
         return db.insertZenthaPayment(item.copy(id = 0))
     }
     fun deleteZenthaPayment(id: Long) = db.deleteZenthaPayment(id)
+
+    fun saveEconomicWork(item: EconomicWork): Long {
+        require(validDate(item.date)) { "Data lavoro non valida." }
+        require(item.title.isNotBlank()) { "Inserisci il nome del lavoro." }
+        require(item.quantity >= 0 && item.unitPrice >= 0 && item.manualGrossRevenue >= 0 && item.otherCosts >= 0) { "Quantità, prezzi e costi non possono essere negativi." }
+        require(item.materials.all { it.quantity >= 0 && it.unitCost >= 0 }) { "Controlla quantità e costo dei materiali." }
+        return if (item.id == 0L) db.insertEconomicWork(item) else { db.updateEconomicWork(item); item.id }
+    }
+    fun deleteEconomicWork(id: Long) = db.deleteEconomicWork(id)
+
+    fun saveOperationalTask(item: OperationalTask): Long {
+        require(validDate(item.createdDate)) { "Data attività non valida." }
+        require(item.dueDate.isBlank() || validDate(item.dueDate)) { "Data scadenza attività non valida." }
+        require(item.title.isNotBlank()) { "Inserisci il titolo dell'attività." }
+        return if (item.id == 0L) db.insertOperationalTask(item) else { db.updateOperationalTask(item); item.id }
+    }
+    fun deleteOperationalTask(id: Long) = db.deleteOperationalTask(id)
 
     fun resetAll() = db.clearAll()
     fun replaceAll(snapshot: SpectroSnapshot) = db.replaceAll(snapshot)

@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.AttachmentStore
+import com.spectro.app.util.ReportExporter
 import java.time.LocalDate
 
 private data class ZenthaItemDraft(
@@ -207,6 +208,7 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
 
 @Composable
 private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, order: ZenthaOrder, onDismiss: () -> Unit, onEdit: () -> Unit) {
+    val context = LocalContext.current
     var paymentOpen by remember { mutableStateOf(false) }
     val orderItems = vm.state.zenthaItems.filter { it.orderId == order.id }
     val extras = vm.state.zenthaExtraCosts.filter { it.orderId == order.id }
@@ -224,6 +226,12 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
                 item { SectionTitle("Pagamenti") }
                 items(payments, key = { it.id }) { pay -> Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("${pay.date} • ${euro(pay.amount)}", fontWeight = FontWeight.Bold); Text(pay.method.name, color = p.textMuted, fontSize = 11.sp) }; IconButton(onClick = { vm.deleteZenthaPayment(pay.id) }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) } } }
                 item { OutlinedButton(onClick = { paymentOpen = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Payments, null); Spacer(Modifier.width(6.dp)); Text("Registra pagamento") } }
+                item {
+                    OutlinedButton(
+                        onClick = { ReportExporter.shareZenthaOrder(context, order, orderItems, extras, payments) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(6.dp)); Text("Esporta ordine PDF") }
+                }
                 if (order.attachments.isNotEmpty()) item { Text("Allegati ordine: ${order.attachments.size}", fontWeight = FontWeight.Bold) }
             }
         },

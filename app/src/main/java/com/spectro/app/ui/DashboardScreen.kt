@@ -82,7 +82,8 @@ fun DashboardScreen(
             val overduePayments = vm.overduePayments().size
             val lowStock = vm.lowStock().size
             val overdueWork = vm.overdueWork().size
-            if (openIssues + overduePayments + lowStock + overdueWork > 0) {
+            val openTasks = vm.openTasks().size
+            if (openIssues + overduePayments + lowStock + overdueWork + openTasks > 0) {
                 item {
                     SpectroCard(p = p) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -95,7 +96,12 @@ fun DashboardScreen(
                             AlertMini("Criticità", openIssues, p.warning, Modifier.weight(1f))
                             AlertMini("Scaduti", overduePayments, p.danger, Modifier.weight(1f))
                             AlertMini("Scorte", lowStock, p.warning, Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AlertMini("Ordini", overdueWork, p.danger, Modifier.weight(1f))
+                            AlertMini("Attività", openTasks, p.primary, Modifier.weight(1f))
+                            Spacer(Modifier.weight(1f))
                         }
                     }
                 }
@@ -125,6 +131,12 @@ fun DashboardScreen(
                         Metric("Carta stampata", meters(currentMonthStats.printedPaperMeters), modifier = Modifier.weight(1f))
                         Metric("Cotone", meters(currentMonthStats.cottonMeters), modifier = Modifier.weight(1f))
                         Metric("Utile mese", euro(currentMonthStats.netProfit), valueColor = if (currentMonthStats.netProfit >= 0) p.success else p.danger, modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Altri ricavi", euro(currentMonthStats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
+                        Metric("Altri lavori", currentMonthStats.economicWorkCount.toString(), modifier = Modifier.weight(1f))
+                        Metric("Criticità", currentMonthStats.criticalityCount.toString(), valueColor = if (currentMonthStats.criticalityCount > 0) p.warning else p.success, modifier = Modifier.weight(1f))
                     }
                     if (currentMonthStats.clients.any { it.paperMeters > 0 }) {
                         Spacer(Modifier.height(12.dp))
@@ -169,10 +181,13 @@ fun DashboardScreen(
                         onClick = {
                             val prefix = statsMonth.toString()
                             ReportExporter.shareMonthlyStatistics(
-                                context,
-                                stats,
-                                vm.state.production.filter { it.date.startsWith(prefix) },
-                                vm.state.cottonOrders.filter { it.orderDate.startsWith(prefix) }
+                                context = context,
+                                stats = stats,
+                                productions = vm.state.production.filter { it.date.startsWith(prefix) },
+                                cottonOrders = vm.state.cottonOrders.filter { it.orderDate.startsWith(prefix) },
+                                economicWorks = vm.state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED },
+                                timelineEvents = vm.state.timelineEvents.filter { it.date.startsWith(prefix) },
+                                clientIssues = vm.state.clientIssues.filter { it.openedDate.startsWith(prefix) }
                             )
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -204,7 +219,11 @@ fun DashboardScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Metric("Sublimazione", euro(stats.productionRevenue), modifier = Modifier.weight(1f))
                                 Metric("Cotone", euro(stats.cottonRevenue), modifier = Modifier.weight(1f))
-                                Metric("Totale", euro(stats.totalRevenue), p.success, Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Altri lavori", euro(stats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
+                                Metric("Totale", euro(stats.totalRevenue), valueColor = p.success, modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -220,7 +239,14 @@ fun DashboardScreen(
                                 Metric("Carta", meters(row.paperMeters), modifier = Modifier.weight(1f))
                                 Metric("Utile", euro(row.profit), valueColor = if (row.profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f))
                             }
-                            if (row.cottonMeters > 0) { Spacer(Modifier.height(6.dp)); Text("Cotone lavorato ${meters(row.cottonMeters)} • ${row.records} registrazioni", color = p.textMuted, fontSize = 11.sp) }
+                            Spacer(Modifier.height(7.dp))
+                            Text(
+                                "${row.records} registrazioni • Criticità ${row.criticalities}" +
+                                    (if (row.otherRevenue > 0) " • Altri ricavi ${euro(row.otherRevenue)}" else "") +
+                                    (if (row.cottonMeters > 0) " • Cotone ${meters(row.cottonMeters)}" else ""),
+                                color = p.textMuted,
+                                fontSize = 11.sp
+                            )
                         }
                     }
                 }
@@ -250,6 +276,7 @@ fun DashboardScreen(
                             Spacer(Modifier.height(12.dp))
                             Text("Materie sublimazione ${euro(stats.materialCosts)}", color = p.textMuted)
                             Text("Costi cotone ${euro(stats.cottonCosts)}", color = p.textMuted)
+                            Text("Costi altri lavori ${euro(stats.otherCosts)}", color = p.textMuted)
                             Text("Costi fissi imputati ${euro(stats.fixedCosts)}", color = p.textMuted)
                         }
                     }
@@ -268,7 +295,13 @@ fun DashboardScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Metric("Produzioni", stats.productionCount.toString(), modifier = Modifier.weight(1f))
                                 Metric("Cotone", stats.cottonOrderCount.toString(), modifier = Modifier.weight(1f))
+                                Metric("Altri lavori", stats.economicWorkCount.toString(), modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Metric("Clienti", stats.clients.size.toString(), modifier = Modifier.weight(1f))
+                                Metric("Criticità", stats.criticalityCount.toString(), valueColor = if (stats.criticalityCount > 0) p.warning else p.success, modifier = Modifier.weight(1f))
+                                Metric("Altri ricavi", euro(stats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
                             }
                         }
                     }
@@ -276,7 +309,7 @@ fun DashboardScreen(
                     item { AnalyticsCard("Carta stampata per cliente", vm.monthlyPaperMetersByClient(statsMonth), p, false) }
                 }
             }
-            if (stats.productionCount == 0 && stats.cottonOrderCount == 0) {
+            if (stats.productionCount == 0 && stats.cottonOrderCount == 0 && stats.economicWorkCount == 0) {
                 item { EmptyState(Icons.Rounded.Analytics, "Statistiche in attesa", "Nessun dato nel mese selezionato") }
             }
         }

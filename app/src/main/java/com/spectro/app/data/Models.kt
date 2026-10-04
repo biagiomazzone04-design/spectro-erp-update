@@ -34,6 +34,10 @@ enum class TimelineStatus { OPEN, RESOLVED }
 
 enum class CottonPrintType { REACTIVE, PIGMENT, OTHER }
 
+enum class EconomicWorkStatus { OPEN, COMPLETED, PAID, CANCELLED }
+enum class OperationalTaskType { SAMPLE, GRAPHICS_SEARCH, CLIENT_REQUEST, PREPARATION, OTHER }
+enum class OperationalTaskStatus { TODO, IN_PROGRESS, DONE, CANCELLED }
+
 enum class ZenthaOrderStatus {
     DRAFT, CONFIRMED, GRAPHICS, WAITING_APPROVAL, PRODUCTION, READY, DELIVERED, CLOSED, CANCELLED
 }
@@ -256,6 +260,50 @@ data class CottonOrder(
     val marginPercent: Double get() = if (grossRevenue <= 0) 0.0 else margin / grossRevenue * 100.0
 }
 
+data class EconomicMaterialUsage(
+    val name: String,
+    val quantity: Double,
+    val unitCost: Double
+) {
+    val totalCost: Double get() = quantity * unitCost
+}
+
+data class EconomicWork(
+    val id: Long = 0,
+    val date: String,
+    val clientId: Long? = null,
+    val clientName: String,
+    val title: String,
+    val quantity: Double = 0.0,
+    val unitPrice: Double = 0.0,
+    val manualGrossRevenue: Double = 0.0,
+    val materials: List<EconomicMaterialUsage> = emptyList(),
+    val otherCosts: Double = 0.0,
+    val notes: String = "",
+    val images: List<String> = emptyList(),
+    val status: EconomicWorkStatus = EconomicWorkStatus.OPEN
+) {
+    val grossRevenue: Double get() = if (manualGrossRevenue > 0) manualGrossRevenue else quantity * unitPrice
+    val materialCosts: Double get() = materials.sumOf { it.totalCost }
+    val totalCosts: Double get() = materialCosts + otherCosts
+    val netProfit: Double get() = grossRevenue - totalCosts
+}
+
+data class OperationalTask(
+    val id: Long = 0,
+    val createdDate: String,
+    val dueDate: String = "",
+    val clientId: Long? = null,
+    val clientName: String = "",
+    val workOrderId: Long? = null,
+    val title: String,
+    val type: OperationalTaskType = OperationalTaskType.OTHER,
+    val description: String = "",
+    val priority: Priority = Priority.NORMAL,
+    val status: OperationalTaskStatus = OperationalTaskStatus.TODO,
+    val images: List<String> = emptyList()
+)
+
 data class ZenthaProduct(
     val id: Long = 0,
     val name: String,
@@ -340,7 +388,9 @@ data class ClientMonthlyStat(
     val paperMeters: Double,
     val cottonMeters: Double,
     val profit: Double,
-    val records: Int
+    val records: Int,
+    val criticalities: Int = 0,
+    val otherRevenue: Double = 0.0
 )
 
 data class MonthlyStats(
@@ -357,7 +407,12 @@ data class MonthlyStats(
     val cottonMeters: Double,
     val productionCount: Int,
     val cottonOrderCount: Int,
-    val clients: List<ClientMonthlyStat>
+    val clients: List<ClientMonthlyStat>,
+    val otherRevenue: Double = 0.0,
+    val otherCosts: Double = 0.0,
+    val otherNetProfit: Double = 0.0,
+    val economicWorkCount: Int = 0,
+    val criticalityCount: Int = 0
 )
 
 data class SpectroSnapshot(
@@ -378,5 +433,7 @@ data class SpectroSnapshot(
     val zenthaOrders: List<ZenthaOrder> = emptyList(),
     val zenthaItems: List<ZenthaOrderItem> = emptyList(),
     val zenthaExtraCosts: List<ZenthaExtraCost> = emptyList(),
-    val zenthaPayments: List<ZenthaPayment> = emptyList()
+    val zenthaPayments: List<ZenthaPayment> = emptyList(),
+    val economicWorks: List<EconomicWork> = emptyList(),
+    val operationalTasks: List<OperationalTask> = emptyList()
 )

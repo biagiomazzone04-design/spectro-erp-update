@@ -63,9 +63,9 @@ fun CreateScreen(
         }
         item {
             SegmentedChoice(listOf("PRODUCTION" to "PRODUTTIVO", "WORK" to "ORDINE", "NEGATIVE" to "NEGATIVO"), mode.name, p) { if (editProduction == null && editWork == null && sourceWorkOrder == null) mode = CreateMode.valueOf(it) }
-            if (editProduction == null && editWork == null && mode != CreateMode.NEGATIVE) {
+            if (mode != CreateMode.NEGATIVE) {
                 Spacer(Modifier.height(8.dp))
-                Text("Bozza automatica attiva • puoi uscire dall'app e riprendere senza perdere i campi compilati.", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("Bozza automatica attiva • anche modifiche e passaggi in produzione vengono recuperati se chiudi la schermata o l'app.", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
         }
         item {
@@ -84,52 +84,60 @@ fun CreateScreen(
 private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: ProductionRecord?, source: WorkOrder?, onDone: () -> Unit) {
     val context = LocalContext.current
     val initialSource = source ?: editing?.workOrderId?.let { id -> vm.state.workOrders.firstOrNull { it.id == id } }
-    val savedDraft = remember(editing?.id, source?.id) {
-        if (editing == null && source == null) DraftStore.loadProduction(context) else null
+    val draftKey = when {
+        editing != null -> "edit-${editing.id}"
+        source != null -> "source-${source.id}"
+        else -> "new"
     }
+    val savedDraft = remember(editing?.id, source?.id) { DraftStore.loadProduction(context, draftKey) }
     var step by remember(editing?.id, source?.id) { mutableIntStateOf(savedDraft?.step ?: 1) }
-    var workOrderId by remember(editing?.id, source?.id) { mutableStateOf(initialSource?.id ?: editing?.workOrderId ?: savedDraft?.workOrderId) }
-    var date by remember(editing?.id, source?.id) { mutableStateOf(editing?.date ?: savedDraft?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
-    var clientId by remember(editing?.id, source?.id) { mutableStateOf(initialSource?.clientId ?: editing?.clientId ?: savedDraft?.clientId) }
-    var clientName by remember(editing?.id, source?.id) { mutableStateOf(initialSource?.client ?: editing?.clientName.orEmpty().ifBlank { savedDraft?.clientName.orEmpty() }) }
-    var orderRef by remember(editing?.id, source?.id) { mutableStateOf(initialSource?.let { it.title.ifBlank { it.orderCode } } ?: editing?.orderRef.orEmpty().ifBlank { savedDraft?.orderRef.orEmpty() }) }
-    var designs by remember(editing?.id, source?.id) { mutableStateOf(initialSource?.designCode ?: editing?.designs?.joinToString(", ").orEmpty().ifBlank { savedDraft?.designs.orEmpty() }) }
-    var printPrice by remember(editing?.id, source?.id) { mutableStateOf((initialSource?.printPricePerMeter ?: editing?.printPricePerMeter ?: 0.0).takeIf { it > 0 }?.toString() ?: savedDraft?.printPrice.orEmpty()) }
-    var plotter by remember(editing?.id, source?.id) { mutableStateOf(editing?.plotter ?: savedDraft?.plotter ?: "X1") }
-    var paper by remember(editing?.id, source?.id) { mutableStateOf(editing?.printedPaperMeters?.takeIf { it > 0 }?.toString() ?: savedDraft?.paper.orEmpty()) }
-    var protection by remember(editing?.id, source?.id) { mutableStateOf(editing?.protectionPaperMeters?.takeIf { it > 0 }?.toString() ?: savedDraft?.protection.orEmpty()) }
-    var paperWaste by remember(editing?.id, source?.id) { mutableStateOf(editing?.paperWasteMeters?.takeIf { it > 0 }?.toString() ?: savedDraft?.paperWaste.orEmpty()) }
-    var fabricMode by remember(editing?.id, source?.id) { mutableStateOf(if (initialSource?.fabricInventoryId != null) FabricMode.INVENTORY else editing?.fabricMode ?: savedDraft?.fabricMode?.let { runCatching { FabricMode.valueOf(it) }.getOrNull() } ?: FabricMode.NONE) }
-    var fabricId by remember(editing?.id, source?.id) { mutableStateOf(initialSource?.fabricInventoryId ?: editing?.fabricId ?: savedDraft?.fabricId) }
-    var fabricUsed by remember(editing?.id, source?.id) { mutableStateOf((editing?.fabricUsedMeters ?: initialSource?.orderedMeters ?: 0.0).takeIf { it > 0 }?.toString() ?: savedDraft?.fabricUsed.orEmpty()) }
-    var fabricWaste by remember(editing?.id, source?.id) { mutableStateOf(editing?.fabricWasteMeters?.takeIf { it > 0 }?.toString() ?: savedDraft?.fabricWaste.orEmpty()) }
-    var salePrice by remember(editing?.id, source?.id) { mutableStateOf(editing?.fabricSalePricePerMeter?.takeIf { it > 0 }?.toString() ?: savedDraft?.salePrice.orEmpty()) }
-    var manualFabric by remember(editing?.id, source?.id) { mutableStateOf(editing?.manualFabricName.orEmpty().ifBlank { savedDraft?.manualFabric.orEmpty() }) }
-    var notes by remember(editing?.id, source?.id) { mutableStateOf(editing?.technicalNotes.orEmpty().ifBlank { savedDraft?.notes.orEmpty() }) }
-    var images by remember(editing?.id, source?.id) { mutableStateOf(editing?.images ?: savedDraft?.images ?: emptyList()) }
+    var workOrderId by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.workOrderId ?: initialSource?.id ?: editing?.workOrderId) }
+    var date by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.date?.takeIf { it.isNotBlank() } ?: editing?.date ?: LocalDate.now().toString()) }
+    var clientId by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.clientId ?: initialSource?.clientId ?: editing?.clientId) }
+    var clientName by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.clientName?.takeIf { it.isNotBlank() } ?: initialSource?.client ?: editing?.clientName.orEmpty()) }
+    var orderRef by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.orderRef?.takeIf { it.isNotBlank() } ?: initialSource?.let { it.title.ifBlank { it.orderCode } } ?: editing?.orderRef.orEmpty()) }
+    var designs by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.designs?.takeIf { it.isNotBlank() } ?: initialSource?.designCode ?: editing?.designs?.joinToString(", ").orEmpty()) }
+    var printPrice by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.printPrice?.takeIf { it.isNotBlank() } ?: (initialSource?.printPricePerMeter ?: editing?.printPricePerMeter ?: 0.0).takeIf { it > 0 }?.toString().orEmpty()) }
+    var plotter by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.plotter ?: editing?.plotter ?: "X1") }
+    var paper by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.paper?.takeIf { it.isNotBlank() } ?: editing?.printedPaperMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var protection by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.protection?.takeIf { it.isNotBlank() } ?: editing?.protectionPaperMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var paperWaste by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.paperWaste?.takeIf { it.isNotBlank() } ?: editing?.paperWasteMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var fabricMode by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.fabricMode?.let { runCatching { FabricMode.valueOf(it) }.getOrNull() } ?: if (initialSource?.fabricInventoryId != null) FabricMode.INVENTORY else editing?.fabricMode ?: FabricMode.NONE) }
+    var fabricId by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.fabricId ?: initialSource?.fabricInventoryId ?: editing?.fabricId) }
+    var fabricUsed by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.fabricUsed?.takeIf { it.isNotBlank() } ?: (editing?.fabricUsedMeters ?: initialSource?.orderedMeters ?: 0.0).takeIf { it > 0 }?.toString().orEmpty()) }
+    var fabricWaste by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.fabricWaste?.takeIf { it.isNotBlank() } ?: editing?.fabricWasteMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var salePrice by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.salePrice?.takeIf { it.isNotBlank() } ?: editing?.fabricSalePricePerMeter?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var manualFabric by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.manualFabric?.takeIf { it.isNotBlank() } ?: editing?.manualFabricName.orEmpty()) }
+    var notes by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.notes?.takeIf { it.isNotBlank() } ?: editing?.technicalNotes.orEmpty()) }
+    var images by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.images?.takeIf { it.isNotEmpty() } ?: editing?.images ?: emptyList()) }
     var sourceDialog by remember { mutableStateOf(false) }
     var clientDialog by remember { mutableStateOf(false) }
     var fabricDialog by remember { mutableStateOf(false) }
     var rollDialog by remember { mutableStateOf(false) }
-    var allocations by remember(editing?.id, source?.id) { mutableStateOf<Map<Long, Double>>(if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.PRODUCTION && it.orderId == editing.id }.associate { it.rollId to it.meters } else savedDraft?.allocations ?: emptyMap()) }
+    var allocations by remember(editing?.id, source?.id) {
+        mutableStateOf(
+            savedDraft?.allocations?.takeIf { it.isNotEmpty() }
+                ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.PRODUCTION && it.orderId == editing.id }.associate { it.rollId to it.meters }
+                else emptyMap()
+        )
+    }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     val consumeMeters = fabricUsed.toDoubleSafe() + fabricWaste.toDoubleSafe()
 
     LaunchedEffect(step, workOrderId, date, clientId, clientName, orderRef, designs, printPrice, plotter, paper, protection, paperWaste, fabricMode, fabricId, fabricUsed, fabricWaste, salePrice, manualFabric, notes, images, allocations) {
-        if (editing == null) {
-            DraftStore.setLastCreateMode(context, CreateMode.PRODUCTION.name)
-            DraftStore.saveProduction(
-                context,
-                ProductionDraft(
+        DraftStore.setLastCreateMode(context, CreateMode.PRODUCTION.name)
+        DraftStore.saveProduction(
+            context,
+            ProductionDraft(
                     step = step, workOrderId = workOrderId, date = date, clientId = clientId, clientName = clientName,
                     orderRef = orderRef, designs = designs, printPrice = printPrice, plotter = plotter,
                     paper = paper, protection = protection, paperWaste = paperWaste, fabricMode = fabricMode.name,
                     fabricId = fabricId, fabricUsed = fabricUsed, fabricWaste = fabricWaste, salePrice = salePrice,
-                    manualFabric = manualFabric, notes = notes, images = images, allocations = allocations
-                )
-            )
-        }
+                manualFabric = manualFabric, notes = notes, images = images, allocations = allocations
+            ),
+            draftKey
+        )
     }
 
     fun applySource(w: WorkOrder?) {
@@ -185,7 +193,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
             if (step < 3) Button(onClick = { step++ }, modifier = Modifier.weight(1f)) { Text("Continua") }
             else Button(onClick = {
                 vm.saveProduction(ProductionRecord(id = editing?.id ?: 0L, type = RecordType.PRODUCTION, date = date, clientId = clientId, clientName = clientName.trim(), orderRef = orderRef.trim(), designs = designs.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }, printPricePerMeter = printPrice.toDoubleSafe(), plotter = plotter, printedPaperMeters = paper.toDoubleSafe(), protectionPaperMeters = protection.toDoubleSafe(), paperWasteMeters = paperWaste.toDoubleSafe(), fabricMode = fabricMode, fabricId = fabricId, fabricUsedMeters = fabricUsed.toDoubleSafe(), fabricWasteMeters = fabricWaste.toDoubleSafe(), fabricSalePricePerMeter = salePrice.toDoubleSafe(), manualFabricName = manualFabric.trim(), technicalNotes = notes.trim(), images = images, applyFixedCosts = true, workOrderId = workOrderId), allocations)
-                if (editing == null) DraftStore.clearProduction(context)
+                DraftStore.clearProduction(context, draftKey)
                 onDone()
             }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(7.dp)); Text("Salva") }
         }
@@ -204,37 +212,37 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
 @Composable
 private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder?, onDone: () -> Unit) {
     val context = LocalContext.current
-    val savedDraft = remember(editing?.id) { if (editing == null) DraftStore.loadWork(context) else null }
-    var date by remember(editing?.id) { mutableStateOf(editing?.receivedDate ?: savedDraft?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
-    var clientId by remember(editing?.id) { mutableStateOf(editing?.clientId ?: savedDraft?.clientId) }
-    var client by remember(editing?.id) { mutableStateOf(editing?.client.orEmpty().ifBlank { savedDraft?.client.orEmpty() }) }
-    var title by remember(editing?.id) { mutableStateOf(editing?.title.orEmpty().ifBlank { savedDraft?.title.orEmpty() }) }
-    var due by remember(editing?.id) { mutableStateOf(editing?.dueDate.orEmpty().ifBlank { savedDraft?.due.orEmpty() }) }
-    var priority by remember(editing?.id) { mutableStateOf(editing?.priority ?: savedDraft?.priority?.let { runCatching { Priority.valueOf(it) }.getOrNull() } ?: Priority.NORMAL) }
-    var blocker by remember(editing?.id) { mutableStateOf(editing?.blocker ?: savedDraft?.blocker?.let { runCatching { Blocker.valueOf(it) }.getOrNull() } ?: Blocker.NONE) }
-    var status by remember(editing?.id) { mutableStateOf(editing?.status ?: savedDraft?.status?.let { runCatching { WorkStatus.valueOf(it) }.getOrNull() } ?: WorkStatus.IN_PROCESS) }
-    var description by remember(editing?.id) { mutableStateOf(editing?.description.orEmpty().ifBlank { savedDraft?.description.orEmpty() }) }
-    var images by remember(editing?.id) { mutableStateOf(editing?.images ?: savedDraft?.images ?: emptyList()) }
-    var orderedMeters by remember(editing?.id) { mutableStateOf(editing?.orderedMeters?.takeIf { it > 0 }?.toString() ?: savedDraft?.orderedMeters.orEmpty()) }
-    var printPrice by remember(editing?.id) { mutableStateOf(editing?.printPricePerMeter?.takeIf { it > 0 }?.toString() ?: savedDraft?.printPrice.orEmpty()) }
-    var designCode by remember(editing?.id) { mutableStateOf(editing?.designCode.orEmpty().ifBlank { savedDraft?.designCode.orEmpty() }) }
-    var fabricId by remember(editing?.id) { mutableStateOf(editing?.fabricInventoryId ?: savedDraft?.fabricId) }
+    val draftKey = editing?.id?.let { "edit-$it" } ?: "new"
+    val savedDraft = remember(editing?.id) { DraftStore.loadWork(context, draftKey) }
+    var date by remember(editing?.id) { mutableStateOf(savedDraft?.date?.takeIf { it.isNotBlank() } ?: editing?.receivedDate ?: LocalDate.now().toString()) }
+    var clientId by remember(editing?.id) { mutableStateOf(savedDraft?.clientId ?: editing?.clientId) }
+    var client by remember(editing?.id) { mutableStateOf(savedDraft?.client?.takeIf { it.isNotBlank() } ?: editing?.client.orEmpty()) }
+    var title by remember(editing?.id) { mutableStateOf(savedDraft?.title?.takeIf { it.isNotBlank() } ?: editing?.title.orEmpty()) }
+    var due by remember(editing?.id) { mutableStateOf(savedDraft?.due?.takeIf { it.isNotBlank() } ?: editing?.dueDate.orEmpty()) }
+    var priority by remember(editing?.id) { mutableStateOf(savedDraft?.priority?.let { runCatching { Priority.valueOf(it) }.getOrNull() } ?: editing?.priority ?: Priority.NORMAL) }
+    var blocker by remember(editing?.id) { mutableStateOf(savedDraft?.blocker?.let { runCatching { Blocker.valueOf(it) }.getOrNull() } ?: editing?.blocker ?: Blocker.NONE) }
+    var status by remember(editing?.id) { mutableStateOf(savedDraft?.status?.let { runCatching { WorkStatus.valueOf(it) }.getOrNull() } ?: editing?.status ?: WorkStatus.IN_PROCESS) }
+    var description by remember(editing?.id) { mutableStateOf(savedDraft?.description?.takeIf { it.isNotBlank() } ?: editing?.description.orEmpty()) }
+    var images by remember(editing?.id) { mutableStateOf(savedDraft?.images?.takeIf { it.isNotEmpty() } ?: editing?.images ?: emptyList()) }
+    var orderedMeters by remember(editing?.id) { mutableStateOf(savedDraft?.orderedMeters?.takeIf { it.isNotBlank() } ?: editing?.orderedMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var printPrice by remember(editing?.id) { mutableStateOf(savedDraft?.printPrice?.takeIf { it.isNotBlank() } ?: editing?.printPricePerMeter?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var designCode by remember(editing?.id) { mutableStateOf(savedDraft?.designCode?.takeIf { it.isNotBlank() } ?: editing?.designCode.orEmpty()) }
+    var fabricId by remember(editing?.id) { mutableStateOf(savedDraft?.fabricId ?: editing?.fabricInventoryId) }
     var clientDialog by remember { mutableStateOf(false) }
     var fabricDialog by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 
     LaunchedEffect(date, clientId, client, title, due, priority, blocker, status, description, images, orderedMeters, printPrice, designCode, fabricId) {
-        if (editing == null) {
-            DraftStore.setLastCreateMode(context, CreateMode.WORK.name)
-            DraftStore.saveWork(
-                context,
-                WorkDraft(
+        DraftStore.setLastCreateMode(context, CreateMode.WORK.name)
+        DraftStore.saveWork(
+            context,
+            WorkDraft(
                     date = date, clientId = clientId, client = client, title = title, due = due,
                     priority = priority.name, blocker = blocker.name, status = status.name, description = description,
-                    images = images, orderedMeters = orderedMeters, printPrice = printPrice, designCode = designCode, fabricId = fabricId
-                )
-            )
-        }
+                images = images, orderedMeters = orderedMeters, printPrice = printPrice, designCode = designCode, fabricId = fabricId
+            ),
+            draftKey
+        )
     }
 
     SpectroCard(p = p) {
@@ -256,7 +264,7 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
         Spacer(Modifier.height(16.dp)); GradientButton(if (editing == null) "Salva ordine in processo" else "Salva modifiche", p) {
             if (client.isNotBlank() && title.isNotBlank()) {
                 vm.saveWorkOrder(WorkOrder(id = editing?.id ?: 0L, receivedDate = date, client = client.trim(), title = title.trim(), description = description.trim(), images = images, status = status, dueDate = due.trim(), priority = priority, blocker = blocker, clientId = clientId, orderCode = editing?.orderCode.orEmpty(), fabricInventoryId = fabricId, orderedMeters = orderedMeters.toDoubleSafe(), printPricePerMeter = printPrice.toDoubleSafe(), designCode = designCode.trim(), productionRecordId = editing?.productionRecordId, effectiveDeliveryDate = editing?.effectiveDeliveryDate.orEmpty(), cancelReason = editing?.cancelReason.orEmpty()))
-                if (editing == null) DraftStore.clearWork(context)
+                DraftStore.clearWork(context, draftKey)
                 onDone()
             }
         }

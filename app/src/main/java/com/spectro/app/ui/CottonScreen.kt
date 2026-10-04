@@ -107,30 +107,31 @@ fun CottonScreen(
 @Composable
 private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: CottonOrder?, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val draft = remember(editing?.id) { if (editing == null) DraftStore.loadCotton(context) else null }
-    var title by remember(editing?.id) { mutableStateOf(editing?.title.orEmpty().ifBlank { draft?.title.orEmpty() }) }
-    var clientId by remember(editing?.id) { mutableStateOf(editing?.clientId ?: draft?.clientId) }
-    var clientName by remember(editing?.id) { mutableStateOf(editing?.clientName.orEmpty().ifBlank { draft?.clientName.orEmpty() }) }
-    var date by remember(editing?.id) { mutableStateOf(editing?.orderDate ?: draft?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
-    var due by remember(editing?.id) { mutableStateOf(editing?.dueDate.orEmpty().ifBlank { draft?.due.orEmpty() }) }
-    var fabric by remember(editing?.id) { mutableStateOf(editing?.fabricName.orEmpty().ifBlank { draft?.fabric.orEmpty() }) }
-    var printType by remember(editing?.id) { mutableStateOf(editing?.printType ?: draft?.printType?.let { runCatching { CottonPrintType.valueOf(it) }.getOrNull() } ?: CottonPrintType.REACTIVE) }
-    var ordered by remember(editing?.id) { mutableStateOf(editing?.orderedMeters?.takeIf { it > 0 }?.toString() ?: draft?.ordered.orEmpty()) }
-    var produced by remember(editing?.id) { mutableStateOf(editing?.actualProducedMeters?.takeIf { it > 0 }?.toString() ?: draft?.produced.orEmpty()) }
-    var delivered by remember(editing?.id) { mutableStateOf(editing?.deliveredMeters?.takeIf { it > 0 }?.toString() ?: draft?.delivered.orEmpty()) }
-    var defective by remember(editing?.id) { mutableStateOf(editing?.defectiveMeters?.takeIf { it > 0 }?.toString() ?: draft?.defective.orEmpty()) }
-    var samples by remember(editing?.id) { mutableStateOf(editing?.sampleMeters?.takeIf { it > 0 }?.toString() ?: draft?.samples.orEmpty()) }
-    var leftover by remember(editing?.id) { mutableStateOf(editing?.leftoverMeters?.takeIf { it > 0 }?.toString() ?: draft?.leftover.orEmpty()) }
-    var productionCost by remember(editing?.id) { mutableStateOf(editing?.productionCostPerMeter?.takeIf { it > 0 }?.toString() ?: draft?.productionCost.orEmpty()) }
-    var printPrice by remember(editing?.id) { mutableStateOf(editing?.printPricePerMeter?.takeIf { it > 0 }?.toString() ?: draft?.printPrice.orEmpty()) }
-    var owner by remember(editing?.id) { mutableStateOf(editing?.fabricOwnerType ?: draft?.owner?.let { runCatching { OwnerType.valueOf(it) }.getOrNull() } ?: OwnerType.CLIENT) }
-    var inventoryId by remember(editing?.id) { mutableStateOf(editing?.inventoryId ?: draft?.inventoryId) }
-    var fabricCost by remember(editing?.id) { mutableStateOf(editing?.fabricCostPerMeter?.takeIf { it > 0 }?.toString() ?: draft?.fabricCost.orEmpty()) }
-    var notes by remember(editing?.id) { mutableStateOf(editing?.notes.orEmpty().ifBlank { draft?.notes.orEmpty() }) }
-    var status by remember(editing?.id) { mutableStateOf(editing?.status ?: draft?.status?.let { runCatching { WorkStatus.valueOf(it) }.getOrNull() } ?: WorkStatus.IN_PROCESS) }
-    var images by remember(editing?.id) { mutableStateOf(editing?.images ?: draft?.images ?: emptyList()) }
+    val draftKey = editing?.id?.let { "edit-$it" } ?: "new"
+    val draft = remember(editing?.id) { DraftStore.loadCotton(context, draftKey) }
+    var title by remember(editing?.id) { mutableStateOf(draft?.title?.takeIf { it.isNotBlank() } ?: editing?.title.orEmpty()) }
+    var clientId by remember(editing?.id) { mutableStateOf(draft?.clientId ?: editing?.clientId) }
+    var clientName by remember(editing?.id) { mutableStateOf(draft?.clientName?.takeIf { it.isNotBlank() } ?: editing?.clientName.orEmpty()) }
+    var date by remember(editing?.id) { mutableStateOf(draft?.date?.takeIf { it.isNotBlank() } ?: editing?.orderDate ?: LocalDate.now().toString()) }
+    var due by remember(editing?.id) { mutableStateOf(draft?.due?.takeIf { it.isNotBlank() } ?: editing?.dueDate.orEmpty()) }
+    var fabric by remember(editing?.id) { mutableStateOf(draft?.fabric?.takeIf { it.isNotBlank() } ?: editing?.fabricName.orEmpty()) }
+    var printType by remember(editing?.id) { mutableStateOf(draft?.printType?.let { runCatching { CottonPrintType.valueOf(it) }.getOrNull() } ?: editing?.printType ?: CottonPrintType.REACTIVE) }
+    var ordered by remember(editing?.id) { mutableStateOf(draft?.ordered?.takeIf { it.isNotBlank() } ?: editing?.orderedMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var produced by remember(editing?.id) { mutableStateOf(draft?.produced?.takeIf { it.isNotBlank() } ?: editing?.actualProducedMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var delivered by remember(editing?.id) { mutableStateOf(draft?.delivered?.takeIf { it.isNotBlank() } ?: editing?.deliveredMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var defective by remember(editing?.id) { mutableStateOf(draft?.defective?.takeIf { it.isNotBlank() } ?: editing?.defectiveMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var samples by remember(editing?.id) { mutableStateOf(draft?.samples?.takeIf { it.isNotBlank() } ?: editing?.sampleMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var leftover by remember(editing?.id) { mutableStateOf(draft?.leftover?.takeIf { it.isNotBlank() } ?: editing?.leftoverMeters?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var productionCost by remember(editing?.id) { mutableStateOf(draft?.productionCost?.takeIf { it.isNotBlank() } ?: editing?.productionCostPerMeter?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var printPrice by remember(editing?.id) { mutableStateOf(draft?.printPrice?.takeIf { it.isNotBlank() } ?: editing?.printPricePerMeter?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var owner by remember(editing?.id) { mutableStateOf(draft?.owner?.let { runCatching { OwnerType.valueOf(it) }.getOrNull() } ?: editing?.fabricOwnerType ?: OwnerType.CLIENT) }
+    var inventoryId by remember(editing?.id) { mutableStateOf(draft?.inventoryId ?: editing?.inventoryId) }
+    var fabricCost by remember(editing?.id) { mutableStateOf(draft?.fabricCost?.takeIf { it.isNotBlank() } ?: editing?.fabricCostPerMeter?.takeIf { it > 0 }?.toString().orEmpty()) }
+    var notes by remember(editing?.id) { mutableStateOf(draft?.notes?.takeIf { it.isNotBlank() } ?: editing?.notes.orEmpty()) }
+    var status by remember(editing?.id) { mutableStateOf(draft?.status?.let { runCatching { WorkStatus.valueOf(it) }.getOrNull() } ?: editing?.status ?: WorkStatus.IN_PROCESS) }
+    var images by remember(editing?.id) { mutableStateOf(draft?.images?.takeIf { it.isNotEmpty() } ?: editing?.images ?: emptyList()) }
     var rollDialog by remember { mutableStateOf(false) }
-    var allocations by remember(editing?.id) { mutableStateOf<Map<Long, Double>>(if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else draft?.allocations ?: emptyMap()) }
+    var allocations by remember(editing?.id) { mutableStateOf(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }
@@ -147,9 +148,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     val needed = if (calc.actualProducedMeters > 0) calc.actualProducedMeters else calc.orderedMeters
 
     LaunchedEffect(title, clientId, clientName, date, due, fabric, printType, ordered, produced, delivered, defective, samples, leftover, productionCost, printPrice, owner, inventoryId, fabricCost, notes, status, images, allocations) {
-        if (editing == null) {
-            DraftStore.saveCotton(context, CottonDraft(title, clientId, clientName, date, due, fabric, printType.name, ordered, produced, delivered, defective, samples, leftover, productionCost, printPrice, owner.name, inventoryId, fabricCost, notes, status.name, images, allocations))
-        }
+        DraftStore.saveCotton(context, CottonDraft(title, clientId, clientName, date, due, fabric, printType.name, ordered, produced, delivered, defective, samples, leftover, productionCost, printPrice, owner.name, inventoryId, fabricCost, notes, status.name, images, allocations), draftKey)
     }
 
     AlertDialog(
@@ -157,7 +156,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         title = { Text(if (editing == null) "Nuovo ordine cotone" else "Modifica ${editing.title.ifBlank { editing.orderCode }}", fontWeight = FontWeight.Black) },
         text = {
             LazyColumn(Modifier.heightIn(max = 650.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (editing == null) item { Text("Bozza automatica attiva • i dati restano salvati anche se chiudi questa schermata o l'app.", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                item { Text("Bozza automatica attiva • anche le modifiche restano salvate se chiudi la schermata o l'app.", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 item { SpectroTextField("Nome ordine", title, { title = it }, placeholder = "Es. Caprese Voile Settembre") }
                 item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { WheelDateField("Data ordine", date, { date = it }, Modifier.weight(1f)); WheelDateField("Consegna", due, { due = it }, Modifier.weight(1f), allowEmpty = true) } }
@@ -187,7 +186,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
             Button(onClick = {
                 if (title.isNotBlank() && clientName.isNotBlank() && fabric.isNotBlank() && ordered.toDoubleSafe() > 0) {
                     vm.saveCottonOrder(calc.copy(title = title.trim(), notes = notes.trim()), allocations)
-                    if (editing == null) DraftStore.clearCotton(context)
+                    DraftStore.clearCotton(context, draftKey)
                     onDismiss()
                 }
             }) { Text("Salva") }
@@ -195,7 +194,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         dismissButton = {
             Row {
                 if (editing != null) TextButton(onClick = { vm.deleteCottonOrder(editing.id); onDismiss() }) { Text("Elimina", color = p.danger) }
-                else TextButton(onClick = { DraftStore.clearCotton(context); onDismiss() }) { Text("Scarta bozza", color = p.danger) }
+                else TextButton(onClick = { DraftStore.clearCotton(context, draftKey); onDismiss() }) { Text("Scarta bozza", color = p.danger) }
                 TextButton(onClick = onDismiss) { Text(if (editing == null) "Chiudi" else "Annulla") }
             }
         }

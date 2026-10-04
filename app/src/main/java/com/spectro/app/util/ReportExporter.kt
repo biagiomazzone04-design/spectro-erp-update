@@ -8,510 +8,338 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
-import com.spectro.app.data.ClientIssue
-import com.spectro.app.data.CottonOrder
-import com.spectro.app.data.MonthlyStats
-import com.spectro.app.data.IssueUpdate
-import com.spectro.app.data.OrderTimelineEvent
-import com.spectro.app.data.ProductionRecord
-import com.spectro.app.data.RecordType
-import com.spectro.app.data.WorkOrder
+import com.spectro.app.R
+import com.spectro.app.data.*
 import java.io.File
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.max
 
 object ReportExporter {
-    private fun workStatusIt(v: com.spectro.app.data.WorkStatus): String = when (v) {
-        com.spectro.app.data.WorkStatus.DRAFT -> "Bozza"
-        com.spectro.app.data.WorkStatus.RECEIVED, com.spectro.app.data.WorkStatus.IN_PROCESS -> "In processo"
-        com.spectro.app.data.WorkStatus.TRANSFERRED_TO_PRODUCTION -> "Trasferito in produzione"
-        com.spectro.app.data.WorkStatus.WAITING_MATERIAL -> "Attesa materiale"
-        com.spectro.app.data.WorkStatus.WAITING_CLIENT -> "Attesa cliente"
-        com.spectro.app.data.WorkStatus.IN_PRODUCTION, com.spectro.app.data.WorkStatus.IN_PROGRESS -> "In produzione"
-        com.spectro.app.data.WorkStatus.PRINTED -> "Stampato"
-        com.spectro.app.data.WorkStatus.TRANSFERRED -> "Trasferito"
-        com.spectro.app.data.WorkStatus.READY -> "Pronto"
-        com.spectro.app.data.WorkStatus.COMPLETED -> "Completato"
-        com.spectro.app.data.WorkStatus.DELIVERED -> "Evaso"
-        com.spectro.app.data.WorkStatus.CLOSED -> "Chiuso"
-        com.spectro.app.data.WorkStatus.ON_HOLD -> "Sospeso"
-        com.spectro.app.data.WorkStatus.BLOCKED -> "Bloccato"
-        com.spectro.app.data.WorkStatus.CANCELLED -> "Annullato"
-    }
-    private fun timelineCategoryIt(v: com.spectro.app.data.TimelineCategory) = when (v) {
-        com.spectro.app.data.TimelineCategory.NOTE -> "Nota"
-        com.spectro.app.data.TimelineCategory.CLIENT -> "Cliente"
-        com.spectro.app.data.TimelineCategory.INTERNAL_PROBLEM -> "Problema interno"
-        com.spectro.app.data.TimelineCategory.GRAPHICS -> "Grafica"
-        com.spectro.app.data.TimelineCategory.FILE_ERROR -> "File errato"
-        com.spectro.app.data.TimelineCategory.MATERIAL -> "Materiale"
-        com.spectro.app.data.TimelineCategory.SAMPLE -> "Campionatura"
-        com.spectro.app.data.TimelineCategory.APPROVAL -> "Approvazione"
-        com.spectro.app.data.TimelineCategory.PRODUCTION -> "Produzione"
-        com.spectro.app.data.TimelineCategory.ORDER_CHANGE -> "Modifica ordine"
-        com.spectro.app.data.TimelineCategory.DELAY -> "Ritardo"
-        com.spectro.app.data.TimelineCategory.DELIVERY -> "Consegna"
-        com.spectro.app.data.TimelineCategory.STATUS_CHANGE -> "Cambio stato"
-    }
-    private fun timelineResponsibilityIt(v: com.spectro.app.data.TimelineResponsibility) = when (v) {
-        com.spectro.app.data.TimelineResponsibility.CLIENT -> "Cliente"
-        com.spectro.app.data.TimelineResponsibility.INTERNAL -> "Interna"
-        com.spectro.app.data.TimelineResponsibility.SUPPLIER -> "Fornitore"
-        com.spectro.app.data.TimelineResponsibility.NONE -> "Nessuna"
-    }
-    private fun timelineSeverityIt(v: com.spectro.app.data.TimelineSeverity) = when (v) {
-        com.spectro.app.data.TimelineSeverity.INFO -> "Informativa"
-        com.spectro.app.data.TimelineSeverity.LOW -> "Bassa"
-        com.spectro.app.data.TimelineSeverity.MEDIUM -> "Media"
-        com.spectro.app.data.TimelineSeverity.HIGH -> "Alta"
-        com.spectro.app.data.TimelineSeverity.BLOCKING -> "Bloccante"
-    }
-    private fun timelineStatusIt(v: com.spectro.app.data.TimelineStatus) = when (v) {
-        com.spectro.app.data.TimelineStatus.OPEN -> "Aperta"
-        com.spectro.app.data.TimelineStatus.RESOLVED -> "Risolta"
-    }
-    private fun localizeStatusTokens(text: String): String {
-        var result = text
-        com.spectro.app.data.WorkStatus.entries.sortedByDescending { it.name.length }.forEach { st ->
-            result = result.replace(Regex("\\b${Regex.escape(st.name)}\\b"), workStatusIt(st))
-        }
-        return result
-    }
-    fun share(context: Context, r: ProductionRecord) {
-        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Report_${r.date}_${r.id}.pdf")
+    private val BG = Color.rgb(6, 6, 9)
+    private val PANEL = Color.rgb(18, 18, 24)
+    private val PANEL_2 = Color.rgb(28, 28, 36)
+    private val WHITE = Color.rgb(248, 248, 250)
+    private val MUTED = Color.rgb(205, 205, 216)
+    private val RED = Color.rgb(255, 48, 48)
+    private val ORANGE = Color.rgb(255, 105, 30)
+    private val MAGENTA = Color.rgb(255, 0, 168)
+    private val GREEN = Color.rgb(34, 197, 94)
+    private val CYAN = Color.rgb(0, 220, 255)
+    private val YELLOW = Color.rgb(245, 158, 11)
+
+    private class DarkPdf(private val context: Context, private val reportTitle: String, private val subtitle: String = "") {
         val pdf = PdfDocument()
-        val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
-        val c = page.canvas
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 70, 35); textSize = 30f; isFakeBoldText = true }
-        val h = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 15f; isFakeBoldText = true }
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 13f }
-        var y = 62f
-        fun line(label: String, value: String) {
-            c.drawText(label, 42f, y, h)
-            c.drawText(value.take(58), 220f, y, p)
-            y += 28f
+        var pageNo = 0
+        lateinit var page: PdfDocument.Page
+        lateinit var c: android.graphics.Canvas
+        var y = 0f
+        private val left = 34f
+        private val right = 561f
+        private val width = right - left
+        private val white = paint(WHITE, 14f)
+        private val muted = paint(MUTED, 12f)
+        private val bold = paint(WHITE, 15f, true)
+        private val section = paint(WHITE, 18f, true)
+        private val tiny = paint(MUTED, 10.5f)
+
+        init { newPage() }
+
+        private fun paint(color: Int, size: Float, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color; textSize = size; isFakeBoldText = bold
         }
-        c.drawColor(Color.WHITE)
-        c.drawText("SPECTRO ERP", 42f, y, title)
-        y += 45f
-        line("Data", r.date)
-        line("Cliente", r.clientName.ifBlank { "Evento interno" })
+
+        fun newPage() {
+            if (pageNo > 0) pdf.finishPage(page)
+            pageNo++
+            page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNo).create())
+            c = page.canvas
+            c.drawColor(BG)
+            y = 30f
+            drawHeader()
+        }
+
+        private fun drawHeader() {
+            val logo = runCatching { BitmapFactory.decodeResource(context.resources, R.drawable.spectro_header_logo) }.getOrNull()
+            if (logo != null) {
+                val ratio = logo.width.toFloat() / max(1, logo.height).toFloat()
+                val h = 38f
+                val w = (h * ratio).coerceAtMost(92f)
+                c.drawBitmap(logo, null, RectF(left, y, left + w, y + h), null)
+            }
+            val titlePaint = paint(WHITE, 20f, true)
+            val subPaint = paint(ORANGE, 10f, true)
+            c.drawText("SPECTRO ERP", 140f, y + 17f, titlePaint)
+            c.drawText(reportTitle.uppercase(), 140f, y + 35f, subPaint)
+            if (subtitle.isNotBlank()) c.drawText(subtitle.take(62), left, y + 56f, tiny)
+            y += 72f
+            c.drawRect(left, y, right, y + 2f, paint(ORANGE, 1f))
+            y += 18f
+        }
+
+        fun ensure(h: Float) { if (y + h > 808f) newPage() }
+
+        fun section(title: String, accent: Int = ORANGE) {
+            ensure(38f); y += 7f
+            c.drawRect(left, y - 12f, left + 5f, y + 8f, paint(accent, 1f))
+            c.drawText(title.uppercase(), left + 14f, y + 4f, section)
+            y += 27f
+        }
+
+        fun infoRow(label: String, value: String, accent: Int? = null) {
+            ensure(28f)
+            val lp = paint(MUTED, 11f, true)
+            val vp = paint(accent ?: WHITE, 12.5f, accent != null)
+            c.drawText(label.uppercase(), left, y, lp)
+            val lines = wrap(value.ifBlank { "-" }, 48)
+            c.drawText(lines.firstOrNull().orEmpty(), 205f, y, vp)
+            y += 22f
+            lines.drop(1).take(2).forEach { c.drawText(it, 205f, y, vp); y += 18f }
+        }
+
+        fun paragraph(label: String, text: String, accent: Int = WHITE) {
+            if (text.isBlank()) return
+            ensure(44f)
+            c.drawText(label.uppercase(), left, y, paint(accent, 11f, true)); y += 19f
+            wrap(text, 78).forEach { line -> ensure(18f); c.drawText(line, left, y, white); y += 18f }
+            y += 7f
+        }
+
+        fun metricRow(metrics: List<Triple<String, String, Int>>) {
+            if (metrics.isEmpty()) return
+            ensure(83f)
+            val gap = 8f
+            val count = metrics.size.coerceAtMost(3)
+            val cardW = (width - gap * (count - 1)) / count
+            metrics.take(3).forEachIndexed { idx, (label, value, accent) ->
+                val x = left + idx * (cardW + gap)
+                c.drawRoundRect(RectF(x, y, x + cardW, y + 72f), 12f, 12f, paint(PANEL, 1f))
+                c.drawText(label.uppercase().take(18), x + 12f, y + 21f, paint(MUTED, 9f, true))
+                c.drawText(value.take(20), x + 12f, y + 51f, paint(accent, 18f, true))
+            }
+            y += 84f
+        }
+
+        fun barChart(title: String, values: List<Pair<String, Double>>, currency: Boolean = false) {
+            val filtered = values.filter { it.second != 0.0 }.take(8)
+            if (filtered.isEmpty()) return
+            val h = 42f + filtered.size * 30f
+            ensure(h)
+            c.drawRoundRect(RectF(left, y, right, y + h - 8f), 14f, 14f, paint(PANEL, 1f))
+            c.drawText(title.uppercase(), left + 14f, y + 22f, paint(WHITE, 12f, true))
+            val maximum = filtered.maxOf { kotlin.math.abs(it.second) }.coerceAtLeast(0.01)
+            val colors = intArrayOf(ORANGE, MAGENTA, GREEN, CYAN, YELLOW, RED)
+            var rowY = y + 42f
+            filtered.forEachIndexed { idx, (label, value) ->
+                c.drawText(label.take(22), left + 14f, rowY + 10f, paint(MUTED, 9.5f, true))
+                val bx = left + 145f
+                val bw = 275f * (kotlin.math.abs(value) / maximum).toFloat()
+                c.drawRoundRect(RectF(bx, rowY, bx + bw.coerceAtLeast(4f), rowY + 12f), 6f, 6f, paint(colors[idx % colors.size], 1f))
+                val formatted = if (currency) eur(value) else "%.1f".format(Locale.ITALY, value)
+                c.drawText(formatted, left + 430f, rowY + 10f, paint(WHITE, 9.5f, true))
+                rowY += 30f
+            }
+            y += h
+        }
+
+        fun timelineEvent(event: OrderTimelineEvent) {
+            val accent = when (event.severity) { TimelineSeverity.INFO -> CYAN; TimelineSeverity.LOW -> GREEN; TimelineSeverity.MEDIUM -> YELLOW; TimelineSeverity.HIGH, TimelineSeverity.BLOCKING -> RED }
+            val descLines = wrap(localizeStatusTokens(event.description), 72).take(8)
+            val h = 68f + descLines.size * 17f + if (event.images.isNotEmpty()) 84f else 0f
+            ensure(h)
+            c.drawRoundRect(RectF(left, y, right, y + h - 7f), 13f, 13f, paint(PANEL, 1f))
+            c.drawRect(left, y, left + 5f, y + h - 7f, paint(accent, 1f))
+            c.drawText("${event.date}${if (event.time.isNotBlank()) " • ${event.time}" else ""}", left + 15f, y + 20f, paint(MUTED, 10f, true))
+            c.drawText(event.title.take(55), left + 15f, y + 43f, paint(WHITE, 14f, true))
+            c.drawText("${timelineCategoryIt(event.category)} • ${timelineResponsibilityIt(event.responsibility)} • ${timelineSeverityIt(event.severity)}", left + 15f, y + 61f, paint(accent, 9.5f, true))
+            var yy = y + 81f
+            descLines.forEach { c.drawText(it, left + 15f, yy, paint(WHITE, 10.5f)); yy += 17f }
+            if (event.oldDueDate.isNotBlank() || event.newDueDate.isNotBlank()) { c.drawText("Consegna: ${event.oldDueDate.ifBlank { "-" }} → ${event.newDueDate.ifBlank { "-" }}", left + 15f, yy, paint(YELLOW, 9.5f, true)); yy += 18f }
+            if (event.images.isNotEmpty()) imageStrip(event.images, yy, left + 15f)
+            y += h
+        }
+
+        fun detailCard(title: String, subtitle: String = "", value: String = "", accent: Int = ORANGE) {
+            ensure(60f)
+            c.drawRoundRect(RectF(left, y, right, y + 52f), 12f, 12f, paint(PANEL_2, 1f))
+            c.drawText(title.take(50), left + 12f, y + 20f, paint(WHITE, 11.5f, true))
+            if (subtitle.isNotBlank()) c.drawText(subtitle.take(62), left + 12f, y + 39f, paint(MUTED, 9.5f))
+            if (value.isNotBlank()) c.drawText(value.take(20), right - 125f, y + 29f, paint(accent, 12f, true))
+            y += 60f
+        }
+
+        fun images(paths: List<String>) {
+            if (paths.isEmpty()) return
+            section("Allegati", MAGENTA)
+            paths.chunked(3).forEach { group -> ensure(110f); imageStrip(group, y, left); y += 108f }
+        }
+
+        private fun imageStrip(paths: List<String>, top: Float, startX: Float) {
+            var x = startX
+            paths.take(3).forEach { path ->
+                val bmp = runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                if (bmp != null) {
+                    val w = 105f; val h = 76f
+                    c.drawBitmap(bmp, null, RectF(x, top, x + w, top + h), null)
+                }
+                x += 115f
+            }
+        }
+
+        fun finish(file: File) {
+            pdf.finishPage(page)
+            file.outputStream().use { pdf.writeTo(it) }
+            pdf.close()
+        }
+    }
+
+    fun share(context: Context, r: ProductionRecord) {
+        val file = outFile(context, "Spectro_Report_${r.date}_${r.id}.pdf")
+        val d = DarkPdf(context, if (r.type == RecordType.PRODUCTION) "Report produzione" else "Evento negativo", "${r.date} • ${r.clientName.ifBlank { "Evento interno" }}")
         if (r.type == RecordType.PRODUCTION) {
-            line("Rif. ordine", r.orderRef.ifBlank { "-" })
-            line("Carta stampata", "${r.printedPaperMeters} mt (${r.plotter})")
-            line("Tessuto", r.fabricDisplayName)
-            line("Tessuto lavorato", "${r.fabricUsedMeters} mt")
-            line("Fatturato", eur(r.grossRevenue))
-            line("Costi materie", eur(r.materialCostTotal))
-            line("Utile lordo", eur(r.grossProfit))
+            d.metricRow(listOf(Triple("Fatturato", eur(r.grossRevenue), GREEN), Triple("Costi", eur(r.materialCostTotal), YELLOW), Triple("Utile", eur(r.grossProfit), if (r.grossProfit >= 0) GREEN else RED)))
+            d.barChart("Economia ordine", listOf("Fatturato" to r.grossRevenue, "Costi materie" to r.materialCostTotal, "Utile lordo" to r.grossProfit), true)
+            d.section("Dati produttivi")
+            d.infoRow("Cliente", r.clientName); d.infoRow("Ordine", r.orderRef); d.infoRow("Carta stampata", "${r.printedPaperMeters} mt • ${r.plotter}")
+            d.infoRow("Carta protezione", "${r.protectionPaperMeters} mt"); d.infoRow("Tessuto", r.fabricDisplayName); d.infoRow("Tessuto lavorato", "${r.fabricUsedMeters} mt")
+            d.infoRow("Disegni", r.designs.joinToString(", ").ifBlank { "-" })
+            d.paragraph("Note tecniche", r.technicalNotes, CYAN)
         } else {
-            line("Evento", r.technicalNotes.ifBlank { "Evento negativo" })
-            line("Rimborsi / extra", eur(r.refundCost))
-            line("Costo tessuto", eur(r.fabricLossCost))
-            line("Perdita totale", eur(r.materialCostTotal))
+            d.metricRow(listOf(Triple("Rimborsi", eur(r.refundCost), RED), Triple("Tessuto", eur(r.fabricLossCost), YELLOW), Triple("Perdita", eur(r.materialCostTotal), RED)))
+            d.paragraph("Descrizione evento", r.technicalNotes, RED)
         }
-        if (r.technicalNotes.isNotBlank()) {
-            y += 10f
-            line("Note tecniche", r.technicalNotes)
-        }
-        pdf.finishPage(page)
-        file.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
-        sharePdf(context, file, "Condividi report Spectro")
+        d.images(r.images); d.finish(file); sharePdf(context, file, "Condividi report Spectro")
     }
 
     fun shareWorkOrder(context: Context, w: WorkOrder) {
-        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Ordine_${w.receivedDate}_${w.id}.pdf")
-        val pdf = PdfDocument()
-        val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
-        val c = page.canvas
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 70, 35); textSize = 28f; isFakeBoldText = true }
-        val h = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 14f; isFakeBoldText = true }
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 12f }
-        var y = 60f
-        fun line(label: String, value: String) {
-            c.drawText(label, 42f, y, h)
-            c.drawText(value.take(62), 210f, y, p)
-            y += 27f
-        }
-        fun paragraph(label: String, value: String) {
-            if (value.isBlank()) return
-            c.drawText(label, 42f, y, h)
-            y += 22f
-            wrap(value, 74).forEach {
-                c.drawText(it, 42f, y, p)
-                y += 19f
-            }
-        }
-        c.drawColor(Color.WHITE)
-        c.drawText("SPECTRO ERP • ORDINE", 42f, y, title)
-        y += 44f
-        line("Codice", w.orderCode.ifBlank { "-" })
-        line("Cliente", w.client)
-        line("Titolo", w.title)
-        line("Ricevuto", w.receivedDate)
-        line("Consegna", w.dueDate.ifBlank { "-" })
-        line("Stato", workStatusIt(w.status))
-        line("Metri", if (w.orderedMeters > 0) "${w.orderedMeters} mt" else "-")
-        line("Disegno", w.designCode.ifBlank { "-" })
-        line("Allegati", w.images.size.toString())
-        paragraph("Descrizione / note", w.description)
-        pdf.finishPage(page)
-        file.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
-        sharePdf(context, file, "Condividi ordine Spectro")
+        val file = outFile(context, "Spectro_Ordine_${w.receivedDate}_${w.id}.pdf")
+        val d = DarkPdf(context, "Ordine", "${w.title.ifBlank { w.orderCode }} • ${w.client}")
+        d.metricRow(listOf(Triple("Metri", if (w.orderedMeters > 0) "${w.orderedMeters} mt" else "-", CYAN), Triple("Prezzo", if (w.printPricePerMeter > 0) eur(w.printPricePerMeter) + "/mt" else "-", GREEN), Triple("Stato", workStatusIt(w.status), ORANGE)))
+        d.section("Informazioni ordine")
+        d.infoRow("Codice interno", w.orderCode); d.infoRow("Cliente", w.client); d.infoRow("Data ordine", w.receivedDate); d.infoRow("Consegna", w.dueDate)
+        d.infoRow("Disegno", w.designCode); d.infoRow("Priorità", if (w.priority == Priority.HIGH) "Alta" else "Normale", if (w.priority == Priority.HIGH) RED else GREEN)
+        d.paragraph("Descrizione / note", w.description)
+        d.images(w.images); d.finish(file); sharePdf(context, file, "Condividi ordine Spectro")
     }
 
     fun shareCottonOrder(context: Context, order: CottonOrder) {
-        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Cotone_${order.orderDate}_${order.id}.pdf")
-        val pdf = PdfDocument()
-        val page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, 1).create())
-        val c = page.canvas
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 70, 35); textSize = 27f; isFakeBoldText = true }
-        val h = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 14f; isFakeBoldText = true }
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 12f }
-        var y = 60f
-        fun line(label: String, value: String) {
-            c.drawText(label, 42f, y, h)
-            c.drawText(value.take(64), 215f, y, p)
-            y += 27f
-        }
-        fun paragraph(label: String, value: String) {
-            if (value.isBlank()) return
-            c.drawText(label, 42f, y, h)
-            y += 21f
-            wrap(value, 74).forEach { row -> c.drawText(row, 42f, y, p); y += 18f }
-        }
-        c.drawColor(Color.WHITE)
-        c.drawText("SPECTRO ERP • ORDINE COTONE", 42f, y, title)
-        y += 44f
-        line("Nome ordine", order.title.ifBlank { order.orderCode })
-        if (order.orderCode.isNotBlank()) line("Codice interno", order.orderCode)
-        line("Cliente", order.clientName)
-        line("Data ordine", order.orderDate)
-        line("Consegna", order.dueDate.ifBlank { "-" })
-        line("Stato", workStatusIt(order.status))
-        line("Tessuto", order.fabricName)
-        line("Metri ordinati", "${order.orderedMeters} mt")
-        line("Metri prodotti", "${order.actualProducedMeters} mt")
-        line("Metri consegnati", "${order.deliveredMeters} mt")
-        line("Prezzo stampa", "${eur(order.printPricePerMeter)} / mt")
-        line("Costo produzione", "${eur(order.productionCostPerMeter)} / mt")
-        line("Ricavo", eur(order.grossRevenue))
-        line("Costi totali", eur(order.totalCost))
-        line("Margine", eur(order.margin))
-        line("Margine %", "${"%.2f".format(order.marginPercent)}%")
-        line("Immagini", order.images.size.toString())
-        paragraph("Note", order.notes)
-        pdf.finishPage(page)
-        file.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
-        sharePdf(context, file, "Condividi ordine cotone Spectro")
+        val file = outFile(context, "Spectro_Cotone_${order.orderDate}_${order.id}.pdf")
+        val d = DarkPdf(context, "Ordine cotone", "${order.title.ifBlank { order.orderCode }} • ${order.clientName}")
+        d.metricRow(listOf(Triple("Ricavo", eur(order.grossRevenue), GREEN), Triple("Costi", eur(order.totalCost), YELLOW), Triple("Margine", eur(order.margin), if (order.margin >= 0) GREEN else RED)))
+        d.barChart("Economia cotone", listOf("Ricavo" to order.grossRevenue, "Costo produzione" to order.productionCost, "Costo tessuto" to order.fabricCost, "Margine" to order.margin), true)
+        d.section("Ordine")
+        d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Tessuto", order.fabricName); d.infoRow("Metri ordinati", "${order.orderedMeters} mt")
+        d.infoRow("Metri prodotti", "${order.actualProducedMeters} mt"); d.infoRow("Metri consegnati", "${order.deliveredMeters} mt"); d.infoRow("Difettosi", "${order.defectiveMeters} mt")
+        d.infoRow("Campioni", "${order.sampleMeters} mt"); d.infoRow("Avanzati", "${order.leftoverMeters} mt"); d.infoRow("Consegna", order.dueDate)
+        d.paragraph("Note", order.notes, CYAN); d.images(order.images); d.finish(file); sharePdf(context, file, "Condividi ordine cotone")
+    }
+
+    fun shareEconomicWork(context: Context, work: EconomicWork) {
+        val file = outFile(context, "Spectro_AltroRicavo_${work.date}_${work.id}.pdf")
+        val d = DarkPdf(context, "Lavoro economico", "${work.title} • ${work.clientName.ifBlank { "Senza cliente" }}")
+        d.metricRow(listOf(Triple("Fatturato lordo", eur(work.grossRevenue), GREEN), Triple("Costi", eur(work.totalCosts), YELLOW), Triple("Utile netto", eur(work.netProfit), if (work.netProfit >= 0) GREEN else RED)))
+        d.barChart("Economia lavoro", listOf("Fatturato" to work.grossRevenue, "Materiali" to work.materialCosts, "Altri costi" to work.otherCosts, "Utile" to work.netProfit), true)
+        d.section("Dettaglio")
+        d.infoRow("Data", work.date); d.infoRow("Cliente", work.clientName); d.infoRow("Stato", economicStatusIt(work.status)); d.infoRow("Quantità", if (work.quantity > 0) "${work.quantity} mt/unità" else "-")
+        d.infoRow("Prezzo unitario", if (work.unitPrice > 0) eur(work.unitPrice) else "-")
+        if (work.materials.isNotEmpty()) { d.section("Materiali utilizzati", MAGENTA); work.materials.forEach { d.detailCard(it.name, "${it.quantity} × ${eur(it.unitCost)}", eur(it.totalCost), YELLOW) } }
+        d.paragraph("Note", work.notes, CYAN); d.images(work.images); d.finish(file); sharePdf(context, file, "Condividi lavoro economico")
     }
 
     fun shareOrderTimeline(context: Context, order: WorkOrder, events: List<OrderTimelineEvent>) {
-        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Storico_${order.orderCode.ifBlank { order.id.toString() }}.pdf")
-        val pdf = PdfDocument()
-        var pageNumber = 0
-        lateinit var page: PdfDocument.Page
-        lateinit var canvas: android.graphics.Canvas
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 70, 35); textSize = 26f; isFakeBoldText = true }
-        val h = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 13f; isFakeBoldText = true }
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 11.5f }
-        val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.GRAY; textSize = 10f }
-        var y = 0f
-
-        fun newPage() {
-            if (pageNumber > 0) pdf.finishPage(page)
-            pageNumber += 1
-            page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
-            canvas = page.canvas
-            canvas.drawColor(Color.WHITE)
-            y = 48f
-        }
-        fun ensure(height: Float) { if (y + height > 800f) newPage() }
-        fun row(label: String, value: String) {
-            ensure(24f)
-            canvas.drawText(label, 42f, y, h)
-            canvas.drawText(value.take(66), 195f, y, p)
-            y += 23f
-        }
-        fun paragraph(value: String, indent: Float = 42f) {
-            wrap(value, 78).forEach { line ->
-                ensure(18f)
-                canvas.drawText(line, indent, y, p)
-                y += 17f
-            }
-        }
-        fun image(path: String) {
-            val f = File(path)
-            if (!f.isFile) return
-            val bitmap = runCatching { BitmapFactory.decodeFile(f.absolutePath) }.getOrNull() ?: return
-            val maxW = 500f
-            val maxH = 260f
-            val scale = minOf(maxW / bitmap.width.toFloat(), maxH / bitmap.height.toFloat(), 1f)
-            val w = bitmap.width * scale
-            val hgt = bitmap.height * scale
-            ensure(hgt + 30f)
-            val left = 42f
-            canvas.drawBitmap(bitmap, null, RectF(left, y, left + w, y + hgt), null)
-            y += hgt + 6f
-            canvas.drawText(f.name.take(72), left, y, small)
-            y += 18f
-            bitmap.recycle()
-        }
-
-        newPage()
-        canvas.drawText("SPECTRO ERP • STORICO ORDINE", 42f, y, title)
-        y += 38f
-        row("Ordine", order.title.ifBlank { order.orderCode })
-        if (order.orderCode.isNotBlank()) row("Codice interno", order.orderCode)
-        row("Cliente", order.client)
-        row("Data ordine", order.receivedDate)
-        row("Consegna prevista", order.dueDate.ifBlank { "-" })
-        row("Consegna effettiva", order.effectiveDeliveryDate.ifBlank { "-" })
-        row("Stato", workStatusIt(order.status))
-        row("Metri", if (order.orderedMeters > 0) "${order.orderedMeters} mt" else "-")
-        y += 8f
-        canvas.drawText("CRONOLOGIA", 42f, y, h)
-        y += 25f
-
-        if (events.isEmpty()) {
-            paragraph("Nessun aggiornamento registrato nella timeline.")
-        } else {
-            events.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id }).forEach { e ->
-                ensure(100f)
-                canvas.drawText("${e.date}${if (e.time.isNotBlank()) " • ${e.time}" else ""}  —  ${e.title}", 42f, y, h)
-                y += 20f
-                canvas.drawText("${timelineCategoryIt(e.category)} • ${timelineResponsibilityIt(e.responsibility)} • ${timelineSeverityIt(e.severity)} • ${timelineStatusIt(e.status)}", 42f, y, small)
-                y += 17f
-                if (e.description.isNotBlank()) paragraph(localizeStatusTokens(e.description), 52f)
-                if (e.oldDueDate.isNotBlank() || e.newDueDate.isNotBlank()) {
-                    paragraph("Consegna: ${e.oldDueDate.ifBlank { "-" }} → ${e.newDueDate.ifBlank { "-" }}", 52f)
-                }
-                if (e.resolutionNote.isNotBlank()) paragraph("Risoluzione: ${localizeStatusTokens(e.resolutionNote)}", 52f)
-                if (e.images.isNotEmpty()) {
-                    ensure(20f)
-                    canvas.drawText("Allegati (${e.images.size})", 52f, y, h)
-                    y += 18f
-                    e.images.forEach(::image)
-                }
-                y += 13f
-            }
-        }
-
-        pdf.finishPage(page)
-        file.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
-        sharePdf(context, file, "Condividi storico ordine Spectro")
+        val file = outFile(context, "Spectro_Storico_${order.orderCode.ifBlank { order.id.toString() }}.pdf")
+        val critical = events.filter { it.severity != TimelineSeverity.INFO }
+        val d = DarkPdf(context, "Storico ordine", "${order.title.ifBlank { order.orderCode }} • ${order.client}")
+        d.metricRow(listOf(Triple("Aggiornamenti", events.size.toString(), CYAN), Triple("Criticità", critical.size.toString(), YELLOW), Triple("Aperte", critical.count { it.status == TimelineStatus.OPEN }.toString(), if (critical.any { it.status == TimelineStatus.OPEN }) RED else GREEN)))
+        d.section("Dati ordine")
+        d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Data ordine", order.receivedDate); d.infoRow("Consegna", order.dueDate); d.infoRow("Metri", "${order.orderedMeters} mt"); d.infoRow("Disegno", order.designCode)
+        d.paragraph("Note ordine", order.description)
+        d.section("Timeline completa", MAGENTA)
+        if (events.isEmpty()) d.detailCard("Nessun aggiornamento registrato") else events.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id }).forEach { d.timelineEvent(it) }
+        d.finish(file); sharePdf(context, file, "Condividi storico ordine Spectro")
     }
 
     fun shareMonthlyStatistics(
         context: Context,
         stats: MonthlyStats,
         productions: List<ProductionRecord>,
-        cottonOrders: List<CottonOrder>
+        cottonOrders: List<CottonOrder>,
+        economicWorks: List<EconomicWork> = emptyList(),
+        timelineEvents: List<OrderTimelineEvent> = emptyList(),
+        clientIssues: List<ClientIssue> = emptyList()
     ) {
-        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Statistiche_${stats.month}.pdf")
-        val pdf = PdfDocument()
-        var pageNumber = 0
-        lateinit var page: PdfDocument.Page
-        lateinit var canvas: android.graphics.Canvas
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 70, 35); textSize = 26f; isFakeBoldText = true }
-        val h = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 13f; isFakeBoldText = true }
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 11.5f }
-        val small = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.GRAY; textSize = 9.5f }
-        var y = 0f
-
-        fun newPage() {
-            if (pageNumber > 0) pdf.finishPage(page)
-            pageNumber++
-            page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
-            canvas = page.canvas
-            canvas.drawColor(Color.WHITE)
-            y = 48f
-        }
-        fun ensure(height: Float) { if (y + height > 800f) newPage() }
-        fun row(label: String, value: String) {
-            ensure(22f)
-            canvas.drawText(label, 42f, y, h)
-            canvas.drawText(value.take(68), 215f, y, p)
-            y += 22f
-        }
-        fun section(text: String) {
-            ensure(34f)
-            y += 8f
-            canvas.drawText(text, 42f, y, h)
-            y += 24f
-        }
-        fun detail(left: String, right: String) {
-            ensure(18f)
-            canvas.drawText(left.take(58), 52f, y, p)
-            canvas.drawText(right.take(28), 430f, y, small)
-            y += 17f
-        }
-
-        newPage()
-        canvas.drawText("SPECTRO ERP • STATISTICHE MENSILI", 42f, y, title)
-        y += 40f
-        row("Mese", stats.month)
-        row("Fatturato totale", eur(stats.totalRevenue))
-        row("Fatturato sublimazione", eur(stats.productionRevenue))
-        row("Fatturato cotone", eur(stats.cottonRevenue))
-        row("Costi materie sublimazione", eur(stats.materialCosts))
-        row("Costi cotone", eur(stats.cottonCosts))
-        row("Costi fissi imputati", eur(stats.fixedCosts))
-        row("Utile netto stimato", eur(stats.netProfit))
-        row("Carta stampata", "${"%.1f".format(stats.printedPaperMeters)} mt")
-        row("Cotone lavorato", "${"%.1f".format(stats.cottonMeters)} mt")
-        row("Produzioni sublimazione", stats.productionCount.toString())
-        row("Ordini cotone", stats.cottonOrderCount.toString())
-
-        section("DETTAGLIO PER CLIENTE")
-        if (stats.clients.isEmpty()) {
-            detail("Nessun dato cliente nel mese", "")
-        } else {
-            stats.clients.forEach { c ->
-                ensure(58f)
-                canvas.drawText(c.clientName.take(45), 52f, y, h)
-                y += 17f
-                detail("Fatturato ${eur(c.revenue)} • Utile ${eur(c.profit)}", "${c.records} righe")
-                detail("Carta ${"%.1f".format(c.paperMeters)} mt • Cotone ${"%.1f".format(c.cottonMeters)} mt", "")
-                y += 5f
+        val file = outFile(context, "Spectro_Statistiche_${stats.month}.pdf")
+        val d = DarkPdf(context, "Report mensile", stats.month)
+        d.metricRow(listOf(Triple("Fatturato", eur(stats.totalRevenue), GREEN), Triple("Costi", eur(stats.totalCosts), YELLOW), Triple("Utile netto", eur(stats.netProfit), if (stats.netProfit >= 0) GREEN else RED)))
+        d.metricRow(listOf(Triple("Carta stampata", "%.1f mt".format(Locale.ITALY, stats.printedPaperMeters), CYAN), Triple("Cotone", "%.1f mt".format(Locale.ITALY, stats.cottonMeters), MAGENTA), Triple("Criticità", stats.criticalityCount.toString(), if (stats.criticalityCount > 0) YELLOW else GREEN)))
+        d.barChart("Composizione fatturato", listOf("Sublimazione" to stats.productionRevenue, "Cotone" to stats.cottonRevenue, "Altri ricavi" to stats.otherRevenue), true)
+        d.barChart("Fatturato per cliente", stats.clients.take(8).map { it.clientName to it.revenue }, true)
+        d.barChart("Metri carta per cliente", stats.clients.filter { it.paperMeters > 0 }.take(8).map { it.clientName to it.paperMeters })
+        d.section("Riepilogo economico")
+        d.infoRow("Sublimazione", eur(stats.productionRevenue)); d.infoRow("Cotone", eur(stats.cottonRevenue)); d.infoRow("Altri ricavi", eur(stats.otherRevenue), GREEN)
+        d.infoRow("Costi materie sublimazione", eur(stats.materialCosts)); d.infoRow("Costi cotone", eur(stats.cottonCosts)); d.infoRow("Costi altri lavori", eur(stats.otherCosts)); d.infoRow("Costi fissi", eur(stats.fixedCosts))
+        d.section("Dettaglio clienti", MAGENTA)
+        stats.clients.forEach { c -> d.detailCard(c.clientName, "Carta ${"%.1f".format(Locale.ITALY, c.paperMeters)} mt • Cotone ${"%.1f".format(Locale.ITALY, c.cottonMeters)} mt • Criticità ${c.criticalities}", "${eur(c.revenue)} / ${eur(c.profit)}", if (c.profit >= 0) GREEN else RED) }
+        d.section("Produzioni sublimazione", ORANGE)
+        productions.filter { it.type == RecordType.PRODUCTION }.sortedBy { it.date }.forEach { r -> d.detailCard("${r.date} • ${r.clientName}", "${r.orderRef.ifBlank { "Senza riferimento" }} • Carta ${"%.1f".format(Locale.ITALY, r.printedPaperMeters)} mt", eur(r.grossRevenue), GREEN) }
+        d.section("Ordini cotone", MAGENTA)
+        cottonOrders.sortedBy { it.orderDate }.forEach { o -> d.detailCard("${o.orderDate} • ${o.clientName}", "${o.title.ifBlank { o.orderCode }} • ${o.fabricName} • ${"%.1f".format(Locale.ITALY, if (o.actualProducedMeters > 0) o.actualProducedMeters else o.orderedMeters)} mt", eur(o.margin), if (o.margin >= 0) GREEN else RED) }
+        if (economicWorks.isNotEmpty()) { d.section("Altri lavori economici", CYAN); economicWorks.sortedBy { it.date }.forEach { w -> d.detailCard("${w.date} • ${w.clientName.ifBlank { "Senza cliente" }}", w.title, eur(w.netProfit), if (w.netProfit >= 0) GREEN else RED) } }
+        val critical = timelineEvents.filter { it.severity != TimelineSeverity.INFO }
+        if (critical.isNotEmpty() || clientIssues.isNotEmpty()) {
+            d.section("Criticità del mese", RED)
+            critical.sortedBy { it.date }.forEach { e ->
+                d.detailCard("${e.date} • ${e.clientName}", "${e.orderRef} • ${e.title} • ${timelineResponsibilityIt(e.responsibility)}", timelineSeverityIt(e.severity), if (e.status == TimelineStatus.OPEN) RED else GREEN)
+            }
+            clientIssues.sortedBy { it.openedDate }.forEach { issue ->
+                d.detailCard("${issue.openedDate} • ${issue.clientName}", "${issue.orderRef} • ${issue.title} • Criticità CRM", issue.severity.name, if (issue.status !in listOf(IssueStatus.RESOLVED, IssueStatus.CLOSED)) RED else GREEN)
             }
         }
-
-        section("PRODUZIONI SUBLIMAZIONE")
-        val productive = productions.filter { it.type == RecordType.PRODUCTION }.sortedBy { it.date }
-        if (productive.isEmpty()) detail("Nessuna produzione", "") else productive.forEach { r ->
-            detail("${r.date} • ${r.clientName} • ${r.orderRef.ifBlank { "senza riferimento" }}", eur(r.grossRevenue))
-            detail("Carta ${"%.1f".format(r.printedPaperMeters)} mt • Utile lordo ${eur(r.grossProfit)}", "")
-        }
-
-        section("ORDINI COTONE")
-        if (cottonOrders.isEmpty()) detail("Nessun ordine cotone", "") else cottonOrders.sortedBy { it.orderDate }.forEach { o ->
-            detail("${o.orderDate} • ${o.clientName} • ${o.title.ifBlank { o.orderCode }}", eur(o.grossRevenue))
-            detail("${o.fabricName} • ${"%.1f".format(if (o.actualProducedMeters > 0) o.actualProducedMeters else o.orderedMeters)} mt • Margine ${eur(o.margin)}", "")
-        }
-
-        pdf.finishPage(page)
-        file.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
-        sharePdf(context, file, "Condividi statistiche Spectro ${stats.month}")
+        d.finish(file); sharePdf(context, file, "Condividi statistiche Spectro ${stats.month}")
     }
 
     fun shareIssue(context: Context, issue: ClientIssue, updates: List<IssueUpdate>) {
-        val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Criticita_${issue.openedDate}_${issue.id}.pdf")
-        val pdf = PdfDocument()
-        var pageNumber = 1
-        var page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
-        var c = page.canvas
-        val title = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 70, 35); textSize = 27f; isFakeBoldText = true }
-        val h = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 13f; isFakeBoldText = true }
-        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.DKGRAY; textSize = 12f }
-        var y = 58f
-        fun newPage() {
-            pdf.finishPage(page)
-            pageNumber++
-            page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNumber).create())
-            c = page.canvas
-            c.drawColor(Color.WHITE)
-            y = 52f
-        }
-        fun row(label: String, value: String) {
-            if (y > 790) newPage()
-            c.drawText(label, 42f, y, h)
-            c.drawText(value.take(62), 205f, y, p)
-            y += 25f
-        }
-        fun paragraph(label: String, value: String) {
-            if (value.isBlank()) return
-            if (y > 760) newPage()
-            c.drawText(label, 42f, y, h)
-            y += 20f
-            wrap(value, 72).forEach {
-                if (y > 790) newPage()
-                c.drawText(it, 42f, y, p)
-                y += 18f
-            }
-            y += 8f
-        }
-        c.drawColor(Color.WHITE)
-        c.drawText("SPECTRO ERP • REPORT CRITICITÀ", 42f, y, title)
-        y += 42f
-        row("Cliente", issue.clientName)
-        row("Ordine", issue.orderRef.ifBlank { "-" })
-        row("Titolo", issue.title)
-        row("Data apertura", issue.openedDate)
-        row("Categoria", issue.category.name)
-        row("Responsabilità", issue.responsibility.name)
-        row("Gravità", issue.severity.name)
-        row("Stato", issue.status.name)
-        row("Consegna iniziale", issue.expectedDeliveryDate.ifBlank { "-" })
-        row("Nuova consegna", issue.revisedDeliveryDate.ifBlank { "-" })
-        row("Ritardo documentato", "${issue.delayDays} giorni")
-        row("Prove allegate", issue.evidenceImages.size.toString())
-        paragraph("Descrizione dei fatti", issue.description)
-        paragraph("Note interne", issue.internalNotes)
-        if (updates.isNotEmpty()) {
-            if (y > 730) newPage()
-            c.drawText("CRONOLOGIA", 42f, y, h)
-            y += 25f
-            updates.sortedBy { it.date }.forEach { u ->
-                if (y > 740) newPage()
-                c.drawText("${u.date} • ${u.images.size} allegati", 42f, y, h)
-                y += 20f
-                wrap(u.note, 72).forEach {
-                    if (y > 790) newPage()
-                    c.drawText(it, 55f, y, p)
-                    y += 18f
-                }
-                y += 12f
-            }
-        }
-        pdf.finishPage(page)
-        file.outputStream().use { pdf.writeTo(it) }
-        pdf.close()
-        sharePdf(context, file, "Condividi prova criticità")
+        val file = outFile(context, "Spectro_Criticita_${issue.openedDate}_${issue.id}.pdf")
+        val d = DarkPdf(context, "Dossier criticità", "${issue.clientName} • ${issue.title}")
+        d.metricRow(listOf(Triple("Ritardo", "${issue.delayDays} gg", if (issue.delayDays > 0) RED else GREEN), Triple("Gravità", issue.severity.name, YELLOW), Triple("Stato", issue.status.name, CYAN)))
+        d.section("Informazioni")
+        d.infoRow("Ordine", issue.orderRef); d.infoRow("Apertura", issue.openedDate); d.infoRow("Consegna iniziale", issue.expectedDeliveryDate); d.infoRow("Nuova consegna", issue.revisedDeliveryDate)
+        d.infoRow("Categoria", issue.category.name); d.infoRow("Responsabilità", issue.responsibility.name)
+        d.paragraph("Descrizione dei fatti", issue.description, RED); d.paragraph("Note interne", issue.internalNotes, CYAN); d.images(issue.evidenceImages)
+        if (updates.isNotEmpty()) { d.section("Cronologia", MAGENTA); updates.sortedBy { it.date }.forEach { u -> d.detailCard(u.date, u.note, "${u.images.size} allegati", CYAN); d.images(u.images) } }
+        d.finish(file); sharePdf(context, file, "Condividi dossier criticità")
     }
+
+    fun shareZenthaOrder(context: Context, order: ZenthaOrder, items: List<ZenthaOrderItem>, extras: List<ZenthaExtraCost>, payments: List<ZenthaPayment>) {
+        val revenue = items.sumOf { it.revenue }; val productCosts = items.sumOf { it.cost }; val extra = extras.sumOf { it.amount }; val profit = revenue - productCosts - extra; val paid = payments.sumOf { it.amount }
+        val file = outFile(context, "Spectro_Zentha_${order.orderDate}_${order.id}.pdf")
+        val d = DarkPdf(context, "Ordine Zentha", "${order.orderCode} • ${order.clientName}")
+        d.metricRow(listOf(Triple("Ricavi", eur(revenue), GREEN), Triple("Costi", eur(productCosts + extra), YELLOW), Triple("Utile", eur(profit), if (profit >= 0) GREEN else RED)))
+        d.barChart("Economia ordine", listOf("Ricavi" to revenue, "Costi prodotti" to productCosts, "Costi extra" to extra, "Utile" to profit), true)
+        d.section("Prodotti"); items.forEach { d.detailCard(it.productName, "${it.quantity} × ${eur(it.unitPrice)} • costo ${eur(it.unitCost)}", eur(it.revenue), GREEN) }
+        d.section("Pagamenti", CYAN); d.infoRow("Incassato", eur(paid), GREEN); d.infoRow("Residuo", eur((revenue - paid).coerceAtLeast(0.0)), if (revenue > paid) YELLOW else GREEN)
+        d.paragraph("Note", order.notes); d.images(order.attachments); d.finish(file); sharePdf(context, file, "Condividi ordine Zentha")
+    }
+
+    private fun workStatusIt(v: WorkStatus): String = when (v) {
+        WorkStatus.DRAFT -> "Bozza"; WorkStatus.RECEIVED, WorkStatus.IN_PROCESS -> "In processo"; WorkStatus.TRANSFERRED_TO_PRODUCTION -> "Trasferito in produzione"; WorkStatus.WAITING_MATERIAL -> "Attesa materiale"; WorkStatus.WAITING_CLIENT -> "Attesa cliente"; WorkStatus.IN_PRODUCTION, WorkStatus.IN_PROGRESS -> "In produzione"; WorkStatus.PRINTED -> "Stampato"; WorkStatus.TRANSFERRED -> "Trasferito"; WorkStatus.READY -> "Pronto"; WorkStatus.COMPLETED -> "Completato"; WorkStatus.DELIVERED -> "Evaso"; WorkStatus.CLOSED -> "Chiuso"; WorkStatus.ON_HOLD -> "Sospeso"; WorkStatus.BLOCKED -> "Bloccato"; WorkStatus.CANCELLED -> "Annullato"
+    }
+    private fun timelineCategoryIt(v: TimelineCategory) = when (v) { TimelineCategory.NOTE -> "Nota"; TimelineCategory.CLIENT -> "Cliente"; TimelineCategory.INTERNAL_PROBLEM -> "Problema interno"; TimelineCategory.GRAPHICS -> "Grafica"; TimelineCategory.FILE_ERROR -> "File errato"; TimelineCategory.MATERIAL -> "Materiale"; TimelineCategory.SAMPLE -> "Campionatura"; TimelineCategory.APPROVAL -> "Approvazione"; TimelineCategory.PRODUCTION -> "Produzione"; TimelineCategory.ORDER_CHANGE -> "Modifica ordine"; TimelineCategory.DELAY -> "Ritardo"; TimelineCategory.DELIVERY -> "Consegna"; TimelineCategory.STATUS_CHANGE -> "Cambio stato" }
+    private fun timelineResponsibilityIt(v: TimelineResponsibility) = when (v) { TimelineResponsibility.CLIENT -> "Cliente"; TimelineResponsibility.INTERNAL -> "Interna"; TimelineResponsibility.SUPPLIER -> "Fornitore"; TimelineResponsibility.NONE -> "Nessuna" }
+    private fun timelineSeverityIt(v: TimelineSeverity) = when (v) { TimelineSeverity.INFO -> "Informativa"; TimelineSeverity.LOW -> "Bassa"; TimelineSeverity.MEDIUM -> "Media"; TimelineSeverity.HIGH -> "Alta"; TimelineSeverity.BLOCKING -> "Bloccante" }
+    private fun economicStatusIt(v: EconomicWorkStatus) = when (v) { EconomicWorkStatus.OPEN -> "Aperto"; EconomicWorkStatus.COMPLETED -> "Completato"; EconomicWorkStatus.PAID -> "Incassato"; EconomicWorkStatus.CANCELLED -> "Annullato" }
+    private fun localizeStatusTokens(text: String): String { var result = text; WorkStatus.entries.sortedByDescending { it.name.length }.forEach { st -> result = result.replace(Regex("\\b${Regex.escape(st.name)}\\b"), workStatusIt(st)) }; return result }
 
     private fun wrap(text: String, width: Int): List<String> {
-        val words = text.trim().split(Regex("\\s+"))
-        if (words.isEmpty()) return emptyList()
-        val out = mutableListOf<String>()
-        var line = ""
-        words.forEach { word ->
-            val next = if (line.isBlank()) word else "$line $word"
-            if (next.length > width && line.isNotBlank()) {
-                out += line
-                line = word
-            } else {
-                line = next
-            }
-        }
-        if (line.isNotBlank()) out += line
-        return out
+        if (text.isBlank()) return emptyList()
+        val out = mutableListOf<String>(); var line = ""
+        text.replace('\n', ' ').trim().split(Regex("\\s+")).forEach { word -> val next = if (line.isBlank()) word else "$line $word"; if (next.length > width && line.isNotBlank()) { out += line; line = word } else line = next }
+        if (line.isNotBlank()) out += line; return out
     }
-
+    private fun outFile(context: Context, name: String): File = File(context.cacheDir, "shared").apply { mkdirs() }.resolve(name)
     private fun sharePdf(context: Context, file: File, chooser: String) {
         val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        context.startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "application/pdf"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                },
-                chooser
-            )
-        )
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "application/pdf"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, chooser))
     }
-
     private fun eur(v: Double) = NumberFormat.getCurrencyInstance(Locale.ITALY).format(v)
 }

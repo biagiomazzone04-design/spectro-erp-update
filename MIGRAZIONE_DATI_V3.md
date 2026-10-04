@@ -22,3 +22,25 @@ Alla prima apertura il database viene aggiornato da schema 2 a schema 3. Verific
 - immagini/allegati esistenti.
 
 Creare poi un nuovo backup 3.0 di prova e verificarne il ripristino prima di considerare la Beta stabile.
+
+## Aggiornamenti successivi fino a Beta 4
+
+### Schema 3 -> 4
+- immagini multiple per singolo collo;
+- titolo e immagini per ordini Cotone.
+
+### Schema 4 -> 5 (Beta 4)
+- nuova tabella `economic_works` per altri ricavi/lavorazioni economiche;
+- nuova tabella `operational_tasks` per attività operative;
+- nuovi indici per data, cliente e stato;
+- nessuna tabella preesistente viene eliminata.
+
+### Backup Beta 4
+Il backup portabile formato v7 comprende anche:
+- lavori economici e immagini;
+- attività operative e immagini;
+- immagini dei colli;
+- immagini Cotone;
+- Timeline e criticità.
+
+I backup precedenti rimangono leggibili: i nuovi moduli vengono inizializzati vuoti quando non presenti nel file importato.

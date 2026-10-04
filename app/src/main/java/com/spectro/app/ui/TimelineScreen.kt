@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.AttachmentStore
+import com.spectro.app.util.DraftStore
+import com.spectro.app.util.TimelineDraft
 import com.spectro.app.util.ReportExporter
 import java.time.LocalDate
 import java.time.LocalTime
@@ -130,21 +132,27 @@ private fun TimelineCard(vm: SpectroViewModel, p: SpectroPalette, event: OrderTi
 @Composable
 private fun AddTimelineEventDialog(vm: SpectroViewModel, p: SpectroPalette, order: WorkOrder, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var date by remember { mutableStateOf(LocalDate.now().toString()) }
-    var category by remember { mutableStateOf(TimelineCategory.NOTE) }
-    var responsibility by remember { mutableStateOf(TimelineResponsibility.NONE) }
-    var severity by remember { mutableStateOf(TimelineSeverity.INFO) }
-    var title by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var newDue by remember { mutableStateOf("") }
-    var images by remember { mutableStateOf(emptyList<String>()) }
+    val draft = remember(order.id) { DraftStore.loadTimeline(context, order.id) }
+    var date by remember(order.id) { mutableStateOf(draft?.date?.takeIf { it.isNotBlank() } ?: LocalDate.now().toString()) }
+    var category by remember(order.id) { mutableStateOf(draft?.category?.let { runCatching { TimelineCategory.valueOf(it) }.getOrNull() } ?: TimelineCategory.NOTE) }
+    var responsibility by remember(order.id) { mutableStateOf(draft?.responsibility?.let { runCatching { TimelineResponsibility.valueOf(it) }.getOrNull() } ?: TimelineResponsibility.NONE) }
+    var severity by remember(order.id) { mutableStateOf(draft?.severity?.let { runCatching { TimelineSeverity.valueOf(it) }.getOrNull() } ?: TimelineSeverity.INFO) }
+    var title by remember(order.id) { mutableStateOf(draft?.title.orEmpty()) }
+    var description by remember(order.id) { mutableStateOf(draft?.description.orEmpty()) }
+    var newDue by remember(order.id) { mutableStateOf(draft?.newDue.orEmpty()) }
+    var images by remember(order.id) { mutableStateOf(draft?.images ?: emptyList()) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
+
+    LaunchedEffect(date, category, responsibility, severity, title, description, newDue, images) {
+        DraftStore.saveTimeline(context, order.id, TimelineDraft(date, category.name, responsibility.name, severity.name, title, description, newDue, images))
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Aggiorna ordine", fontWeight = FontWeight.Black) },
         text = {
             LazyColumn(Modifier.heightIn(max = 620.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                item { Text("Bozza automatica attiva • testo, immagini e nuova consegna restano salvati se chiudi la finestra o l'app.", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                 item { WheelDateField("Data", date, { date = it }) }
                 item { SimpleSelectField("Categoria", timelineCategoryLabel(category), TimelineCategory.entries.map { it to timelineCategoryLabel(it) }) { category = it } }
                 item { SimpleSelectField("Responsabilità", timelineResponsibilityLabel(responsibility), TimelineResponsibility.entries.map { it to timelineResponsibilityLabel(it) }) { responsibility = it } }
@@ -161,11 +169,12 @@ private fun AddTimelineEventDialog(vm: SpectroViewModel, p: SpectroPalette, orde
                 if (title.isNotBlank() && (description.isNotBlank() || images.isNotEmpty())) {
                     vm.saveTimelineEvent(OrderTimelineEvent(workOrderId = order.id, clientId = order.clientId, clientName = order.client, orderRef = order.title.ifBlank { order.orderCode }, date = date, time = LocalTime.now().withSecond(0).withNano(0).toString(), category = category, responsibility = responsibility, severity = severity, status = if (severity == TimelineSeverity.INFO) TimelineStatus.RESOLVED else TimelineStatus.OPEN, title = title.trim(), description = description.trim(), oldDueDate = if (newDue.isNotBlank() && newDue != order.dueDate) order.dueDate else "", newDueDate = if (newDue != order.dueDate) newDue else "", images = images))
                     if (newDue.isNotBlank() && newDue != order.dueDate) vm.saveWorkOrder(order.copy(dueDate = newDue))
+                    DraftStore.clearTimeline(context, order.id)
                     onDismiss()
                 }
             }) { Text("Aggiungi") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } }
+        dismissButton = { Row { TextButton(onClick = { DraftStore.clearTimeline(context, order.id); onDismiss() }) { Text("Scarta bozza", color = p.danger) }; TextButton(onClick = onDismiss) { Text("Chiudi") } } }
     )
 }
 

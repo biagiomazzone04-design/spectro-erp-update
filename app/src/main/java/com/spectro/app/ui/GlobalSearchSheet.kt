@@ -88,7 +88,9 @@ fun SearchClientProfileSheet(
     val productions = vm.state.production.filter { it.type == RecordType.PRODUCTION && (it.clientId == client.id || it.clientName.equals(client.name, true)) }.sortedByDescending { it.date }
     val inventory = vm.state.inventory.filter { it.ownerType == OwnerType.CLIENT && it.ownerName.equals(client.name, true) }.sortedBy { it.fabricName.lowercase() }
     val cottonOrders = vm.state.cottonOrders.filter { it.clientId == client.id || it.clientName.equals(client.name, true) }.sortedByDescending { it.orderDate }
-    val revenue = productions.sumOf { it.grossRevenue } + cottonOrders.sumOf { it.grossRevenue }
+    val economicWorks = vm.state.economicWorks.filter { it.clientId == client.id || it.clientName.equals(client.name, true) }.sortedByDescending { it.date }
+    val criticalities = vm.state.timelineEvents.filter { (it.clientId == client.id || it.clientName.equals(client.name, true)) && it.severity != TimelineSeverity.INFO }.sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
+    val revenue = productions.sumOf { it.grossRevenue } + cottonOrders.sumOf { it.grossRevenue } + economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }
     val paperMeters = productions.sumOf { it.printedPaperMeters }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
@@ -101,6 +103,25 @@ fun SearchClientProfileSheet(
                         Metric("Carta stampata", meters(paperMeters), modifier = Modifier.weight(1f))
                         Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
                     }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Criticità", criticalities.size.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.warning else p.textMuted, Modifier.weight(1f))
+                        Metric("Aperte", criticalities.count { it.status == TimelineStatus.OPEN }.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.danger else p.success, Modifier.weight(1f))
+                        Metric("Altri ricavi", euro(economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }), modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            item { SectionTitle("Criticità cliente") }
+            if (criticalities.isEmpty()) item { Text("Nessuna criticità registrata negli ordini di questo cliente.", color = p.textMuted) }
+            items(criticalities, key = { "crit${it.id}" }) { event ->
+                val linked = works.firstOrNull { it.id == event.workOrderId }
+                SpectroCard(p = p, onClick = { if (linked != null) onOpenOrder(linked) }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { Text(event.title, fontWeight = FontWeight.Black, color = p.text); Text("${event.date} • ${event.orderRef}", color = p.textMuted, fontSize = 11.sp) }
+                        AssistChip(onClick = {}, label = { Text(timelineSeverityLabel(event.severity), fontSize = 9.sp) })
+                    }
+                    if (event.description.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(localizeWorkStatusTokens(event.description), color = p.text, fontSize = 12.sp, maxLines = 4) }
+                    Spacer(Modifier.height(5.dp)); Text("${timelineResponsibilityLabel(event.responsibility)} • ${if (event.status == TimelineStatus.OPEN) "Aperta" else "Risolta"}", color = if (event.status == TimelineStatus.OPEN) p.warning else p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
             item { SectionTitle("Magazzino cliente") }

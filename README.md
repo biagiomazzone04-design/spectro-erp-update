@@ -1,32 +1,37 @@
-# Spectro ERP Native 3.0.0 Beta 1
+# Spectro ERP Native 3.0.0 Beta 4
 
-Aggiornamento maggiore dell'app Android Spectro ERP per la gestione di stamperia, magazzino a colli, ordini, criticità, cotone e Zentha.
+ERP Android nativo per produzione tessile, ordini, magazzino a colli, criticità, Cotone, Zentha, attività operative e gestione economica.
 
 ## Identità Android preservata
 - applicationId/package: `com.spectro.app`
 - minSdk: 26
 - compileSdk/targetSdk: 36
-- versionCode: 12
-- versionName: `3.0.0-beta1`
-- firma RELEASE: usa lo stesso secret GitHub `SPECTRO_SIGNING_BUNDLE_B64`
+- versionCode: 15
+- versionName: `3.0.0-beta4`
+- firma RELEASE: stesso secret GitHub `SPECTRO_SIGNING_BUNDLE_B64`
 
-## Novità principali
-- Magazzino cliente/azienda con lotti, colli, metri iniziali/residui e movimenti.
-- Selezione dei colli realmente usati in produzione e scarico automatico delle giacenze.
-- Ordine unico che passa da In processo a In produzione senza duplicare l'ordine.
-- Modifica ordine e storico automatico delle modifiche principali.
-- Timeline/criticità per ordine con categorie, responsabilità, gravità, allegati e PDF.
-- Ricerca globale su clienti, ordini, tessuti, colli, timeline, cotone, Zentha e produzioni.
-- Modulo Cotone con costi manuali, tessuto cliente/azienda, colli, preventivo e consuntivo.
-- Modulo Zentha con catalogo, ordini multiprodotto, costi, utile, split 50/50 configurabile e pagamenti.
-- Backup formato v5 con compatibilità di lettura dei backup native precedenti.
+## Funzioni principali
+- Ordini sublimatici con passaggio allo stesso ordine produttivo senza perdere ID o Timeline.
+- Bozze automatiche per ordini, produzione, Cotone e aggiornamenti Timeline.
+- Timeline/criticità ordine con immagini, responsabilità, gravità e storico permanente.
+- Magazzino cliente/azienda organizzato per tessuto, lotto/carico e singolo collo.
+- Movimenti e scarico colli collegati alla produzione.
+- Modulo Cotone con preventivo/consuntivo, immagini e costi.
+- Modulo Zentha con catalogo, ordini, pagamenti e PDF.
+- Modulo Altri ricavi per lavorazioni economiche e materiali imputati.
+- Modulo Attività per campioni, ricerche grafiche e lavori operativi.
+- Ricerca globale e profilo cliente operativo.
+- Dashboard e statistiche mensili con fatturato, metri, utile, altri ricavi e criticità.
+- PDF dark professionali con KPI, grafici e dettagli.
+- Navigazione Indietro interna e tasto Android Back.
+- Backup portabile con allegati e compatibilità dei backup precedenti.
 
 ## Migrazione dati
-Il database passa dalla versione 2 alla versione 3 tramite migrazione non distruttiva. I vecchi tessuti che possiedono solo una giacenza totale vengono convertiti in un collo `LEGACY-xxxx` con la stessa quantità; potranno poi essere rettificati manualmente.
+Il database attuale usa schema 5. L'aggiornamento dalle Beta precedenti è non distruttivo: vengono aggiunte le tabelle necessarie a `economic_works` e `operational_tasks` senza eliminare clienti, ordini, produzioni, Timeline, magazzino o allegati.
 
-Non è presente `fallbackToDestructiveMigration` e l'aggiornamento non deve cancellare il database esistente.
+Non è presente alcun reset automatico del database.
 
 ## Build
-Il workflow `.github/workflows/main.yml` compila i branch `main` e `spectro-3.0-beta`, verifica la firma e pubblica l'artifact `SpectroERP-v3.0.0-BETA1-RELEASE`.
+Il workflow `.github/workflows/main.yml` compila `main` e `spectro-3.0-beta`, verifica la firma e pubblica l'artifact `SpectroERP-v3.0.0-BETA4-RELEASE`.
 
-Vedi `ISTRUZIONI_GITHUB_SPECTRO_3_BETA.md` prima di caricare il codice.
+Prima di installare una nuova Beta creare sempre un backup dall'app attualmente funzionante e installare l'APK sopra l'app esistente, senza disinstallarla.

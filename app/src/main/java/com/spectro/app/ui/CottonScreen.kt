@@ -131,7 +131,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var status by remember(editing?.id) { mutableStateOf(draft?.status?.let { runCatching { WorkStatus.valueOf(it) }.getOrNull() } ?: editing?.status ?: WorkStatus.IN_PROCESS) }
     var images by remember(editing?.id) { mutableStateOf(draft?.images?.takeIf { it.isNotEmpty() } ?: editing?.images ?: emptyList()) }
     var rollDialog by remember { mutableStateOf(false) }
-    var allocations by remember(editing?.id) { mutableStateOf(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
+    var allocations by remember(editing?.id) { mutableStateOf<Map<Long, Double>>(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }

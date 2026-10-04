@@ -115,7 +115,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     var fabricDialog by remember { mutableStateOf(false) }
     var rollDialog by remember { mutableStateOf(false) }
     var allocations by remember(editing?.id, source?.id) {
-        mutableStateOf(
+        mutableStateOf<Map<Long, Double>>(
             savedDraft?.allocations?.takeIf { it.isNotEmpty() }
                 ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.PRODUCTION && it.orderId == editing.id }.associate { it.rollId to it.meters }
                 else emptyMap()

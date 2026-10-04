@@ -91,7 +91,7 @@ private fun EconomicWorkDialog(vm: SpectroViewModel, p: SpectroPalette, editing:
     var notes by remember(editing?.id) { mutableStateOf(editing?.notes.orEmpty()) }
     var status by remember(editing?.id) { mutableStateOf(editing?.status ?: EconomicWorkStatus.OPEN) }
     var images by remember(editing?.id) { mutableStateOf(editing?.images ?: emptyList()) }
-    var materials by remember(editing?.id) { mutableStateOf(editing?.materials?.map { MaterialDraft(it.name, it.quantity.toString(), it.unitCost.toString()) } ?: emptyList()) }
+    var materials by remember(editing?.id) { mutableStateOf<List<MaterialDraft>>(editing?.materials?.map { MaterialDraft(it.name, it.quantity.toString(), it.unitCost.toString()) } ?: emptyList()) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }
     }

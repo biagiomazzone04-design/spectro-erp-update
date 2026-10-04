@@ -1,19 +1,36 @@
-SPECTRO ERP 3.0.0 BETA 1 - BUILD FIX 1
+SPECTRO ERP 3.0.0 BETA 4 - BUILD FIX 1
 
-Correzioni basate sui log GitHub Actions #14:
-1. CottonScreen.kt
-   - corretto uso di OutlinedButton: modifier ora è argomento nominato.
-2. CreateScreen.kt
-   - stessa correzione per OutlinedButton.
-3. ZenthaScreen.kt
-   - resi espliciti i tipi di attachments, drafts ed extras.
-   - evita l'inferenza errata che generava gli errori sumOf/filter/toMutableList/filterIndexed.
+Analisi log GitHub:
+La build arriva correttamente a :app:compileDebugKotlin.
+Firma, Java, Android SDK e Gradle non sono la causa del fallimento.
 
-ISTRUZIONI:
-- Restare sul branch spectro-3.0-beta.
-- Estrarre lo ZIP.
-- Copiare la cartella app dentro la root del repository e scegliere Sostituisci.
-- Commit: Fix Beta 1 Kotlin compilation
-- Push origin.
-- Attendere la nuova GitHub Actions build.
-- Non modificare main, secrets o firma.
+La causa è l'inferenza di tipo Kotlin su tre state Compose:
+- CreateScreen.kt -> allocations deve essere Map<Long, Double>
+- CottonScreen.kt -> allocations deve essere Map<Long, Double>
+- EconomicWorkScreen.kt -> materials deve essere List<MaterialDraft>
+
+Gli errori successivi su isEmpty, values, entries, filterIndexed, toMutableList,
+mapNotNull ecc. sono errori a cascata provocati da questi tre tipi non determinati.
+
+COME APPLICARE:
+1. Resta sul branch spectro-3.0-beta.
+2. Estrai questo ZIP.
+3. Copia la cartella app dentro la root locale spectro-erp-update.
+4. Scegli Sostituisci.
+5. GitHub Desktop deve mostrare SOLO:
+   - CreateScreen.kt
+   - CottonScreen.kt
+   - EconomicWorkScreen.kt
+6. Commit:
+   Fix Beta 4 Kotlin state types
+7. Push origin.
+8. Attendi una NUOVA build GitHub Actions.
+9. Non usare Re-run sulla vecchia build.
+10. Se la nuova build fallisce, scarica e invia il nuovo log archive completo.
+
+NON modificare:
+- versionCode / versionName
+- Secrets
+- firma
+- database
+- main branch

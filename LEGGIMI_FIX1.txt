@@ -1,36 +1,29 @@
-SPECTRO ERP 3.0.0 BETA 4 - BUILD FIX 1
+SPECTRO ERP 3.0.0 BETA 5 - BUILD FIX 1
 
-Analisi log GitHub:
-La build arriva correttamente a :app:compileDebugKotlin.
-Firma, Java, Android SDK e Gradle non sono la causa del fallimento.
+Errore rilevato dai log GitHub:
+Components.kt non importava i componenti Compose LazyColumn e items.
 
-La causa è l'inferenza di tipo Kotlin su tre state Compose:
-- CreateScreen.kt -> allocations deve essere Map<Long, Double>
-- CottonScreen.kt -> allocations deve essere Map<Long, Double>
-- EconomicWorkScreen.kt -> materials deve essere List<MaterialDraft>
+Il compilatore falliva quindi con:
+- Unresolved reference 'LazyColumn'
+- Unresolved reference 'item'
+- Unresolved reference 'items'
+- numerosi errori successivi a cascata su row, lotCode, variant, fabricName, quantityMeters
 
-Gli errori successivi su isEmpty, values, entries, filterIndexed, toMutableList,
-mapNotNull ecc. sono errori a cascata provocati da questi tre tipi non determinati.
+Correzione:
+aggiunti in Components.kt:
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 
 COME APPLICARE:
-1. Resta sul branch spectro-3.0-beta.
+1. Rimani sul branch spectro-3.0-beta.
 2. Estrai questo ZIP.
-3. Copia la cartella app dentro la root locale spectro-erp-update.
+3. Copia la cartella app nella root locale del repository.
 4. Scegli Sostituisci.
-5. GitHub Desktop deve mostrare SOLO:
-   - CreateScreen.kt
-   - CottonScreen.kt
-   - EconomicWorkScreen.kt
+5. GitHub Desktop deve mostrare modificato SOLO Components.kt.
 6. Commit:
-   Fix Beta 4 Kotlin state types
+   Fix Beta 5 inventory picker imports
 7. Push origin.
 8. Attendi una NUOVA build GitHub Actions.
-9. Non usare Re-run sulla vecchia build.
-10. Se la nuova build fallisce, scarica e invia il nuovo log archive completo.
+9. NON fare Re-run della vecchia build.
 
-NON modificare:
-- versionCode / versionName
-- Secrets
-- firma
-- database
-- main branch
+Non modificare Secrets, firma, database, versionCode o main.

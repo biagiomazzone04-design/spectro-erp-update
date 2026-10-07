@@ -1,0 +1,41 @@
+SPECTRO ERP 3.0.0 BETA 5 - ISTRUZIONI GITHUB
+
+NOVITÀ PRINCIPALI
+- ordine -> produzione -> Completa/Evadi -> storico cliente, senza perdere dati;
+- timeline/criticità e nota produzione restano collegate allo stesso ordine;
+- ordini evasi rimossi automaticamente dalla dashboard attiva;
+- badge Attività urgente;
+- magazzino Cliente -> Tessuto -> Carico -> Colli;
+- tessuti a 0 mt nascosti dal magazzino attivo ma conservati nello storico;
+- storico magazzino ricercabile con colli, movimenti e immagini/cartellini;
+- statistiche mensili con ordini evasi.
+
+COME CARICARE LA PATCH
+1. Apri GitHub Desktop.
+2. Repository: spectro-erp-update.
+3. Branch: spectro-3.0-beta.
+4. Fai Fetch origin / Pull origin se disponibile.
+5. Estrai SpectroERP-v3.0.0-BETA5-PATCH.zip.
+6. Copia TUTTO il contenuto estratto nella cartella locale del repository.
+7. Scegli Sostituisci quando Windows lo chiede.
+8. NON cancellare .git.
+9. Commit suggerito:
+   Spectro ERP 3.0 Beta 5 - ordini, attività e storico magazzino
+10. Push origin.
+11. Attendi una NUOVA build GitHub Actions.
+12. Se fallisce, scarica il log archive della NUOVA build e invialo a ChatGPT.
+13. Se è verde, fai prima un backup dell'app attuale.
+14. Scarica l'artifact SpectroERP-v3.0.0-BETA5-RELEASE.
+15. Installa l'APK sopra l'app attuale. NON disinstallare.
+
+IDENTITÀ
+- package: com.spectro.app
+- versionCode: 16
+- versionName: 3.0.0-beta5
+- database: schema v5 (invariato da Beta 4)
+- backup: formato v7 (invariato da Beta 4)
+- firma: stesso SPECTRO_SIGNING_BUNDLE_B64
+
+MULTIUTENTE
+Beta 5 NON attiva ancora cloud o account remoti. È inclusa la roadmap SPECTRO_CLOUD_ROADMAP.md.
+Il cloud verrà introdotto dopo aver validato e stabilizzato questo nuovo ciclo ordini/magazzino.

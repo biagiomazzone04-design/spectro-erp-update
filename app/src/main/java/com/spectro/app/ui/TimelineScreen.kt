@@ -33,12 +33,15 @@ fun OrderTimelineScreen(
     order: WorkOrder,
     onBack: () -> Unit,
     onEdit: (WorkOrder) -> Unit,
-    onStartProduction: (WorkOrder) -> Unit
+    onStartProduction: (WorkOrder) -> Unit,
+    onComplete: (WorkOrder) -> Unit,
+    onReopen: (WorkOrder) -> Unit
 ) {
     var addOpen by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     val current = vm.state.workOrders.firstOrNull { it.id == order.id } ?: order
     val timeline = vm.timelineForOrder(current.id)
+    val linkedProduction = current.productionRecordId?.let { id -> vm.state.production.firstOrNull { it.id == id } }
     val context = LocalContext.current
 
     LazyColumn(Modifier.fillMaxSize().background(p.background), contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -65,10 +68,73 @@ fun OrderTimelineScreen(
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { ReportExporter.shareWorkOrder(context, current) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(5.dp)); Text("Ordine") }
-                    OutlinedButton(onClick = { ReportExporter.shareOrderTimeline(context, current, timeline) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
+                    OutlinedButton(onClick = { ReportExporter.shareOrderTimeline(context, current, timeline, linkedProduction) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
                 }
-                if (current.productionRecordId == null && current.status !in listOf(WorkStatus.CANCELLED, WorkStatus.DELIVERED, WorkStatus.CLOSED)) {
-                    Spacer(Modifier.height(8.dp)); Button(onClick = { onStartProduction(current) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Crea ordine produttivo da questo ordine") }
+                when {
+                    current.productionRecordId == null && !current.status.isFinishedOrder() -> {
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = { onStartProduction(current) }, Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Crea ordine produttivo da questo ordine")
+                        }
+                    }
+                    current.productionRecordId != null && !current.status.isFinishedOrder() -> {
+                        Spacer(Modifier.height(8.dp))
+                        Button(
+                            onClick = { onComplete(current) },
+                            Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = p.success)
+                        ) {
+                            Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(6.dp)); Text("Completa ed evadi ordine")
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text("L'ordine verrà tolto dagli attivi ma resterà nello storico cliente con produzione, note, immagini e criticità.", color = p.textMuted, fontSize = 10.sp)
+                    }
+                    current.status.isArchivedOrder() -> {
+                        Spacer(Modifier.height(8.dp))
+                        SpectroCard(p = p) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.Inventory, null, tint = p.success)
+                                Spacer(Modifier.width(8.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("ORDINE ARCHIVIATO", color = p.success, fontWeight = FontWeight.Black)
+                                    Text("Evaso ${current.effectiveDeliveryDate.ifBlank { "-" }} • storico completo conservato", color = p.textMuted, fontSize = 10.sp)
+                                }
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            OutlinedButton(onClick = { onReopen(current) }, Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.RestartAlt, null); Spacer(Modifier.width(6.dp)); Text("Riapri ordine")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (linkedProduction != null) {
+            item {
+                SpectroCard(p = p) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.PrecisionManufacturing, null, tint = p.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("PRODUZIONE COLLEGATA", fontWeight = FontWeight.Black, color = p.primary)
+                            Text("${linkedProduction.date} • ${linkedProduction.orderRef.ifBlank { current.title }}", color = p.textMuted, fontSize = 11.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Carta", meters(linkedProduction.printedPaperMeters), modifier = Modifier.weight(1f))
+                        Metric("Tessuto", meters(linkedProduction.fabricUsedMeters), modifier = Modifier.weight(1f))
+                        Metric("Utile", euro(linkedProduction.grossProfit), if (linkedProduction.grossProfit >= 0) p.success else p.danger, Modifier.weight(1f))
+                    }
+                    if (linkedProduction.technicalNotes.isNotBlank()) {
+                        Spacer(Modifier.height(10.dp))
+                        Text("Nota produzione", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(linkedProduction.technicalNotes, color = p.text)
+                    }
+                    if (linkedProduction.images.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        ImageStrip(linkedProduction.images)
+                    }
                 }
             }
         }

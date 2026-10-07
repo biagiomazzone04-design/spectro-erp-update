@@ -35,7 +35,7 @@ fun CottonScreen(
     var activeOnly by remember { mutableStateOf(true) }
     var editing by remember { mutableStateOf<CottonOrder?>(null) }
     var createOpen by remember { mutableStateOf(false) }
-    val finished = setOf(WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED)
+    val finished = WorkStatus.entries.filter { it.isFinishedOrder() }.toSet()
 
     LaunchedEffect(initialOpenOrderId, vm.state.cottonOrders) {
         if (initialOpenOrderId != null) {
@@ -131,6 +131,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var status by remember(editing?.id) { mutableStateOf(draft?.status?.let { runCatching { WorkStatus.valueOf(it) }.getOrNull() } ?: editing?.status ?: WorkStatus.IN_PROCESS) }
     var images by remember(editing?.id) { mutableStateOf(draft?.images?.takeIf { it.isNotEmpty() } ?: editing?.images ?: emptyList()) }
     var rollDialog by remember { mutableStateOf(false) }
+    var inventoryDialog by remember { mutableStateOf(false) }
     var allocations by remember(editing?.id) { mutableStateOf<Map<Long, Double>>(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -167,7 +168,11 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 item { SegmentedChoice(listOf("CLIENT" to "TESSUTO CLIENTE", "HOUSE" to "TESSUTO AZIENDA"), owner.name, p) { owner = OwnerType.valueOf(it); if (owner == OwnerType.CLIENT) { inventoryId = null; fabricCost = ""; allocations = emptyMap() } } }
                 if (owner == OwnerType.HOUSE) item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SimpleSelectField("Tessuto magazzino", inventory?.let { "${it.fabricName} • ${meters(it.quantityMeters)}" } ?: "Seleziona", vm.state.inventory.filter { it.ownerType == OwnerType.HOUSE }.map { it.id to "${it.fabricName} • ${meters(it.quantityMeters)}" }) { id -> inventoryId = id; vm.state.inventory.firstOrNull { it.id == id }?.let { inv -> fabric = inv.fabricName; fabricCost = inv.purchasePricePerMeter.toString() }; allocations = emptyMap() }
+                        OutlinedButton(onClick = { inventoryDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Inventory2, null)
+                            Spacer(Modifier.width(6.dp))
+                            Text(inventory?.let { "${it.fabricName.uppercase()} • ${meters(it.quantityMeters)}" } ?: "Scegli tessuto aziendale")
+                        }
                         SpectroTextField("Costo tessuto €/mt", fabricCost, { fabricCost = it }, numeric = true)
                         OutlinedButton(enabled = inventoryId != null && needed > 0, onClick = { rollDialog = true }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Inventory2, null); Spacer(Modifier.width(6.dp)); Text(if (allocations.isEmpty()) "Scegli colli" else "${allocations.size} colli • ${meters(allocations.values.sum())}") }
                     }
@@ -199,6 +204,23 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
             }
         }
     )
+
+    if (inventoryDialog) {
+        InventoryPickerDialog(
+            title = "Scegli tessuto aziendale",
+            inventoryItems = vm.state.inventory,
+            ownerTypeFilter = OwnerType.HOUSE,
+            initialOwner = "AZIENDA",
+            onDismiss = { inventoryDialog = false },
+            onSelected = { inv ->
+                inventoryDialog = false
+                inventoryId = inv.id
+                fabric = inv.fabricName
+                fabricCost = inv.purchasePricePerMeter.toString()
+                allocations = emptyMap()
+            }
+        )
+    }
 
     if (rollDialog && inventoryId != null) {
         val old = allocations

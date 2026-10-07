@@ -9,6 +9,12 @@ enum class WorkStatus {
     ON_HOLD, BLOCKED, CANCELLED
 }
 
+fun WorkStatus.isFinishedOrder(): Boolean =
+    this in setOf(WorkStatus.COMPLETED, WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED)
+
+fun WorkStatus.isArchivedOrder(): Boolean =
+    this in setOf(WorkStatus.COMPLETED, WorkStatus.DELIVERED, WorkStatus.CLOSED)
+
 enum class Priority { NORMAL, HIGH }
 enum class Blocker { NONE, WAITING_CLIENT, WAITING_MATERIAL }
 enum class FabricMode { NONE, INVENTORY, MANUAL }
@@ -390,7 +396,8 @@ data class ClientMonthlyStat(
     val profit: Double,
     val records: Int,
     val criticalities: Int = 0,
-    val otherRevenue: Double = 0.0
+    val otherRevenue: Double = 0.0,
+    val completedOrders: Int = 0
 )
 
 data class MonthlyStats(
@@ -412,7 +419,8 @@ data class MonthlyStats(
     val otherCosts: Double = 0.0,
     val otherNetProfit: Double = 0.0,
     val economicWorkCount: Int = 0,
-    val criticalityCount: Int = 0
+    val criticalityCount: Int = 0,
+    val completedOrderCount: Int = 0
 )
 
 data class SpectroSnapshot(

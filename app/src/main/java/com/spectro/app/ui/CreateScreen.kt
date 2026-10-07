@@ -201,7 +201,13 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
 
     if (sourceDialog) SelectionDialog("Ordini in processo", vm.inProcessOrders().map { "${it.title.ifBlank { it.orderCode }} • ${it.client} • ${meters(it.orderedMeters)}" to it.id }, onDismiss = { sourceDialog = false }) { id -> sourceDialog = false; applySource(vm.state.workOrders.firstOrNull { it.id == id }); allocations = emptyMap() }
     if (clientDialog) SelectionDialog("Scegli cliente", vm.state.clients.map { it.name to it.id }, onDismiss = { clientDialog = false }) { id -> clientDialog = false; vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name; printPrice = it.defaultPrintPrice.takeIf { v -> v > 0 }?.toString().orEmpty() } }
-    if (fabricDialog) SelectionDialog("Scegli tessuto", vm.state.inventory.map { "${it.ownerName} • ${it.fabricName} (${meters(it.quantityMeters)})" to it.id }, onDismiss = { fabricDialog = false }) { id -> fabricDialog = false; fabricId = id; allocations = emptyMap() }
+    if (fabricDialog) InventoryPickerDialog(
+        title = "Scegli tessuto dal magazzino",
+        inventoryItems = vm.state.inventory,
+        initialOwner = clientName.takeIf { it.isNotBlank() },
+        onDismiss = { fabricDialog = false },
+        onSelected = { item -> fabricDialog = false; fabricId = item.id; allocations = emptyMap() }
+    )
     if (rollDialog && fabricId != null) {
         val old = allocations
         val rolls = vm.rollsForInventory(fabricId!!).map { r -> r.copy(availableMeters = r.availableMeters + (old[r.id] ?: 0.0)) }
@@ -270,7 +276,13 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
         }
     }
     if (clientDialog) SelectionDialog("Scegli cliente", vm.state.clients.map { it.name to it.id }, onDismiss = { clientDialog = false }) { id -> clientDialog = false; vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; client = it.name; printPrice = it.defaultPrintPrice.takeIf { v -> v > 0 }?.toString().orEmpty() } }
-    if (fabricDialog) SelectionDialog("Scegli tessuto", vm.state.inventory.map { "${it.ownerName} • ${it.fabricName} (${meters(it.quantityMeters)})" to it.id }, onDismiss = { fabricDialog = false }) { id -> fabricDialog = false; fabricId = id }
+    if (fabricDialog) InventoryPickerDialog(
+        title = "Scegli tessuto dal magazzino",
+        inventoryItems = vm.state.inventory,
+        initialOwner = client.takeIf { it.isNotBlank() },
+        onDismiss = { fabricDialog = false },
+        onSelected = { item -> fabricDialog = false; fabricId = item.id }
+    )
 }
 
 @Composable

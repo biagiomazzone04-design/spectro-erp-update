@@ -29,7 +29,7 @@ fun WorkOrdersScreen(
     var query by remember { mutableStateOf("") }
     var activeOnly by remember { mutableStateOf(true) }
     var deleteTarget by remember { mutableStateOf<WorkOrder?>(null) }
-    val finished = setOf(WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED)
+    val finished = WorkStatus.entries.filter { it.isFinishedOrder() }.toSet()
     val orders = vm.state.workOrders.filter { item ->
         (!activeOnly || item.status !in finished) &&
             (query.isBlank() || item.client.contains(query, true) || item.title.contains(query, true) || item.orderCode.contains(query, true) || item.designCode.contains(query, true) || item.description.contains(query, true))
@@ -83,10 +83,13 @@ fun WorkOrdersScreen(
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(onClick = { onEdit(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(5.dp)); Text("Modifica") }
-                    if (item.productionRecordId == null && item.status !in finished) {
-                        Button(onClick = { onStartProduction(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text("Produzione") }
-                    } else {
-                        OutlinedButton(onClick = { onOpen(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
+                    when {
+                        item.productionRecordId == null && item.status !in finished ->
+                            Button(onClick = { onStartProduction(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text("Produzione") }
+                        item.productionRecordId != null && item.status !in finished ->
+                            Button(onClick = { vm.completeWorkOrder(item.id) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = p.success)) { Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(5.dp)); Text("Evadi") }
+                        else ->
+                            OutlinedButton(onClick = { onOpen(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
                     }
                     IconButton(onClick = { deleteTarget = item }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
                 }

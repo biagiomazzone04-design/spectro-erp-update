@@ -145,6 +145,42 @@ class SpectroRepository(context: Context) {
         insertSystemTimeline(updated, "Stato ordine aggiornato", "${item.status.name} → ${status.name}${if (note.isNotBlank()) "\n${note.trim()}" else ""}", TimelineCategory.STATUS_CHANGE, sql)
     }
 
+    fun completeWorkOrder(id: Long, completionNote: String = "") = db.transaction { sql ->
+        val item = db.getWorkOrderById(id, sql) ?: return@transaction
+        if (item.status.isArchivedOrder()) return@transaction
+        require(item.status != WorkStatus.CANCELLED) { "Un ordine annullato non può essere evaso." }
+
+        val production = item.productionRecordId?.let { db.getProductionById(it, sql) }
+        require(production != null) { "Prima di completare l'ordine crea o collega la produzione." }
+
+        val completedDate = LocalDate.now().toString()
+        val updated = item.copy(
+            status = WorkStatus.DELIVERED,
+            effectiveDeliveryDate = completedDate,
+            blocker = Blocker.NONE,
+            productionRecordId = production.id
+        )
+        db.updateWorkOrder(updated, sql)
+
+        val detail = buildString {
+            append("Ordine completato ed evaso. La produzione #${production.id} resta collegata allo storico.")
+            if (production.printedPaperMeters > 0) append("\nCarta stampata: ${"%.1f".format(production.printedPaperMeters)} mt.")
+            if (production.fabricUsedMeters > 0) append("\nTessuto lavorato: ${"%.1f".format(production.fabricUsedMeters)} mt.")
+            if (production.technicalNotes.isNotBlank()) append("\nNota produzione: ${production.technicalNotes.trim()}")
+            if (completionNote.isNotBlank()) append("\nNota chiusura: ${completionNote.trim()}")
+        }
+        insertSystemTimeline(updated, "Ordine completato ed evaso", detail, TimelineCategory.DELIVERY, sql)
+    }
+
+    fun reopenWorkOrder(id: Long, note: String = "") = db.transaction { sql ->
+        val item = db.getWorkOrderById(id, sql) ?: return@transaction
+        if (!item.status.isArchivedOrder()) return@transaction
+        val next = if (item.productionRecordId != null) WorkStatus.IN_PRODUCTION else WorkStatus.IN_PROCESS
+        val updated = item.copy(status = next, effectiveDeliveryDate = "")
+        db.updateWorkOrder(updated, sql)
+        insertSystemTimeline(updated, "Ordine riaperto", note.trim().ifBlank { "Ordine riaperto dallo storico." }, TimelineCategory.STATUS_CHANGE, sql)
+    }
+
     fun cancelWorkOrder(id: Long, reason: String) = db.transaction { sql ->
         require(reason.isNotBlank()) { "Inserisci il motivo dell'annullamento." }
         val item = db.getWorkOrderById(id, sql) ?: return@transaction
@@ -216,9 +252,10 @@ class SpectroRepository(context: Context) {
             }
             saved.workOrderId?.let { workId ->
                 db.getWorkOrderById(workId, sql)?.let { w ->
-                    val updated = w.copy(status = WorkStatus.IN_PRODUCTION, productionRecordId = savedId)
+                    val nextStatus = if (w.status.isArchivedOrder()) w.status else WorkStatus.IN_PRODUCTION
+                    val updated = w.copy(status = nextStatus, productionRecordId = savedId)
                     db.updateWorkOrder(updated, sql)
-                    if (w.status != WorkStatus.IN_PRODUCTION || w.productionRecordId != savedId) {
+                    if (!w.status.isArchivedOrder() && (w.status != WorkStatus.IN_PRODUCTION || w.productionRecordId != savedId)) {
                         insertSystemTimeline(updated, "Ordine trasferito in produzione", "Creato ordine produttivo e collegato alla registrazione #$savedId. Tutto lo storico precedente resta associato allo stesso ordine.", TimelineCategory.PRODUCTION, sql)
                     }
                     val oldNote = previous?.technicalNotes?.trim().orEmpty()
@@ -245,6 +282,10 @@ class SpectroRepository(context: Context) {
 
     fun deleteProduction(id: Long) = db.transaction { sql ->
         db.getProductionById(id, sql)?.let { record ->
+            record.workOrderId?.let { workId ->
+                val linked = db.getWorkOrderById(workId, sql)
+                require(linked == null || !linked.status.isArchivedOrder()) { "Questa produzione appartiene a un ordine già evaso. Riapri prima l'ordine se devi rimuovere la produzione." }
+            }
             restoreProductionConsumption(record, sql)
             record.workOrderId?.let { workId -> db.getWorkOrderById(workId, sql)?.let { w -> if (w.productionRecordId == id) db.updateWorkOrder(w.copy(productionRecordId = null, status = WorkStatus.IN_PROCESS), sql) } }
         }

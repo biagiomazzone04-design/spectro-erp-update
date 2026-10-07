@@ -85,6 +85,7 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
         if (vm.state.clients.isEmpty()) item { EmptyState(Icons.Rounded.People, "Rubrica vuota", "Aggiungi i clienti per listino, storico e prove") }
         items(vm.state.clients, key = { it.id }) { c ->
             val records = vm.state.production.filter { it.type == RecordType.PRODUCTION && (it.clientId == c.id || it.clientName.equals(c.name, true)) }
+            val workOrders = vm.state.workOrders.filter { it.clientId == c.id || it.client.equals(c.name, true) }
             val issues = vm.state.clientIssues.filter { it.clientId == c.id || it.clientName.equals(c.name, true) }
             val orderCrits = vm.state.timelineEvents.filter { (it.clientId == c.id || it.clientName.equals(c.name, true)) && it.severity != TimelineSeverity.INFO }
             val open = issues.count { it.status !in listOf(IssueStatus.RESOLVED, IssueStatus.CLOSED) } + orderCrits.count { it.status == TimelineStatus.OPEN }
@@ -96,7 +97,7 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
                     IconButton(onClick = { openEditor(c) }) { Icon(Icons.Rounded.Edit, null, tint = p.primary) }
                 }
                 Spacer(Modifier.height(10.dp)); Row {
-                    Metric("Ordini", records.size.toString(), modifier = Modifier.weight(1f))
+                    Metric("Ordini", workOrders.size.toString(), modifier = Modifier.weight(1f))
                     Metric("Criticità aperte", open.toString(), if (open > 0) p.warning else p.success, Modifier.weight(1f))
                     Metric("Scadute", overdue.toString(), if (overdue > 0) p.danger else p.textMuted, Modifier.weight(1f))
                 }
@@ -109,6 +110,8 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
         val issues = vm.state.clientIssues.filter { it.clientId == c.id || it.clientName.equals(c.name, true) }
         val orderCrits = vm.state.timelineEvents.filter { (it.clientId == c.id || it.clientName.equals(c.name, true)) && it.severity != TimelineSeverity.INFO }.sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
         val clientOrders = vm.state.workOrders.filter { it.clientId == c.id || it.client.equals(c.name, true) }
+        val activeClientOrders = clientOrders.filter { !it.status.isFinishedOrder() }.sortedByDescending { it.receivedDate }
+        val historicClientOrders = clientOrders.filter { it.status.isArchivedOrder() }.sortedByDescending { it.effectiveDeliveryDate.ifBlank { it.receivedDate } }
         val clientPayments = vm.state.payments.filter { it.clientId == c.id || it.clientName.equals(c.name, true) }
         ModalBottomSheet(onDismissRequest = { selected = null }, containerColor = p.background) {
             LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 40.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -120,7 +123,7 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
                 }
                 item {
                     SpectroCard(p = p) {
-                        Row { Metric("Ordini", records.size.toString(), modifier = Modifier.weight(1f)); Metric("Fatturato", euro(records.sumOf { it.grossRevenue }), p.success, Modifier.weight(1f)) }
+                        Row { Metric("Ordini", clientOrders.size.toString(), modifier = Modifier.weight(1f)); Metric("Fatturato", euro(records.sumOf { it.grossRevenue }), p.success, Modifier.weight(1f)) }
                         Spacer(Modifier.height(12.dp)); Row { Metric("Criticità", (issues.size + orderCrits.size).toString(), modifier = Modifier.weight(1f)); Metric("Ritardo documentato", "${issues.sumOf { it.delayDays }} gg", if (issues.sumOf { it.delayDays } > 0) p.warning else p.textMuted, Modifier.weight(1f)) }
                         Spacer(Modifier.height(12.dp)); Metric("Da incassare", euro(clientPayments.filter { !it.paid }.sumOf { it.amount }), if (clientPayments.any { !it.paid }) p.warning else p.success)
                     }
@@ -129,6 +132,43 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         OutlinedButton(onClick = { selected = null; issueClient = c }, Modifier.weight(1f)) { Icon(Icons.Rounded.ReportProblem, null); Spacer(Modifier.width(6.dp)); Text("Criticità") }
                         OutlinedButton(onClick = { selected = null; paymentClient = c }, Modifier.weight(1f)) { Icon(Icons.Rounded.Payments, null); Spacer(Modifier.width(6.dp)); Text("Scadenza") }
+                    }
+                }
+                item { SectionTitle("Ordini attivi") }
+                if (activeClientOrders.isEmpty()) item { Text("Nessun ordine attivo per questo cliente.", color = p.textMuted) }
+                items(activeClientOrders, key = { "active-order-${it.id}" }) { order ->
+                    SpectroCard(p = p, onClick = { selected = null; onOpenOrder(order) }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, color = p.text)
+                                Text("${workStatusLabel(order.status)} • ${order.receivedDate}${order.dueDate.takeIf { it.isNotBlank() }?.let { " • consegna $it" }.orEmpty()}", color = p.textMuted, fontSize = 11.sp)
+                            }
+                            Icon(Icons.Rounded.ChevronRight, null, tint = p.primary)
+                        }
+                    }
+                }
+                item { SectionTitle("Storico ordini evasi") }
+                if (historicClientOrders.isEmpty()) item { Text("Nessun ordine completato nello storico.", color = p.textMuted) }
+                items(historicClientOrders, key = { "historic-order-${it.id}" }) { order ->
+                    val critCount = orderCrits.count { it.workOrderId == order.id }
+                    val prod = order.productionRecordId?.let { id -> records.firstOrNull { it.id == id } }
+                    SpectroCard(p = p, onClick = { selected = null; onOpenOrder(order) }) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, color = p.text)
+                                Text("Evaso ${order.effectiveDeliveryDate.ifBlank { "-" }} • ${workStatusLabel(order.status)}", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                if (order.orderCode.isNotBlank()) Text(order.orderCode, color = p.textMuted, fontSize = 10.sp)
+                            }
+                            Icon(Icons.Rounded.History, null, tint = p.success)
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Metric("Criticità", critCount.toString(), if (critCount > 0) p.warning else p.success, Modifier.weight(1f))
+                            Metric("Carta", prod?.let { meters(it.printedPaperMeters) } ?: "-", modifier = Modifier.weight(1f))
+                            Metric("Fatturato", prod?.let { euro(it.grossRevenue) } ?: "-", valueColor = p.success, modifier = Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(5.dp))
+                        Text("Tocca per aprire ordine, produzione e timeline completa", color = p.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 item { SectionTitle("Criticità degli ordini") }

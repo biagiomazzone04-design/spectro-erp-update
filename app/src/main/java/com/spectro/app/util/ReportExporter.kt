@@ -246,7 +246,7 @@ object ReportExporter {
         d.paragraph("Note", work.notes, CYAN); d.images(work.images); d.finish(file); sharePdf(context, file, "Condividi lavoro economico")
     }
 
-    fun shareOrderTimeline(context: Context, order: WorkOrder, events: List<OrderTimelineEvent>) {
+    fun shareOrderTimeline(context: Context, order: WorkOrder, events: List<OrderTimelineEvent>, production: ProductionRecord? = null) {
         val file = outFile(context, "Spectro_Storico_${order.orderCode.ifBlank { order.id.toString() }}.pdf")
         val critical = events.filter { it.severity != TimelineSeverity.INFO }
         val d = DarkPdf(context, "Storico ordine", "${order.title.ifBlank { order.orderCode }} • ${order.client}")
@@ -254,6 +254,16 @@ object ReportExporter {
         d.section("Dati ordine")
         d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Data ordine", order.receivedDate); d.infoRow("Consegna", order.dueDate); d.infoRow("Metri", "${order.orderedMeters} mt"); d.infoRow("Disegno", order.designCode)
         d.paragraph("Note ordine", order.description)
+        if (production != null) {
+            d.section("Produzione collegata", CYAN)
+            d.infoRow("Data produzione", production.date)
+            d.infoRow("Carta stampata", "${production.printedPaperMeters} mt")
+            d.infoRow("Tessuto lavorato", "${production.fabricUsedMeters} mt")
+            d.infoRow("Fatturato", eur(production.grossRevenue), GREEN)
+            d.infoRow("Utile lordo", eur(production.grossProfit), if (production.grossProfit >= 0) GREEN else RED)
+            d.paragraph("Nota produzione", production.technicalNotes, CYAN)
+            d.images(production.images)
+        }
         d.section("Timeline completa", MAGENTA)
         if (events.isEmpty()) d.detailCard("Nessun aggiornamento registrato") else events.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id }).forEach { d.timelineEvent(it) }
         d.finish(file); sharePdf(context, file, "Condividi storico ordine Spectro")
@@ -266,12 +276,14 @@ object ReportExporter {
         cottonOrders: List<CottonOrder>,
         economicWorks: List<EconomicWork> = emptyList(),
         timelineEvents: List<OrderTimelineEvent> = emptyList(),
-        clientIssues: List<ClientIssue> = emptyList()
+        clientIssues: List<ClientIssue> = emptyList(),
+        workOrders: List<WorkOrder> = emptyList()
     ) {
         val file = outFile(context, "Spectro_Statistiche_${stats.month}.pdf")
         val d = DarkPdf(context, "Report mensile", stats.month)
         d.metricRow(listOf(Triple("Fatturato", eur(stats.totalRevenue), GREEN), Triple("Costi", eur(stats.totalCosts), YELLOW), Triple("Utile netto", eur(stats.netProfit), if (stats.netProfit >= 0) GREEN else RED)))
         d.metricRow(listOf(Triple("Carta stampata", "%.1f mt".format(Locale.ITALY, stats.printedPaperMeters), CYAN), Triple("Cotone", "%.1f mt".format(Locale.ITALY, stats.cottonMeters), MAGENTA), Triple("Criticità", stats.criticalityCount.toString(), if (stats.criticalityCount > 0) YELLOW else GREEN)))
+        d.infoRow("Ordini completati / evasi", stats.completedOrderCount.toString(), GREEN)
         d.barChart("Composizione fatturato", listOf("Sublimazione" to stats.productionRevenue, "Cotone" to stats.cottonRevenue, "Altri ricavi" to stats.otherRevenue), true)
         d.barChart("Fatturato per cliente", stats.clients.take(8).map { it.clientName to it.revenue }, true)
         d.barChart("Metri carta per cliente", stats.clients.filter { it.paperMeters > 0 }.take(8).map { it.clientName to it.paperMeters })
@@ -279,7 +291,20 @@ object ReportExporter {
         d.infoRow("Sublimazione", eur(stats.productionRevenue)); d.infoRow("Cotone", eur(stats.cottonRevenue)); d.infoRow("Altri ricavi", eur(stats.otherRevenue), GREEN)
         d.infoRow("Costi materie sublimazione", eur(stats.materialCosts)); d.infoRow("Costi cotone", eur(stats.cottonCosts)); d.infoRow("Costi altri lavori", eur(stats.otherCosts)); d.infoRow("Costi fissi", eur(stats.fixedCosts))
         d.section("Dettaglio clienti", MAGENTA)
-        stats.clients.forEach { c -> d.detailCard(c.clientName, "Carta ${"%.1f".format(Locale.ITALY, c.paperMeters)} mt • Cotone ${"%.1f".format(Locale.ITALY, c.cottonMeters)} mt • Criticità ${c.criticalities}", "${eur(c.revenue)} / ${eur(c.profit)}", if (c.profit >= 0) GREEN else RED) }
+        stats.clients.forEach { c -> d.detailCard(c.clientName, "Carta ${"%.1f".format(Locale.ITALY, c.paperMeters)} mt • Cotone ${"%.1f".format(Locale.ITALY, c.cottonMeters)} mt • Evasi ${c.completedOrders} • Criticità ${c.criticalities}", "${eur(c.revenue)} / ${eur(c.profit)}", if (c.profit >= 0) GREEN else RED) }
+        val archivedOrders = workOrders.filter { it.status.isArchivedOrder() }
+        if (archivedOrders.isNotEmpty()) {
+            d.section("Ordini evasi", GREEN)
+            archivedOrders.sortedBy { it.effectiveDeliveryDate }.forEach { o ->
+                val critCount = timelineEvents.count { it.workOrderId == o.id && it.severity != TimelineSeverity.INFO }
+                d.detailCard(
+                    "${o.effectiveDeliveryDate.ifBlank { o.receivedDate }} • ${o.client}",
+                    "${o.title.ifBlank { o.orderCode }} • ${workStatusIt(o.status)} • Criticità $critCount",
+                    if (o.orderedMeters > 0) "${o.orderedMeters} mt" else "",
+                    GREEN
+                )
+            }
+        }
         d.section("Produzioni sublimazione", ORANGE)
         productions.filter { it.type == RecordType.PRODUCTION }.sortedBy { it.date }.forEach { r -> d.detailCard("${r.date} • ${r.clientName}", "${r.orderRef.ifBlank { "Senza riferimento" }} • Carta ${"%.1f".format(Locale.ITALY, r.printedPaperMeters)} mt", eur(r.grossRevenue), GREEN) }
         d.section("Ordini cotone", MAGENTA)

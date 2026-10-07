@@ -90,6 +90,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun saveWorkOrder(v: WorkOrder) = runWrite("Ordine salvato") { repo.saveWorkOrder(v) }
     fun deleteWorkOrder(id: Long) = runWrite("Ordine eliminato") { repo.deleteWorkOrder(id) }
     fun setWorkStatus(id: Long, status: WorkStatus, note: String = "") = runWrite("Stato ordine aggiornato") { repo.setWorkStatus(id, status, note) }
+    fun completeWorkOrder(id: Long, note: String = "") = runWrite("Ordine completato e archiviato nello storico") { repo.completeWorkOrder(id, note) }
+    fun reopenWorkOrder(id: Long, note: String = "") = runWrite("Ordine riaperto") { repo.reopenWorkOrder(id, note) }
     fun cancelWorkOrder(id: Long, reason: String) = runWrite("Ordine annullato") { repo.cancelWorkOrder(id, reason) }
 
     fun saveTimelineEvent(v: OrderTimelineEvent) = runWrite("Aggiornamento aggiunto alla timeline") { repo.saveTimelineEvent(v) }
@@ -135,6 +137,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     fun rollsForInventory(inventoryId: Long): List<FabricRoll> = state.fabricRolls.filter { it.inventoryId == inventoryId }.sortedBy { it.id }
+    fun activeInventory(): List<InventoryItem> = state.inventory.filter { it.quantityMeters > .0001 }
+    fun inventoryHistory(): List<InventoryItem> = state.inventory.sortedWith(compareByDescending<InventoryItem> { it.createdDate }.thenByDescending { it.id })
     fun movementsForRoll(rollId: Long): List<StockMovement> = state.stockMovements.filter { it.rollId == rollId }.sortedByDescending { it.dateTime }
     fun timelineForOrder(workOrderId: Long): List<OrderTimelineEvent> = state.timelineEvents.filter { it.workOrderId == workOrderId }.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id })
     fun inProcessOrders(): List<WorkOrder> = state.workOrders.filter { it.status in listOf(WorkStatus.RECEIVED, WorkStatus.IN_PROCESS, WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.BLOCKED, WorkStatus.ON_HOLD) && it.productionRecordId == null }
@@ -173,6 +177,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         val economic = state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED }
         val criticalEvents = state.timelineEvents.filter { it.date.startsWith(prefix) && it.severity != TimelineSeverity.INFO }
         val legacyIssues = state.clientIssues.filter { it.openedDate.startsWith(prefix) }
+        val completedOrders = state.workOrders.filter { it.status.isArchivedOrder() && it.effectiveDeliveryDate.startsWith(prefix) }
 
         val productionRevenue = productive.sumOf { it.grossRevenue }
         val cottonRevenue = cotton.sumOf { it.grossRevenue }
@@ -209,7 +214,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
                 profit = prods.sumOf { it.grossProfit } + cottonRows.sumOf { it.margin } + economicRows.sumOf { it.netProfit },
                 records = prods.size + cottonRows.size + economicRows.size,
                 criticalities = crits,
-                otherRevenue = economicRows.sumOf { it.grossRevenue }
+                otherRevenue = economicRows.sumOf { it.grossRevenue },
+                completedOrders = completedOrders.count { it.client.equals(name, true) }
             )
         }.sortedByDescending { it.revenue }
 
@@ -232,7 +238,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
             otherCosts = otherCosts,
             otherNetProfit = otherRevenue - otherCosts,
             economicWorkCount = economic.size,
-            criticalityCount = criticalEvents.size + legacyIssues.size
+            criticalityCount = criticalEvents.size + legacyIssues.size,
+            completedOrderCount = completedOrders.size
         )
     }
 
@@ -243,9 +250,12 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         monthlyStats(month).clients.map { AnalyticsSlice(it.clientName, it.paperMeters) }.filter { it.value > 0 }.sortedByDescending { it.value }.take(limit)
 
     fun openTasks(): List<OperationalTask> = state.operationalTasks.filter { it.status !in listOf(OperationalTaskStatus.DONE, OperationalTaskStatus.CANCELLED) }
+    fun urgentTasks(): List<OperationalTask> = openTasks().filter { task ->
+        task.priority == Priority.HIGH || (task.dueDate.isNotBlank() && runCatching { !LocalDate.parse(task.dueDate).isAfter(LocalDate.now()) }.getOrDefault(false))
+    }
     fun openIssues(): List<OrderTimelineEvent> = state.timelineEvents.filter { it.status == TimelineStatus.OPEN && it.severity != TimelineSeverity.INFO }
     fun overduePayments(): List<PaymentDeadline> = state.payments.filter { !it.paid && runCatching { LocalDate.parse(it.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false) }
-    fun lowStock(): List<InventoryItem> = state.inventory.filter { it.minimumQuantityMeters > 0 && it.quantityMeters <= it.minimumQuantityMeters }
+    fun lowStock(): List<InventoryItem> = state.inventory.filter { it.quantityMeters > .0001 && it.minimumQuantityMeters > 0 && it.quantityMeters <= it.minimumQuantityMeters }
     fun overdueWork(): List<WorkOrder> = state.workOrders.filter { it.status !in listOf(WorkStatus.COMPLETED, WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED) && it.dueDate.isNotBlank() && runCatching { LocalDate.parse(it.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false) }
 
     private fun SpectroSnapshot.toUiState(message: String?) = SpectroUiState(

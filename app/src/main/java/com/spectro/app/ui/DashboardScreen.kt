@@ -107,14 +107,14 @@ fun DashboardScreen(
                 }
             }
             val activeOrders = vm.state.workOrders
-                .filter { it.status !in listOf(WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED) }
+.filter { !it.status.isFinishedOrder() }
                 .sortedWith(compareByDescending<WorkOrder> { it.priority == Priority.HIGH || it.status == WorkStatus.BLOCKED }
                     .thenBy { it.dueDate.ifBlank { "9999-12-31" } })
                 .take(5)
             if (activeOrders.isNotEmpty()) {
                 item { SectionTitle("Ordini attivi") }
                 items(activeOrders, key = { "order-${it.id}" }) { order ->
-                    DashboardOrderCard(order, p, onOpenOrder, onEditOrder, onDelete = { deleteTarget = it })
+                    DashboardOrderCard(order, p, onOpenOrder, onEditOrder, onComplete = { vm.completeWorkOrder(it.id) }, onDelete = { deleteTarget = it })
                 }
             }
             item {
@@ -135,7 +135,7 @@ fun DashboardScreen(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Metric("Altri ricavi", euro(currentMonthStats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
-                        Metric("Altri lavori", currentMonthStats.economicWorkCount.toString(), modifier = Modifier.weight(1f))
+                        Metric("Ordini evasi", currentMonthStats.completedOrderCount.toString(), valueColor = p.success, modifier = Modifier.weight(1f))
                         Metric("Criticità", currentMonthStats.criticalityCount.toString(), valueColor = if (currentMonthStats.criticalityCount > 0) p.warning else p.success, modifier = Modifier.weight(1f))
                     }
                     if (currentMonthStats.clients.any { it.paperMeters > 0 }) {
@@ -187,7 +187,8 @@ fun DashboardScreen(
                                 cottonOrders = vm.state.cottonOrders.filter { it.orderDate.startsWith(prefix) },
                                 economicWorks = vm.state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED },
                                 timelineEvents = vm.state.timelineEvents.filter { it.date.startsWith(prefix) },
-                                clientIssues = vm.state.clientIssues.filter { it.openedDate.startsWith(prefix) }
+                                clientIssues = vm.state.clientIssues.filter { it.openedDate.startsWith(prefix) },
+                                workOrders = vm.state.workOrders.filter { it.effectiveDeliveryDate.startsWith(prefix) && it.status.isArchivedOrder() }
                             )
                         },
                         modifier = Modifier.fillMaxWidth()
@@ -391,7 +392,7 @@ private fun RecordCard(record: ProductionRecord, p: SpectroPalette, onRecord: (P
 }
 
 @Composable
-private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
+private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onComplete: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
     val overdue = order.dueDate.isNotBlank() && runCatching { LocalDate.parse(order.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
     val accent = when {
         order.status == WorkStatus.BLOCKED || overdue -> p.danger
@@ -408,6 +409,9 @@ private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (Wor
                 Text("${order.client} • ${workStatusLabel(order.status)}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
                 if (order.orderCode.isNotBlank()) Text(order.orderCode, color = p.textMuted, fontSize = 10.sp, maxLines = 1)
                 if (order.dueDate.isNotBlank()) Text("Consegna ${order.dueDate}${if (overdue) " • SCADUTA" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (overdue) FontWeight.Black else FontWeight.Normal)
+            }
+            if (order.productionRecordId != null && !order.status.isFinishedOrder()) {
+                IconButton(onClick = { onComplete(order) }) { Icon(Icons.Rounded.TaskAlt, "Completa ed evadi", tint = p.success) }
             }
             IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
             IconButton(onClick = { onDelete(order) }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }

@@ -25,8 +25,13 @@ fun OperationalTasksScreen(vm: SpectroViewModel, p: SpectroPalette, onOpenOrder:
     var editing by remember { mutableStateOf<OperationalTask?>(null) }
     var addOpen by remember { mutableStateOf(false) }
     var showAll by remember { mutableStateOf(false) }
+    var urgentOnly by remember { mutableStateOf(false) }
     val closed = setOf(OperationalTaskStatus.DONE, OperationalTaskStatus.CANCELLED)
-    val tasks = vm.state.operationalTasks.filter { showAll || it.status !in closed }.sortedWith(compareByDescending<OperationalTask> { it.priority == Priority.HIGH }.thenBy { it.dueDate.ifBlank { "9999-12-31" } })
+    val urgentIds = vm.urgentTasks().map { it.id }.toSet()
+    val tasks = vm.state.operationalTasks
+        .filter { showAll || it.status !in closed }
+        .filter { !urgentOnly || it.id in urgentIds }
+        .sortedWith(compareByDescending<OperationalTask> { it.id in urgentIds }.thenBy { it.dueDate.ifBlank { "9999-12-31" } })
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 16.dp, 20.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item {
@@ -34,15 +39,25 @@ fun OperationalTasksScreen(vm: SpectroViewModel, p: SpectroPalette, onOpenOrder:
                 Column(Modifier.weight(1f)) { Text("Attività", fontSize = 28.sp, fontWeight = FontWeight.Black); Text("Campioni, ricerche grafiche e lavori da ricordare prima della produzione.", color = p.textMuted) }
                 FilledIconButton(onClick = { addOpen = true }) { Icon(Icons.Rounded.AddTask, "Nuova attività") }
             }
-            Spacer(Modifier.height(10.dp)); FilterChip(selected = showAll, onClick = { showAll = !showAll }, label = { Text(if (showAll) "Tutte" else "Da fare") })
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = showAll, onClick = { showAll = !showAll }, label = { Text(if (showAll) "Tutte" else "Da fare") })
+                FilterChip(
+                    selected = urgentOnly,
+                    onClick = { urgentOnly = !urgentOnly },
+                    label = { Text("Urgenti ${vm.urgentTasks().size}") },
+                    leadingIcon = { Icon(Icons.Rounded.NotificationsActive, null, Modifier.size(16.dp)) }
+                )
+            }
         }
-        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Da fare", vm.openTasks().size.toString(), modifier = Modifier.weight(1f)); Metric("Urgenti", vm.openTasks().count { it.priority == Priority.HIGH }.toString(), if (vm.openTasks().any { it.priority == Priority.HIGH }) p.warning else p.textMuted, Modifier.weight(1f)); Metric("Totali", vm.state.operationalTasks.size.toString(), modifier = Modifier.weight(1f)) } }
+        item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Da fare", vm.openTasks().size.toString(), modifier = Modifier.weight(1f)); Metric("Urgenti", vm.urgentTasks().size.toString(), if (vm.urgentTasks().isNotEmpty()) p.danger else p.textMuted, Modifier.weight(1f)); Metric("Totali", vm.state.operationalTasks.size.toString(), modifier = Modifier.weight(1f)) } }
         if (tasks.isEmpty()) item { EmptyState(Icons.Rounded.TaskAlt, "Nessuna attività", "Aggiungi un campione, una ricerca grafica o un'altra attività operativa") }
         items(tasks, key = { it.id }) { task ->
             SpectroCard(p = p, onClick = { editing = task }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(when (task.type) { OperationalTaskType.SAMPLE -> Icons.Rounded.Science; OperationalTaskType.GRAPHICS_SEARCH -> Icons.Rounded.Palette; OperationalTaskType.CLIENT_REQUEST -> Icons.Rounded.Person; OperationalTaskType.PREPARATION -> Icons.Rounded.Build; OperationalTaskType.OTHER -> Icons.Rounded.TaskAlt }, null, tint = if (task.priority == Priority.HIGH) p.warning else p.primary)
-                    Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { Text(task.title, fontWeight = FontWeight.Black, fontSize = 17.sp); Text("${operationalTaskTypeLabel(task.type)}${task.clientName.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()}", color = p.textMuted, fontSize = 11.sp); if (task.dueDate.isNotBlank()) Text("Entro ${task.dueDate}", color = p.textMuted, fontSize = 11.sp) }
+                    val urgent = task.id in urgentIds
+                    Icon(when (task.type) { OperationalTaskType.SAMPLE -> Icons.Rounded.Science; OperationalTaskType.GRAPHICS_SEARCH -> Icons.Rounded.Palette; OperationalTaskType.CLIENT_REQUEST -> Icons.Rounded.Person; OperationalTaskType.PREPARATION -> Icons.Rounded.Build; OperationalTaskType.OTHER -> Icons.Rounded.TaskAlt }, null, tint = if (urgent) p.danger else p.primary)
+                    Spacer(Modifier.width(10.dp)); Column(Modifier.weight(1f)) { Text(task.title, fontWeight = FontWeight.Black, fontSize = 17.sp); Text("${operationalTaskTypeLabel(task.type)}${task.clientName.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()}", color = p.textMuted, fontSize = 11.sp); if (task.dueDate.isNotBlank()) Text("Entro ${task.dueDate}${if (urgent) " • URGENTE" else ""}", color = if (urgent) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (urgent) FontWeight.Bold else FontWeight.Normal) }
                     AssistChip(onClick = {}, label = { Text(operationalTaskStatusLabel(task.status), fontSize = 9.sp) })
                 }
                 if (task.description.isNotBlank()) { Spacer(Modifier.height(8.dp)); Text(task.description, maxLines = 3) }

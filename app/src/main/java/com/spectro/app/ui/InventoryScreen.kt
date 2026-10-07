@@ -30,14 +30,24 @@ private data class NewRollDraft(
 fun InventoryScreen(vm: SpectroViewModel, p: SpectroPalette) {
     var query by remember { mutableStateOf("") }
     var ownerFilter by remember { mutableStateOf("ALL") }
+    var mode by remember { mutableStateOf("ACTIVE") }
     var loadOpen by remember { mutableStateOf(false) }
     var selectedOwner by remember { mutableStateOf<String?>(null) }
     var selectedGroup by remember { mutableStateOf<List<InventoryItem>?>(null) }
     var selectedItem by remember { mutableStateOf<InventoryItem?>(null) }
 
-    val matchingItems = vm.state.inventory.filter { item ->
+    val sourceItems = if (mode == "ACTIVE") vm.activeInventory() else vm.inventoryHistory()
+    val matchingItems = sourceItems.filter { item ->
         val matchOwner = ownerFilter == "ALL" || (ownerFilter == "HOUSE" && item.ownerType == OwnerType.HOUSE) || (ownerFilter == "CLIENT" && item.ownerType == OwnerType.CLIENT)
-        val matchQuery = query.isBlank() || item.fabricName.contains(query, true) || item.ownerName.contains(query, true) || item.lotCode.contains(query, true) || vm.rollsForInventory(item.id).any { it.rollCode.contains(query, true) }
+        val rolls = vm.rollsForInventory(item.id)
+        val matchQuery = query.isBlank() ||
+            item.fabricName.contains(query, true) ||
+            item.ownerName.contains(query, true) ||
+            item.lotCode.contains(query, true) ||
+            item.createdDate.contains(query, true) ||
+            item.variant.contains(query, true) ||
+            item.supplierName.contains(query, true) ||
+            rolls.any { roll -> roll.rollCode.contains(query, true) || roll.note.contains(query, true) }
         matchOwner && matchQuery
     }
     val groups = matchingItems.groupBy { if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName }
@@ -52,38 +62,103 @@ fun InventoryScreen(vm: SpectroViewModel, p: SpectroPalette) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Magazzino", fontSize = 28.sp, fontWeight = FontWeight.Black)
-                    Text("Organizzato per cliente → tessuto → collo.", color = p.textMuted)
+                    Text("Cliente → tessuto → carico → collo, con storico completo.", color = p.textMuted)
                 }
                 FilledIconButton(onClick = { loadOpen = true }) { Icon(Icons.Rounded.Add, "Nuovo carico") }
             }
             Spacer(Modifier.height(14.dp))
-            OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), leadingIcon = { Icon(Icons.Rounded.Search, null) }, placeholder = { Text("Cliente, tessuto, lotto o collo…") }, singleLine = true, shape = RoundedCornerShape(16.dp))
+            SegmentedChoice(listOf("ACTIVE" to "ATTUALE", "HISTORY" to "STORICO"), mode, p) {
+                mode = it
+                selectedOwner = null
+                selectedGroup = null
+            }
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                query,
+                { query = it },
+                Modifier.fillMaxWidth(),
+                leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                placeholder = { Text(if (mode == "ACTIVE") "Cliente, tessuto, lotto o collo…" else "Cerca tessuto storico, data, lotto, cartellino…") },
+                singleLine = true,
+                shape = RoundedCornerShape(16.dp)
+            )
             Spacer(Modifier.height(10.dp))
             SegmentedChoice(listOf("ALL" to "TUTTI", "CLIENT" to "CLIENTI", "HOUSE" to "AZIENDA"), ownerFilter, p) { ownerFilter = it }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Metric("Clienti", groups.size.toString(), modifier = Modifier.weight(1f))
-                Metric("Colli", matchingItems.sumOf { vm.rollsForInventory(it.id).count { r -> r.availableMeters > 0 } }.toString(), modifier = Modifier.weight(1f))
-                Metric("Metri", meters(matchingItems.sumOf { it.quantityMeters }), modifier = Modifier.weight(1f))
+                if (mode == "ACTIVE") {
+                    Metric("Clienti", groups.size.toString(), modifier = Modifier.weight(1f))
+                    Metric("Colli", matchingItems.sumOf { vm.rollsForInventory(it.id).count { r -> r.availableMeters > .0001 } }.toString(), modifier = Modifier.weight(1f))
+                    Metric("Metri", meters(matchingItems.sumOf { it.quantityMeters }), modifier = Modifier.weight(1f))
+                } else {
+                    Metric("Carichi", matchingItems.size.toString(), modifier = Modifier.weight(1f))
+                    Metric("Esauriti", matchingItems.count { it.quantityMeters <= .0001 }.toString(), modifier = Modifier.weight(1f))
+                    Metric("Storico mt", meters(matchingItems.sumOf { item -> vm.rollsForInventory(item.id).sumOf { it.initialMeters } }), modifier = Modifier.weight(1f))
+                }
             }
         }
 
-        if (groups.isEmpty()) item { EmptyState(Icons.Rounded.Inventory2, "Nessun magazzino", "Premi + per caricare tessuti e colli") }
+        if (mode == "ACTIVE") {
+            if (groups.isEmpty()) item { EmptyState(Icons.Rounded.Inventory2, "Nessun tessuto disponibile", "I tessuti esauriti vengono spostati automaticamente nello Storico") }
 
-        items(groups, key = { it.first }) { (owner, fabrics) ->
-            val rolls = fabrics.flatMap { vm.rollsForInventory(it.id) }
-            SpectroCard(p = p, onClick = { selectedOwner = owner }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
-                        Icon(if (owner == "AZIENDA") Icons.Rounded.Warehouse else Icons.Rounded.Person, null, tint = p.primary, modifier = Modifier.size(30.dp))
+            items(groups, key = { it.first }) { (owner, fabrics) ->
+                val rolls = fabrics.flatMap { vm.rollsForInventory(it.id) }
+                SpectroCard(p = p, onClick = { selectedOwner = owner }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
+                            Icon(if (owner == "AZIENDA") Icons.Rounded.Warehouse else Icons.Rounded.Person, null, tint = p.primary, modifier = Modifier.size(30.dp))
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(owner, fontWeight = FontWeight.Black, fontSize = 19.sp)
+                            Text("${fabrics.map { it.fabricName.uppercase() }.distinct().size} tessuti • ${rolls.count { it.availableMeters > .0001 }} colli", color = p.textMuted, fontSize = 12.sp)
+                        }
+                        Text(meters(fabrics.sumOf { it.quantityMeters }), fontWeight = FontWeight.Black, color = p.primary)
+                        Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(owner, fontWeight = FontWeight.Black, fontSize = 19.sp)
-                        Text("${fabrics.size} tessuti • ${rolls.count { it.availableMeters > 0 }} colli", color = p.textMuted, fontSize = 12.sp)
+                }
+            }
+        } else {
+            item {
+                Text(
+                    "Lo storico conserva anche i tessuti esauriti: data di carico, lotto, colli, movimenti e immagini/cartellini restano sempre consultabili.",
+                    color = p.textMuted,
+                    fontSize = 11.sp
+                )
+            }
+            if (matchingItems.isEmpty()) item { EmptyState(Icons.Rounded.History, "Storico vuoto", "Non risultano carichi corrispondenti alla ricerca") }
+            items(matchingItems, key = { "history-${it.id}" }) { item ->
+                val rolls = vm.rollsForInventory(item.id)
+                val exhausted = item.quantityMeters <= .0001
+                SpectroCard(p = p, onClick = { selectedItem = item }) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(item.fabricName.uppercase(), fontWeight = FontWeight.Black, fontSize = 18.sp, color = p.text)
+                            Text(
+                                "${if (item.ownerType == OwnerType.HOUSE) "AZIENDA" else item.ownerName} • caricato ${item.createdDate}${item.lotCode.takeIf { it.isNotBlank() }?.let { " • lotto $it" }.orEmpty()}",
+                                color = p.textMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(if (exhausted) "ESAURITO" else "ATTIVO", fontSize = 9.sp, fontWeight = FontWeight.Black) },
+                            colors = AssistChipDefaults.assistChipColors(labelColor = if (exhausted) p.textMuted else p.success)
+                        )
                     }
-                    Text(meters(fabrics.sumOf { it.quantityMeters }), fontWeight = FontWeight.Black, color = p.primary)
-                    Spacer(Modifier.width(4.dp)); Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Iniziali", meters(rolls.sumOf { it.initialMeters }), modifier = Modifier.weight(1f))
+                        Metric("Disponibili", meters(item.quantityMeters), if (exhausted) p.textMuted else p.primary, Modifier.weight(1f))
+                        Metric("Colli", rolls.size.toString(), modifier = Modifier.weight(1f))
+                    }
+                    val pictures = rolls.flatMap { it.images }.take(3)
+                    if (pictures.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp))
+                        ImageStrip(pictures)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tocca per aprire colli, cartellini e movimenti completi", color = p.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -114,7 +189,7 @@ private fun InventoryOwnerSheet(
     onDismiss: () -> Unit,
     onOpenGroup: (List<InventoryItem>) -> Unit
 ) {
-    val fabrics = vm.state.inventory.filter { (if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName).equals(owner, true) }
+    val fabrics = vm.activeInventory().filter { (if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName).equals(owner, true) }
         .sortedWith(compareBy<InventoryItem> { it.fabricName.lowercase() }.thenBy { it.variant.lowercase() })
     val groups = fabrics.groupBy { it.fabricName.trim().uppercase() }.toList().sortedBy { it.first }
     val totalMeters = fabrics.sumOf { it.quantityMeters }

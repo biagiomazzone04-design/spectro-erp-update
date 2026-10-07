@@ -105,6 +105,25 @@ fun SpectroApp(vm: SpectroViewModel) {
                         }
                         FilledIconButton(onClick = { searchOpen = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)) { Icon(Icons.Rounded.Search, null, tint = palette.text) }
                         Spacer(Modifier.width(8.dp))
+                        val openTaskCount = vm.openTasks().size
+                        val urgentTaskCount = vm.urgentTasks().size
+                        BadgedBox(
+                            badge = {
+                                if (openTaskCount > 0) {
+                                    Badge(containerColor = if (urgentTaskCount > 0) palette.danger else palette.primary) {
+                                        Text(openTaskCount.coerceAtMost(99).toString())
+                                    }
+                                }
+                            }
+                        ) {
+                            FilledIconButton(
+                                onClick = { navigate(AppTab.ACTIVITIES) },
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                            ) {
+                                Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.danger else palette.text)
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
                         FilledIconButton(onClick = { settingsOpen = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)) { Icon(Icons.Rounded.Settings, null, tint = palette.text) }
                     }
                 }
@@ -161,15 +180,33 @@ fun SpectroApp(vm: SpectroViewModel) {
             )
         }
         selectedInventory?.let { item -> InventoryDetailSheet(vm, palette, item, onDismiss = { selectedInventory = null }) }
-        selectedOrder?.let { order -> OrderTimelineScreen(vm, palette, order, onBack = { selectedOrder = null }, onEdit = ::editOrder, onStartProduction = ::startProduction) }
+        selectedOrder?.let { order ->
+            OrderTimelineScreen(
+                vm = vm,
+                p = palette,
+                order = order,
+                onBack = { selectedOrder = null },
+                onEdit = ::editOrder,
+                onStartProduction = ::startProduction,
+                onComplete = { vm.completeWorkOrder(it.id) },
+                onReopen = { vm.reopenWorkOrder(it.id) }
+            )
+        }
         detail?.let { r ->
+            val linkedOrder = r.workOrderId?.let { id -> vm.state.workOrders.firstOrNull { it.id == id } }
             RecordDetailSheet(
-                r, palette,
+                r = r,
+                p = palette,
+                linkedOrder = linkedOrder,
                 onDismiss = { detail = null },
                 onEdit = { editingProduction = r; editingWork = null; sourceWork = null; createMode = if (r.type == RecordType.NEGATIVE) CreateMode.NEGATIVE else CreateMode.PRODUCTION; detail = null; navigate(AppTab.CREATE) },
                 onDelete = { vm.deleteProduction(r.id); detail = null },
                 onOpenHistory = {
-                    r.workOrderId?.let { id -> vm.state.workOrders.firstOrNull { it.id == id }?.let { order -> detail = null; openOrder(order) } }
+                    linkedOrder?.let { order -> detail = null; openOrder(order) }
+                },
+                onCompleteOrder = {
+                    linkedOrder?.let { vm.completeWorkOrder(it.id) }
+                    detail = null
                 }
             )
         }
@@ -185,7 +222,7 @@ private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (
         ModuleCard("Clienti", "Anagrafica, scadenze e storico", Icons.Rounded.People, p) { onOpen(AppTab.CLIENTS) }
         ModuleCard("Criticità", "Centro operativo di problemi e ritardi • ${vm.openIssues().size} aperte", Icons.Rounded.ReportProblem, p) { onOpen(AppTab.ISSUES) }
         ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
-        ModuleCard("Attività", "Campioni, ricerche grafiche e lavori da fare • ${vm.openTasks().size} aperte", Icons.Rounded.AddTask, p) { onOpen(AppTab.ACTIVITIES) }
+        ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
         ModuleCard("Altri ricavi", "Trasferimenti, lavorazioni e materiali fatturati", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
         ModuleCard("ZENTHA", "Catalogo, ordini, utile 50/50 e pagamenti", Icons.Rounded.SportsVolleyball, p) { onOpen(AppTab.ZENTHA) }
     }
@@ -217,7 +254,16 @@ private fun BottomIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, ac
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecordDetailSheet(r: ProductionRecord, p: SpectroPalette, onDismiss: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, onOpenHistory: () -> Unit = {}) {
+private fun RecordDetailSheet(
+    r: ProductionRecord,
+    p: SpectroPalette,
+    linkedOrder: WorkOrder? = null,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenHistory: () -> Unit = {},
+    onCompleteOrder: () -> Unit = {}
+) {
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
@@ -225,7 +271,9 @@ private fun RecordDetailSheet(r: ProductionRecord, p: SpectroPalette, onDismiss:
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text(r.date, color = p.textMuted, fontSize = 12.sp); Text(r.clientName, fontSize = 26.sp, fontWeight = FontWeight.Black); Text(if (r.type == RecordType.NEGATIVE) "Evento negativo" else r.orderRef.ifBlank { "Produzione" }, color = if (r.type == RecordType.NEGATIVE) p.danger else p.primary, fontWeight = FontWeight.Bold) }
                 IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, null, tint = p.primary) }
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
+                if (linkedOrder?.status?.isArchivedOrder() != true) {
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
+                }
             }
             Spacer(Modifier.height(16.dp))
             SpectroCard(p = p) {
@@ -237,7 +285,21 @@ private fun RecordDetailSheet(r: ProductionRecord, p: SpectroPalette, onDismiss:
             if (r.technicalNotes.isNotBlank() && r.type == RecordType.PRODUCTION) { Spacer(Modifier.height(12.dp)); SpectroCard(p = p) { Text("NOTE TECNICHE", fontWeight = FontWeight.Black, color = p.primary); Spacer(Modifier.height(8.dp)); Text(r.technicalNotes) } }
             if (r.images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(r.images) }
             if (r.type == RecordType.PRODUCTION && r.workOrderId != null) {
-                Spacer(Modifier.height(14.dp)); OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(7.dp)); Text("Apri storico completo dell'ordine") }
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(7.dp)); Text("Apri storico completo dell'ordine") }
+                if (linkedOrder != null && !linkedOrder.status.isFinishedOrder()) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = onCompleteOrder,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = p.success)
+                    ) {
+                        Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(7.dp)); Text("Completa ed evadi ordine")
+                    }
+                } else if (linkedOrder?.status?.isArchivedOrder() == true) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Ordine archiviato nello storico cliente • ${linkedOrder.effectiveDeliveryDate.ifBlank { "data non disponibile" }}", color = p.success, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
             }
             Spacer(Modifier.height(16.dp)); GradientButton("Esporta PDF analitico", p, icon = Icons.Rounded.PictureAsPdf) { ReportExporter.share(context, r) }; Spacer(Modifier.height(24.dp))
         }

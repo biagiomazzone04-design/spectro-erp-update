@@ -36,6 +36,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.ui.theme.SpectroPalette
+import com.spectro.app.data.InventoryItem
+import com.spectro.app.data.OwnerType
 import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
@@ -298,6 +300,111 @@ fun <T> SimpleSelectField(
             }
         }
     }
+}
+
+
+@Composable
+fun InventoryPickerDialog(
+    title: String,
+    inventoryItems: List<InventoryItem>,
+    onDismiss: () -> Unit,
+    onSelected: (InventoryItem) -> Unit,
+    ownerTypeFilter: OwnerType? = null,
+    initialOwner: String? = null
+) {
+    val active = remember(inventoryItems, ownerTypeFilter) {
+        inventoryItems.filter { it.quantityMeters > .0001 && (ownerTypeFilter == null || it.ownerType == ownerTypeFilter) }
+    }
+    val ownerKey: (InventoryItem) -> String = { if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName }
+    val owners = remember(active) { active.map(ownerKey).distinct().sortedBy { it.lowercase() } }
+    var owner by remember(active, initialOwner) {
+        mutableStateOf(
+            initialOwner?.takeIf { init -> owners.any { it.equals(init, true) } }
+                ?: owners.singleOrNull()
+        )
+    }
+    var fabric by remember(owner) { mutableStateOf<String?>(null) }
+    val ownerItems = remember(active, owner) { active.filter { owner != null && ownerKey(it).equals(owner, true) } }
+    val fabricGroups = remember(ownerItems) { ownerItems.groupBy { it.fabricName.trim().uppercase() }.toList().sortedBy { it.first } }
+    val loads = remember(ownerItems, fabric) {
+        ownerItems.filter { fabric != null && it.fabricName.trim().uppercase() == fabric }.sortedWith(compareByDescending<InventoryItem> { it.createdDate }.thenByDescending { it.id })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(title, fontWeight = FontWeight.Black)
+                Text(
+                    when {
+                        owner == null -> "1. Seleziona cliente / proprietario"
+                        fabric == null -> "2. Seleziona tessuto • $owner"
+                        else -> "3. Seleziona carico • $fabric"
+                    },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .78f)
+                )
+            }
+        },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                when {
+                    owner == null -> {
+                        if (owners.isEmpty()) item { Text("Nessun tessuto disponibile in magazzino.") }
+                        items(owners, key = { it }) { name ->
+                            val rows = active.filter { ownerKey(it).equals(name, true) }
+                            ListItem(
+                                modifier = Modifier.clickable { owner = name; fabric = null },
+                                headlineContent = { Text(name, fontWeight = FontWeight.Black) },
+                                supportingContent = { Text("${rows.map { it.fabricName.uppercase() }.distinct().size} tessuti • ${meters(rows.sumOf { it.quantityMeters })}") },
+                                leadingContent = { Icon(if (name == "AZIENDA") Icons.Rounded.Warehouse else Icons.Rounded.Person, null) },
+                                trailingContent = { Icon(Icons.Rounded.ChevronRight, null) }
+                            )
+                        }
+                    }
+                    fabric == null -> {
+                        items(fabricGroups, key = { it.first }) { (name, rows) ->
+                            ListItem(
+                                modifier = Modifier.clickable { fabric = name },
+                                headlineContent = { Text(name, fontWeight = FontWeight.Black) },
+                                supportingContent = { Text("${rows.size} carichi • ${meters(rows.sumOf { it.quantityMeters })}") },
+                                leadingContent = { Icon(Icons.Rounded.Texture, null) },
+                                trailingContent = { Icon(Icons.Rounded.ChevronRight, null) }
+                            )
+                        }
+                    }
+                    else -> {
+                        items(loads, key = { it.id }) { row ->
+                            val sub = buildList {
+                                add("Carico ${row.createdDate}")
+                                if (row.lotCode.isNotBlank()) add("Lotto ${row.lotCode}")
+                                if (row.variant.isNotBlank()) add(row.variant)
+                            }.joinToString(" • ")
+                            ListItem(
+                                modifier = Modifier.clickable { onSelected(row) },
+                                headlineContent = { Text(row.fabricName.uppercase(), fontWeight = FontWeight.Black) },
+                                supportingContent = { Text(sub) },
+                                trailingContent = {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(meters(row.quantityMeters), fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                                        Text("disponibili", fontSize = 9.sp)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            Row {
+                if (fabric != null) TextButton(onClick = { fabric = null }) { Text("Tessuti") }
+                else if (owner != null && owners.size > 1) TextButton(onClick = { owner = null }) { Text("Clienti") }
+                TextButton(onClick = onDismiss) { Text("Chiudi") }
+            }
+        }
+    )
 }
 
 fun workStatusLabel(status: com.spectro.app.data.WorkStatus): String = when (status) {

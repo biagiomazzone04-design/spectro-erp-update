@@ -1,5 +1,6 @@
 package com.spectro.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -71,6 +72,8 @@ private fun SearchRow(title: String, subtitle: String, p: SpectroPalette, icon: 
     }
 }
 
+enum class ClientProfileSection { HOME, INVENTORY, ORDERS, ISSUES, STATS }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchClientProfileSheet(
@@ -81,97 +84,307 @@ fun SearchClientProfileSheet(
     onOpenOrder: (WorkOrder) -> Unit,
     onOpenProduction: (ProductionRecord) -> Unit,
     onOpenInventory: (InventoryItem) -> Unit,
-    onOpenCotton: (CottonOrder) -> Unit = {}
+    onOpenCotton: (CottonOrder) -> Unit = {},
+    initialSection: ClientProfileSection = ClientProfileSection.HOME,
+    onSectionChange: (ClientProfileSection) -> Unit = {}
 ) {
     val context = LocalContext.current
-    val works = vm.state.workOrders.filter { it.clientId == client.id || it.client.equals(client.name, true) }.sortedByDescending { it.receivedDate }
-    val productions = vm.state.production.filter { it.type == RecordType.PRODUCTION && (it.clientId == client.id || it.clientName.equals(client.name, true)) }.sortedByDescending { it.date }
-    val inventory = vm.state.inventory.filter { it.ownerType == OwnerType.CLIENT && it.ownerName.equals(client.name, true) }.sortedBy { it.fabricName.lowercase() }
-    val cottonOrders = vm.state.cottonOrders.filter { it.clientId == client.id || it.clientName.equals(client.name, true) }.sortedByDescending { it.orderDate }
-    val economicWorks = vm.state.economicWorks.filter { it.clientId == client.id || it.clientName.equals(client.name, true) }.sortedByDescending { it.date }
-    val criticalities = vm.state.timelineEvents.filter { (it.clientId == client.id || it.clientName.equals(client.name, true)) && it.severity != TimelineSeverity.INFO }.sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
+    var section by remember(client.id) { mutableStateOf(initialSection) }
+    var expandedFabric by remember(client.id) { mutableStateOf<String?>(null) }
+
+    val works = vm.state.workOrders
+        .filter { it.clientId == client.id || it.client.equals(client.name, true) }
+        .sortedWith(compareByDescending<WorkOrder> { if (!it.status.isFinishedOrder()) 1 else 0 }.thenByDescending { it.receivedDate })
+    val productions = vm.state.production
+        .filter { it.type == RecordType.PRODUCTION && (it.clientId == client.id || it.clientName.equals(client.name, true)) }
+        .sortedWith(compareByDescending<ProductionRecord> { it.date }.thenByDescending { it.id })
+    val inventoryAll = vm.state.inventory
+        .filter { it.ownerType == OwnerType.CLIENT && it.ownerName.equals(client.name, true) }
+        .sortedWith(compareBy<InventoryItem> { it.fabricName.lowercase() }.thenByDescending { it.createdDate })
+    val inventoryActive = inventoryAll.filter { it.quantityMeters > .0001 }
+    val inventoryHistory = inventoryAll.filter { it.quantityMeters <= .0001 }
+    val cottonOrders = vm.state.cottonOrders
+        .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
+        .sortedByDescending { it.orderDate }
+    val economicWorks = vm.state.economicWorks
+        .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
+        .sortedByDescending { it.date }
+    val criticalities = vm.state.timelineEvents
+        .filter { (it.clientId == client.id || it.clientName.equals(client.name, true)) && it.severity != TimelineSeverity.INFO }
+        .sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
     val revenue = productions.sumOf { it.grossRevenue } + cottonOrders.sumOf { it.grossRevenue } + economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }
     val paperMeters = productions.sumOf { it.printedPaperMeters }
+    val fabricMeters = productions.sumOf { it.fabricUsedMeters }
+    val totalStock = inventoryActive.sumOf { it.quantityMeters }
+
+    LaunchedEffect(section) { onSectionChange(section) }
+    BackHandler(enabled = section != ClientProfileSection.HOME) { section = ClientProfileSection.HOME }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
-        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text(client.name, fontSize = 28.sp, fontWeight = FontWeight.Black, color = p.text); Text("Profilo cliente completo", color = p.textMuted) }
+        LazyColumn(
+            Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
             item {
-                SpectroCard(p = p) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Metric("Ordini", (works.size + cottonOrders.size).toString(), modifier = Modifier.weight(1f))
-                        Metric("Carta stampata", meters(paperMeters), modifier = Modifier.weight(1f))
-                        Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Metric("Criticità", criticalities.size.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.warning else p.textMuted, Modifier.weight(1f))
-                        Metric("Aperte", criticalities.count { it.status == TimelineStatus.OPEN }.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.danger else p.success, Modifier.weight(1f))
-                        Metric("Altri ricavi", euro(economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }), modifier = Modifier.weight(1f))
-                    }
-                }
-            }
-            item { SectionTitle("Criticità cliente") }
-            if (criticalities.isEmpty()) item { Text("Nessuna criticità registrata negli ordini di questo cliente.", color = p.textMuted) }
-            items(criticalities, key = { "crit${it.id}" }) { event ->
-                val linked = works.firstOrNull { it.id == event.workOrderId }
-                SpectroCard(p = p, onClick = { if (linked != null) onOpenOrder(linked) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(event.title, fontWeight = FontWeight.Black, color = p.text); Text("${event.date} • ${event.orderRef}", color = p.textMuted, fontSize = 11.sp) }
-                        AssistChip(onClick = {}, label = { Text(timelineSeverityLabel(event.severity), fontSize = 9.sp) })
-                    }
-                    if (event.description.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(localizeWorkStatusTokens(event.description), color = p.text, fontSize = 12.sp, maxLines = 4) }
-                    Spacer(Modifier.height(5.dp)); Text("${timelineResponsibilityLabel(event.responsibility)} • ${if (event.status == TimelineStatus.OPEN) "Aperta" else "Risolta"}", color = if (event.status == TimelineStatus.OPEN) p.warning else p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            item { SectionTitle("Magazzino cliente") }
-            if (inventory.isEmpty()) item { Text("Nessun tessuto presente in magazzino.", color = p.textMuted) }
-            items(inventory, key = { "inv${it.id}" }) { i ->
-                SpectroCard(p = p, onClick = { onOpenInventory(i) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(i.fabricName.uppercase(), fontWeight = FontWeight.Black, color = p.text); Text("${vm.rollsForInventory(i.id).count { r -> r.availableMeters > 0 }} colli", color = p.textMuted, fontSize = 11.sp) }
-                        Text(meters(i.quantityMeters), color = p.primary, fontWeight = FontWeight.Black); Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
-                    }
-                }
-            }
-            item { SectionTitle("Ordini in corso e pregressi") }
-            if (works.isEmpty()) item { Text("Nessun ordine registrato.", color = p.textMuted) }
-            items(works, key = { "wo${it.id}" }) { w ->
-                SpectroCard(p = p, onClick = { onOpenOrder(w) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(w.title.ifBlank { w.orderCode }, fontWeight = FontWeight.Black, color = p.text)
-                            Text("${workStatusLabel(w.status)} • ${w.receivedDate}${if (w.orderCode.isNotBlank()) " • ${w.orderCode}" else ""}", color = p.textMuted, fontSize = 11.sp)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (section != ClientProfileSection.HOME) {
+                        IconButton(onClick = { section = ClientProfileSection.HOME }) {
+                            Icon(Icons.Rounded.ArrowBack, "Torna al cliente", tint = p.text)
                         }
-                        IconButton(onClick = { ReportExporter.shareWorkOrder(context, w) }) { Icon(Icons.Rounded.PictureAsPdf, "Esporta PDF", tint = p.primary) }
-                        Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                    }
+                    Column(Modifier.weight(1f)) {
+                        Text(client.name, fontSize = 28.sp, fontWeight = FontWeight.Black, color = p.text)
+                        Text(
+                            when (section) {
+                                ClientProfileSection.HOME -> "Profilo operativo cliente"
+                                ClientProfileSection.INVENTORY -> "Magazzino cliente"
+                                ClientProfileSection.ORDERS -> "Ordini in corso e pregressi"
+                                ClientProfileSection.ISSUES -> "Criticità e storico problemi"
+                                ClientProfileSection.STATS -> "Statistiche cliente"
+                            },
+                            color = p.textMuted
+                        )
                     }
                 }
             }
-            item { SectionTitle("Ordini cotone") }
-            if (cottonOrders.isEmpty()) item { Text("Nessun ordine cotone registrato.", color = p.textMuted) }
-            items(cottonOrders, key = { "cot${it.id}" }) { c ->
-                SpectroCard(p = p, onClick = { onOpenCotton(c) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(c.title.ifBlank { c.orderCode.ifBlank { "Ordine cotone" } }, fontWeight = FontWeight.Black, color = p.text)
-                            Text("${workStatusLabel(c.status)} • ${c.fabricName} • ${c.orderDate}", color = p.textMuted, fontSize = 11.sp)
+
+            when (section) {
+                ClientProfileSection.HOME -> {
+                    item {
+                        SpectroCard(p = p) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Attivi", works.count { !it.status.isFinishedOrder() }.toString(), modifier = Modifier.weight(1f))
+                                Metric("Evasi", works.count { it.status.isArchivedOrder() }.toString(), p.success, Modifier.weight(1f))
+                                Metric("Magazzino", meters(totalStock), p.primary, Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Criticità", criticalities.size.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.secondary else p.success, Modifier.weight(1f))
+                                Metric("Carta", meters(paperMeters), modifier = Modifier.weight(1f))
+                                Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
+                            }
                         }
-                        IconButton(onClick = { ReportExporter.shareCottonOrder(context, c) }) { Icon(Icons.Rounded.PictureAsPdf, "Esporta PDF", tint = p.primary) }
-                        Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                    }
+                    item {
+                        ClientAreaCard("MAGAZZINO", "${inventoryActive.map { it.fabricName.uppercase() }.distinct().size} tessuti attivi • ${meters(totalStock)}", Icons.Rounded.Inventory2, p, p.primary) { section = ClientProfileSection.INVENTORY }
+                    }
+                    item {
+                        ClientAreaCard("ORDINI", "${works.size} ordini • ${works.count { it.status.isArchivedOrder() }} evasi", Icons.Rounded.Assignment, p, p.primary) { section = ClientProfileSection.ORDERS }
+                    }
+                    item {
+                        ClientAreaCard("CRITICITÀ", "${criticalities.size} registrate • ${criticalities.count { it.status == TimelineStatus.OPEN }} aperte", Icons.Rounded.ReportProblem, p, p.secondary) { section = ClientProfileSection.ISSUES }
+                    }
+                    item {
+                        ClientAreaCard("STATISTICHE", "Produzione, metri, fatturato e storico cliente", Icons.Rounded.Analytics, p, p.primary) { section = ClientProfileSection.STATS }
+                    }
+                }
+
+                ClientProfileSection.INVENTORY -> {
+                    item {
+                        SpectroCard(p = p) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Tessuti attivi", inventoryActive.map { it.fabricName.uppercase() }.distinct().size.toString(), modifier = Modifier.weight(1f))
+                                Metric("Metri a terra", meters(totalStock), p.primary, Modifier.weight(1f))
+                                Metric("Esauriti", inventoryHistory.size.toString(), p.textMuted, Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    val fabricGroups = inventoryActive.groupBy { it.fabricName.trim().uppercase() }.toList().sortedBy { it.first }
+                    if (fabricGroups.isEmpty()) item { Text("Nessun tessuto attivo per questo cliente.", color = p.textMuted) }
+                    items(fabricGroups, key = { "fabric-${it.first}" }) { (fabricName, rows) ->
+                        SpectroCard(p = p, onClick = { expandedFabric = if (expandedFabric == fabricName) null else fabricName }) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(fabricName, fontWeight = FontWeight.Black, fontSize = 18.sp, color = p.text)
+                                    Text("${rows.size} carichi • ${rows.sumOf { vm.rollsForInventory(it.id).count { roll -> roll.availableMeters > .0001 } }} colli disponibili", color = p.textMuted, fontSize = 11.sp)
+                                }
+                                Text(meters(rows.sumOf { it.quantityMeters }), color = p.primary, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                                Icon(if (expandedFabric == fabricName) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = p.textMuted)
+                            }
+                            if (expandedFabric == fabricName) {
+                                Spacer(Modifier.height(10.dp))
+                                rows.sortedByDescending { it.createdDate }.forEach { row ->
+                                    HorizontalDivider(color = p.border)
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("CARICO ${row.createdDate}", color = p.text, fontWeight = FontWeight.Black, fontSize = 12.sp)
+                                            Text(buildString {
+                                                if (row.lotCode.isNotBlank()) append("Lotto ${row.lotCode}")
+                                                if (row.variant.isNotBlank()) { if (isNotEmpty()) append(" • "); append(row.variant) }
+                                            }.ifBlank { "Apri dettaglio e colli" }, color = p.textMuted, fontSize = 10.sp)
+                                        }
+                                        Text(meters(row.quantityMeters), color = p.primary, fontWeight = FontWeight.Black)
+                                        IconButton(onClick = { onOpenInventory(row) }) { Icon(Icons.Rounded.ChevronRight, "Apri", tint = p.primary) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (inventoryHistory.isNotEmpty()) {
+                        item { SectionTitle("Storico tessuti esauriti") }
+                        items(inventoryHistory.take(20), key = { "hist-inv-${it.id}" }) { row ->
+                            SpectroCard(p = p, onClick = { onOpenInventory(row) }) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Column(Modifier.weight(1f)) {
+                                        Text(row.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black)
+                                        Text("Caricato ${row.createdDate}${if (row.lotCode.isNotBlank()) " • lotto ${row.lotCode}" else ""}", color = p.textMuted, fontSize = 11.sp)
+                                    }
+                                    Text("ESAURITO", color = p.textMuted, fontWeight = FontWeight.Black, fontSize = 10.sp)
+                                    Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ClientProfileSection.ORDERS -> {
+                    if (works.isEmpty() && cottonOrders.isEmpty()) item { Text("Nessun ordine registrato.", color = p.textMuted) }
+                    if (works.isNotEmpty()) item { SectionTitle("Sublimazione") }
+                    items(works, key = { "wo${it.id}" }) { w ->
+                        val fabrics = orderFabricRows(vm, w)
+                        val productionRows = vm.productionsForOrder(w.id)
+                        val productionNotes = productionRows.mapNotNull { it.technicalNotes.trim().takeIf(String::isNotBlank) }.distinct()
+                        val previewImages = (w.images + productionRows.flatMap { it.images }).distinct()
+                        SpectroCard(p = p, onClick = { onOpenOrder(w) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(w.title.ifBlank { w.orderCode }, fontWeight = FontWeight.Black, fontSize = 18.sp, color = p.text)
+                                    Text("${workStatusLabel(w.status)} • ${w.receivedDate}", color = if (w.status.isArchivedOrder()) p.success else p.textMuted, fontSize = 11.sp)
+                                    if (w.orderCode.isNotBlank()) Text(w.orderCode, color = p.textMuted, fontSize = 9.sp)
+                                }
+                                IconButton(onClick = { ReportExporter.shareWorkOrder(context, w) }) { Icon(Icons.Rounded.PictureAsPdf, "PDF", tint = p.primary) }
+                                Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                            }
+                            if (fabrics.isNotEmpty()) {
+                                Spacer(Modifier.height(10.dp))
+                                fabrics.forEach { row ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(row.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                                        Text(if (row.meters > 0) meters(row.meters) else "-", color = p.primary, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                                    }
+                                }
+                            }
+                            if (w.description.isNotBlank()) {
+                                Spacer(Modifier.height(8.dp)); Text(w.description, color = p.textMuted, fontSize = 11.sp, maxLines = 3)
+                            }
+                            if (productionNotes.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("NOTE PRODUZIONE", color = p.textMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                productionNotes.take(2).forEach { note -> Text(note, color = p.text, fontSize = 11.sp, maxLines = 2) }
+                            }
+                            if (previewImages.isNotEmpty()) { Spacer(Modifier.height(8.dp)); ImageStrip(previewImages) }
+                            if (productionRows.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("${productionRows.size} produzioni collegate • carta ${meters(productionRows.sumOf { it.printedPaperMeters })} • tessuto ${meters(productionRows.sumOf { it.fabricUsedMeters })}", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (cottonOrders.isNotEmpty()) item { SectionTitle("Cotone") }
+                    items(cottonOrders, key = { "cot${it.id}" }) { c ->
+                        SpectroCard(p = p, onClick = { onOpenCotton(c) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(c.title.ifBlank { c.orderCode.ifBlank { "Ordine cotone" } }, fontWeight = FontWeight.Black, color = p.text)
+                                    Text(c.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                                    Text("${meters(if (c.actualProducedMeters > 0) c.actualProducedMeters else c.orderedMeters)} • ${workStatusLabel(c.status)}", color = p.textMuted, fontSize = 11.sp)
+                                }
+                                IconButton(onClick = { ReportExporter.shareCottonOrder(context, c) }) { Icon(Icons.Rounded.PictureAsPdf, "PDF", tint = p.primary) }
+                                Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
+                            }
+                        }
+                    }
+                }
+
+                ClientProfileSection.ISSUES -> {
+                    item {
+                        SpectroCard(p = p) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Totali", criticalities.size.toString(), modifier = Modifier.weight(1f))
+                                Metric("Aperte", criticalities.count { it.status == TimelineStatus.OPEN }.toString(), p.secondary, Modifier.weight(1f))
+                                Metric("Risolte", criticalities.count { it.status == TimelineStatus.RESOLVED }.toString(), p.success, Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    if (criticalities.isEmpty()) item { Text("Nessuna criticità registrata negli ordini di questo cliente.", color = p.textMuted) }
+                    items(criticalities, key = { "crit${it.id}" }) { event ->
+                        val linked = works.firstOrNull { it.id == event.workOrderId }
+                        SpectroCard(p = p, onClick = { if (linked != null) onOpenOrder(linked) }) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(event.title, fontWeight = FontWeight.Black, color = p.text)
+                                    Text("${event.date} • ${event.orderRef}", color = p.textMuted, fontSize = 11.sp)
+                                }
+                                AssistChip(onClick = {}, label = { Text(timelineSeverityLabel(event.severity), fontSize = 9.sp) })
+                            }
+                            if (event.description.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(localizeWorkStatusTokens(event.description), color = p.text, fontSize = 12.sp, maxLines = 5) }
+                            if (event.images.isNotEmpty()) { Spacer(Modifier.height(8.dp)); ImageStrip(event.images) }
+                            Spacer(Modifier.height(5.dp)); Text("${timelineResponsibilityLabel(event.responsibility)} • ${if (event.status == TimelineStatus.OPEN) "Aperta" else "Risolta"}", color = if (event.status == TimelineStatus.OPEN) p.secondary else p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                ClientProfileSection.STATS -> {
+                    item {
+                        SpectroCard(p = p) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Ordini", works.size.toString(), modifier = Modifier.weight(1f))
+                                Metric("Produzioni", productions.size.toString(), modifier = Modifier.weight(1f))
+                                Metric("Criticità", criticalities.size.toString(), modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Carta", meters(paperMeters), p.primary, Modifier.weight(1f))
+                                Metric("Tessuto", meters(fabricMeters), modifier = Modifier.weight(1f))
+                                Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    val byFabric = productions
+                        .filter { it.fabricDisplayName.isNotBlank() && !it.fabricDisplayName.equals("Nessuno", true) }
+                        .groupBy { it.fabricDisplayName.substringBefore(" (").trim().uppercase() }
+                        .mapValues { (_, rows) -> rows.sumOf { it.fabricUsedMeters } }
+                        .toList().sortedByDescending { it.second }
+                    if (byFabric.isNotEmpty()) {
+                        item { SectionTitle("Tessuti lavorati") }
+                        items(byFabric, key = { "stat-fabric-${it.first}" }) { (name, value) ->
+                            SpectroCard(p = p) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(name, color = p.text, fontWeight = FontWeight.Black)
+                                    Text(meters(value), color = p.primary, fontWeight = FontWeight.Black)
+                                }
+                            }
+                        }
                     }
                 }
             }
-            item { SectionTitle("Produzioni") }
-            if (productions.isEmpty()) item { Text("Nessuna produzione registrata.", color = p.textMuted) }
-            items(productions.take(20), key = { "prod${it.id}" }) { r ->
-                SpectroCard(p = p, onClick = { onOpenProduction(r) }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(r.orderRef.ifBlank { "Produzione ${r.date}" }, fontWeight = FontWeight.Black, color = p.text); Text("${r.date} • ${meters(r.printedPaperMeters)} carta", color = p.textMuted, fontSize = 11.sp) }
-                        Text(euro(r.grossRevenue), color = p.success, fontWeight = FontWeight.Black); Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
-                    }
-                }
+        }
+    }
+}
+
+@Composable
+private fun ClientAreaCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    p: SpectroPalette,
+    accent: androidx.compose.ui.graphics.Color,
+    onClick: () -> Unit
+) {
+    SpectroCard(p = p, onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = MaterialTheme.shapes.medium, color = accent.copy(alpha = .14f)) {
+                Icon(icon, null, tint = accent, modifier = Modifier.padding(12.dp).size(26.dp))
             }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = p.text, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                Text(subtitle, color = p.textMuted, fontSize = 11.sp)
+            }
+            Icon(Icons.Rounded.ChevronRight, null, tint = accent)
         }
     }
 }

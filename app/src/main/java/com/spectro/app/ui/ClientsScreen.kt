@@ -33,7 +33,11 @@ private enum class ClientHubTab { CLIENTS, ISSUES, PAYMENTS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientsScreen(vm: SpectroViewModel, p: SpectroPalette, onOpenOrder: (WorkOrder) -> Unit = {}) {
+fun ClientsScreen(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    onOpenClient: (Client) -> Unit = {}
+) {
     var tab by remember { mutableStateOf(ClientHubTab.CLIENTS) }
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
@@ -43,7 +47,7 @@ fun ClientsScreen(vm: SpectroViewModel, p: SpectroPalette, onOpenOrder: (WorkOrd
             SegmentedChoice(listOf("CLIENTS" to "CLIENTI", "ISSUES" to "CRITICITÀ", "PAYMENTS" to "SCADENZE"), tab.name, p) { tab = ClientHubTab.valueOf(it) }
         }
         when (tab) {
-            ClientHubTab.CLIENTS -> ClientDirectoryPane(vm, p, Modifier.weight(1f), onOpenOrder)
+            ClientHubTab.CLIENTS -> ClientDirectoryPane(vm, p, Modifier.weight(1f), onOpenClient)
             ClientHubTab.ISSUES -> IssuesPane(vm, p, Modifier.weight(1f))
             ClientHubTab.PAYMENTS -> PaymentsPane(vm, p, Modifier.weight(1f))
         }
@@ -51,14 +55,16 @@ fun ClientsScreen(vm: SpectroViewModel, p: SpectroPalette, onOpenOrder: (WorkOrd
 }
 
 @Composable
-private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifier: Modifier = Modifier, onOpenOrder: (WorkOrder) -> Unit = {}) {
+private fun ClientDirectoryPane(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    modifier: Modifier = Modifier,
+    onOpenClient: (Client) -> Unit = {}
+) {
     var editing by remember { mutableStateOf<Client?>(null) }
-    var selected by remember { mutableStateOf<Client?>(null) }
     var showForm by remember { mutableStateOf(false) }
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
-    var issueClient by remember { mutableStateOf<Client?>(null) }
-    var paymentClient by remember { mutableStateOf<Client?>(null) }
 
     fun openEditor(c: Client?) { editing = c; name = c?.name.orEmpty(); price = c?.defaultPrintPrice?.takeIf { it != 0.0 }?.toString().orEmpty(); showForm = true }
 
@@ -90,7 +96,7 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
             val orderCrits = vm.state.timelineEvents.filter { (it.clientId == c.id || it.clientName.equals(c.name, true)) && it.severity != TimelineSeverity.INFO }
             val open = issues.count { it.status !in listOf(IssueStatus.RESOLVED, IssueStatus.CLOSED) } + orderCrits.count { it.status == TimelineStatus.OPEN }
             val overdue = vm.state.payments.count { !it.paid && (it.clientId == c.id || it.clientName.equals(c.name, true)) && runCatching { LocalDate.parse(it.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false) }
-            SpectroCard(p = p, onClick = { selected = c }) {
+            SpectroCard(p = p, onClick = { onOpenClient(c) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) { Text(c.name, fontWeight = FontWeight.Black, fontSize = 18.sp); Text("Listino ${euro(c.defaultPrintPrice)}/mt", color = p.primary, fontWeight = FontWeight.Bold, fontSize = 12.sp) }
                     if (open > 0) Badge(containerColor = p.warning) { Text(open.toString()) }
@@ -105,107 +111,7 @@ private fun ClientDirectoryPane(vm: SpectroViewModel, p: SpectroPalette, modifie
         }
     }
 
-    selected?.let { c ->
-        val records = vm.state.production.filter { it.type == RecordType.PRODUCTION && (it.clientId == c.id || it.clientName.equals(c.name, true)) }
-        val issues = vm.state.clientIssues.filter { it.clientId == c.id || it.clientName.equals(c.name, true) }
-        val orderCrits = vm.state.timelineEvents.filter { (it.clientId == c.id || it.clientName.equals(c.name, true)) && it.severity != TimelineSeverity.INFO }.sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
-        val clientOrders = vm.state.workOrders.filter { it.clientId == c.id || it.client.equals(c.name, true) }
-        val activeClientOrders = clientOrders.filter { !it.status.isFinishedOrder() }.sortedByDescending { it.receivedDate }
-        val historicClientOrders = clientOrders.filter { it.status.isArchivedOrder() }.sortedByDescending { it.effectiveDeliveryDate.ifBlank { it.receivedDate } }
-        val clientPayments = vm.state.payments.filter { it.clientId == c.id || it.clientName.equals(c.name, true) }
-        ModalBottomSheet(onDismissRequest = { selected = null }, containerColor = p.background) {
-            LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 40.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(c.name, fontSize = 26.sp, fontWeight = FontWeight.Black); Text("Profilo operativo cliente", color = p.textMuted) }
-                        IconButton(onClick = { selected = null; openEditor(c) }) { Icon(Icons.Rounded.Edit, null, tint = p.primary) }
-                    }
-                }
-                item {
-                    SpectroCard(p = p) {
-                        Row { Metric("Ordini", clientOrders.size.toString(), modifier = Modifier.weight(1f)); Metric("Fatturato", euro(records.sumOf { it.grossRevenue }), p.success, Modifier.weight(1f)) }
-                        Spacer(Modifier.height(12.dp)); Row { Metric("Criticità", (issues.size + orderCrits.size).toString(), modifier = Modifier.weight(1f)); Metric("Ritardo documentato", "${issues.sumOf { it.delayDays }} gg", if (issues.sumOf { it.delayDays } > 0) p.warning else p.textMuted, Modifier.weight(1f)) }
-                        Spacer(Modifier.height(12.dp)); Metric("Da incassare", euro(clientPayments.filter { !it.paid }.sumOf { it.amount }), if (clientPayments.any { !it.paid }) p.warning else p.success)
-                    }
-                }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(onClick = { selected = null; issueClient = c }, Modifier.weight(1f)) { Icon(Icons.Rounded.ReportProblem, null); Spacer(Modifier.width(6.dp)); Text("Criticità") }
-                        OutlinedButton(onClick = { selected = null; paymentClient = c }, Modifier.weight(1f)) { Icon(Icons.Rounded.Payments, null); Spacer(Modifier.width(6.dp)); Text("Scadenza") }
-                    }
-                }
-                item { SectionTitle("Ordini attivi") }
-                if (activeClientOrders.isEmpty()) item { Text("Nessun ordine attivo per questo cliente.", color = p.textMuted) }
-                items(activeClientOrders, key = { "active-order-${it.id}" }) { order ->
-                    SpectroCard(p = p, onClick = { selected = null; onOpenOrder(order) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, color = p.text)
-                                Text("${workStatusLabel(order.status)} • ${order.receivedDate}${order.dueDate.takeIf { it.isNotBlank() }?.let { " • consegna $it" }.orEmpty()}", color = p.textMuted, fontSize = 11.sp)
-                            }
-                            Icon(Icons.Rounded.ChevronRight, null, tint = p.primary)
-                        }
-                    }
-                }
-                item { SectionTitle("Storico ordini evasi") }
-                if (historicClientOrders.isEmpty()) item { Text("Nessun ordine completato nello storico.", color = p.textMuted) }
-                items(historicClientOrders, key = { "historic-order-${it.id}" }) { order ->
-                    val critCount = orderCrits.count { it.workOrderId == order.id }
-                    val prod = order.productionRecordId?.let { id -> records.firstOrNull { it.id == id } }
-                    SpectroCard(p = p, onClick = { selected = null; onOpenOrder(order) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, color = p.text)
-                                Text("Evaso ${order.effectiveDeliveryDate.ifBlank { "-" }} • ${workStatusLabel(order.status)}", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                if (order.orderCode.isNotBlank()) Text(order.orderCode, color = p.textMuted, fontSize = 10.sp)
-                            }
-                            Icon(Icons.Rounded.History, null, tint = p.success)
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Metric("Criticità", critCount.toString(), if (critCount > 0) p.warning else p.success, Modifier.weight(1f))
-                            Metric("Carta", prod?.let { meters(it.printedPaperMeters) } ?: "-", modifier = Modifier.weight(1f))
-                            Metric("Fatturato", prod?.let { euro(it.grossRevenue) } ?: "-", valueColor = p.success, modifier = Modifier.weight(1f))
-                        }
-                        Spacer(Modifier.height(5.dp))
-                        Text("Tocca per aprire ordine, produzione e timeline completa", color = p.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-                item { SectionTitle("Criticità degli ordini") }
-                if (orderCrits.isEmpty()) item { Text("Nessuna criticità collegata agli ordini.", color = p.textMuted) }
-                items(orderCrits, key = { "tl${it.id}" }) { event ->
-                    val linked = clientOrders.firstOrNull { it.id == event.workOrderId }
-                    SpectroCard(p = p, onClick = { if (linked != null) { selected = null; onOpenOrder(linked) } }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(event.title, fontWeight = FontWeight.Black, color = p.text)
-                                Text("${event.date}${if (event.orderRef.isNotBlank()) " • ${event.orderRef}" else ""}", color = p.textMuted, fontSize = 11.sp)
-                            }
-                            AssistChip(onClick = {}, label = { Text(timelineSeverityLabel(event.severity), fontSize = 9.sp) })
-                        }
-                        if (event.description.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text(localizeWorkStatusTokens(event.description), color = p.text, fontSize = 12.sp, maxLines = 4) }
-                        Spacer(Modifier.height(6.dp)); Text("${timelineResponsibilityLabel(event.responsibility)} • ${if (event.status == TimelineStatus.OPEN) "Aperta" else "Risolta"}", color = if (event.status == TimelineStatus.OPEN) p.warning else p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        if (linked != null) { Spacer(Modifier.height(5.dp)); Text("Tocca per aprire l'ordine e lo storico completo", color = p.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-                    }
-                }
-                if (issues.isNotEmpty()) {
-                    item { SectionTitle("Criticità CRM precedenti") }
-                    items(issues.take(6), key = { "ci${it.id}" }) { issue ->
-                        ListItem(headlineContent = { Text(issue.title, fontWeight = FontWeight.Bold) }, supportingContent = { Text("${issue.openedDate} • ${issueCategoryLabel(issue.category)}") }, trailingContent = { Text("${issue.delayDays} gg", color = if (issue.delayDays > 0) p.warning else p.textMuted, fontWeight = FontWeight.Black) }, colors = ListItemDefaults.colors(containerColor = p.background))
-                    }
-                }
-                item { SectionTitle("Ultime produzioni") }
-                if (records.isEmpty()) item { Text("Nessuna produzione registrata.", color = p.textMuted) }
-                items(records.take(5), key = { "pr${it.id}" }) { r ->
-                    ListItem(headlineContent = { Text(r.orderRef.ifBlank { "Produzione ${r.date}" }, fontWeight = FontWeight.Bold) }, supportingContent = { Text("${r.date} • ${meters(r.printedPaperMeters)} carta") }, trailingContent = { Text(euro(r.grossRevenue), color = p.success, fontWeight = FontWeight.Black) }, colors = ListItemDefaults.colors(containerColor = p.background))
-                }
-            }
-        }
-    }
-    if (issueClient != null) IssueEditorSheet(vm, p, null, issueClient) { issueClient = null }
-    if (paymentClient != null) PaymentEditorSheet(vm, p, null, paymentClient) { paymentClient = null }
 }
-
 @Composable
 private fun IssuesPane(vm: SpectroViewModel, p: SpectroPalette, modifier: Modifier = Modifier) {
     var query by remember { mutableStateOf("") }

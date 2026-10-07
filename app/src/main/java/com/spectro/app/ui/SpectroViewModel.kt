@@ -141,7 +141,10 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun inventoryHistory(): List<InventoryItem> = state.inventory.sortedWith(compareByDescending<InventoryItem> { it.createdDate }.thenByDescending { it.id })
     fun movementsForRoll(rollId: Long): List<StockMovement> = state.stockMovements.filter { it.rollId == rollId }.sortedByDescending { it.dateTime }
     fun timelineForOrder(workOrderId: Long): List<OrderTimelineEvent> = state.timelineEvents.filter { it.workOrderId == workOrderId }.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id })
-    fun inProcessOrders(): List<WorkOrder> = state.workOrders.filter { it.status in listOf(WorkStatus.RECEIVED, WorkStatus.IN_PROCESS, WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.BLOCKED, WorkStatus.ON_HOLD) && it.productionRecordId == null }
+    fun productionsForOrder(workOrderId: Long): List<ProductionRecord> = state.production
+        .filter { it.workOrderId == workOrderId && it.type == RecordType.PRODUCTION }
+        .sortedWith(compareBy<ProductionRecord> { it.date }.thenBy { it.id })
+    fun inProcessOrders(): List<WorkOrder> = state.workOrders.filter { it.status in listOf(WorkStatus.RECEIVED, WorkStatus.IN_PROCESS, WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.BLOCKED, WorkStatus.ON_HOLD) && productionsForOrder(it.id).isEmpty() }
 
     fun zenthaTotals(orderId: Long): ZenthaTotals {
         val order = state.zenthaOrders.firstOrNull { it.id == orderId }

@@ -12,8 +12,8 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "3.0.0-beta5"
+        versionCode = 17
+        versionName = "3.0.0-beta6"
     }
 
     buildFeatures {

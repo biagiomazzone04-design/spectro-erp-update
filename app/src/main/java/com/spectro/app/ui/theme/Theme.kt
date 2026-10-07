@@ -1,6 +1,5 @@
 package com.spectro.app.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -13,28 +12,43 @@ data class SpectroPalette(
     val primary: Color,
     val secondary: Color,
     val tertiary: Color,
-    val background: Color = Color(0xFF060608),
-    val surface: Color = Color(0xFF101014),
-    val surfaceAlt: Color = Color(0xFF17171D),
-    val border: Color = Color(0xFF2A2A31),
-    val text: Color = Color(0xFFF8F8FA),
-    val textMuted: Color = Color(0xFFD8D8E0),
-    val success: Color = Color(0xFF22C55E),
-    val warning: Color = Color(0xFFF59E0B),
-    val danger: Color = Color(0xFFFF3B3B)
+    val background: Color = Color(0xFF000000),
+    val surface: Color = Color(0xFF0E0E13),
+    val surfaceAlt: Color = Color(0xFF17171E),
+    val border: Color = Color(0xFF34343E),
+    val text: Color = Color(0xFFFFFFFF),
+    val textMuted: Color = Color(0xFFE4E4EC),
+    val success: Color = Color(0xFF22E080),
+    val warning: Color = Color(0xFFFF7A00),
+    val danger: Color = Color(0xFFFF3B4F)
 ) {
-    val heroBrush: Brush get() = Brush.linearGradient(listOf(primary, secondary, tertiary))
-    val subtleBrush: Brush get() = Brush.linearGradient(listOf(primary.copy(alpha = .22f), secondary.copy(alpha = .08f)))
+    // I due colori fluo non vengono sovrapposti nei controlli principali:
+    // fucsia = azione/selezione, arancio = attenzione/priorità.
+    val heroBrush: Brush get() = Brush.linearGradient(listOf(primary, primary.copy(alpha = .84f)))
+    val subtleBrush: Brush get() = Brush.linearGradient(listOf(primary.copy(alpha = .22f), primary.copy(alpha = .05f)))
 }
 
-val SpectroPalettes = listOf(
-    SpectroPalette("spectro", "Spectro Flame", Color(0xFFFF5A1F), Color(0xFFFF00A8), Color(0xFFFF7A18)),
-    SpectroPalette("electric", "Electric Cyan", Color(0xFF00E5FF), Color(0xFF2979FF), Color(0xFF7C4DFF)),
-    SpectroPalette("violet", "Violet Shift", Color(0xFF8B5CF6), Color(0xFFD946EF), Color(0xFFFF4D8D)),
-    SpectroPalette("emerald", "Emerald Flow", Color(0xFF10B981), Color(0xFF06B6D4), Color(0xFF3B82F6))
+private val SpectroNeon = SpectroPalette(
+    "spectro",
+    "Spectro Neon",
+    primary = Color(0xFFFF2BD6),
+    secondary = Color(0xFFFF7A00),
+    tertiary = Color(0xFFFFA21A)
 )
 
-fun paletteFor(key: String): SpectroPalette = SpectroPalettes.firstOrNull { it.key == key } ?: SpectroPalettes.first()
+val SpectroPalettes = listOf(
+    SpectroNeon,
+    SpectroPalette("electric", "Electric Cyan", Color(0xFF00E5FF), Color(0xFFFF7A00), Color(0xFFFF2BD6)),
+    SpectroPalette("violet", "Spectro Neon (legacy)", Color(0xFFFF2BD6), Color(0xFFFF7A00), Color(0xFFFFA21A)),
+    SpectroPalette("emerald", "Emerald Flow", Color(0xFF10E8A1), Color(0xFFFF7A00), Color(0xFFFF2BD6))
+)
+
+fun paletteFor(key: String): SpectroPalette = when (key) {
+    // Le installazioni precedenti che avevano il tema viola vengono automaticamente
+    // portate al nuovo tema fucsia/arancio senza modificare il database.
+    "violet" -> SpectroNeon
+    else -> SpectroPalettes.firstOrNull { it.key == key } ?: SpectroNeon
+}
 
 @Composable
 fun SpectroTheme(themeKey: String, content: @Composable () -> Unit) {
@@ -46,13 +60,15 @@ fun SpectroTheme(themeKey: String, content: @Composable () -> Unit) {
             tertiary = p.tertiary,
             background = p.background,
             surface = p.surface,
+            surfaceVariant = p.surfaceAlt,
             onPrimary = Color.Black,
-            onSecondary = Color.White,
+            onSecondary = Color.Black,
+            onTertiary = Color.Black,
             onBackground = p.text,
             onSurface = p.text,
             onSurfaceVariant = p.textMuted,
-            outline = Color(0xFF858590),
-            outlineVariant = Color(0xFF4C4C56),
+            outline = Color(0xFF9A9AA6),
+            outlineVariant = Color(0xFF555560),
             error = p.danger
         ),
         content = content

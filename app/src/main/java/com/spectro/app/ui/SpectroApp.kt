@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -48,6 +50,8 @@ fun SpectroApp(vm: SpectroViewModel) {
     var sourceWork by remember { mutableStateOf<WorkOrder?>(null) }
     var createMode by remember { mutableStateOf(CreateMode.PRODUCTION) }
     var selectedClient by remember { mutableStateOf<Client?>(null) }
+    var clientReturn by remember { mutableStateOf<Client?>(null) }
+    var clientProfileSection by remember { mutableStateOf(ClientProfileSection.HOME) }
     var selectedInventory by remember { mutableStateOf<InventoryItem?>(null) }
     var cottonOpenId by remember { mutableStateOf<Long?>(null) }
     var zenthaOpenId by remember { mutableStateOf<Long?>(null) }
@@ -65,14 +69,21 @@ fun SpectroApp(vm: SpectroViewModel) {
     }
 
     fun startProduction(order: WorkOrder) {
-        selectedOrder = null; editingProduction = null; editingWork = null; sourceWork = order; createMode = CreateMode.PRODUCTION; navigate(AppTab.CREATE)
+        selectedOrder = null; clientReturn = null; editingProduction = null; editingWork = null; sourceWork = order; createMode = CreateMode.PRODUCTION; navigate(AppTab.CREATE)
     }
     fun editOrder(order: WorkOrder) {
-        selectedOrder = null; editingWork = order; editingProduction = null; sourceWork = null; createMode = CreateMode.WORK; navigate(AppTab.CREATE)
+        selectedOrder = null; clientReturn = null; editingWork = order; editingProduction = null; sourceWork = null; createMode = CreateMode.WORK; navigate(AppTab.CREATE)
     }
     fun openOrder(order: WorkOrder) { selectedOrder = order }
+    fun closeOrder() {
+        selectedOrder = null
+        clientReturn?.let { client ->
+            selectedClient = client
+            clientReturn = null
+        }
+    }
 
-    BackHandler(enabled = selectedOrder != null) { selectedOrder = null }
+    BackHandler(enabled = selectedOrder != null) { closeOrder() }
     BackHandler(enabled = selectedOrder == null && tab != AppTab.DASHBOARD) { goBack() }
 
     SpectroTheme(state.settings.themeKey) {
@@ -92,39 +103,81 @@ fun SpectroApp(vm: SpectroViewModel) {
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
                 Surface(color = Color.Transparent) {
-                    Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (tab != AppTab.DASHBOARD) {
-                            IconButton(onClick = { goBack() }) { Icon(Icons.Rounded.ArrowBack, "Indietro", tint = palette.text) }
-                            Spacer(Modifier.width(4.dp))
+                    Column(
+                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            if (tab != AppTab.DASHBOARD) {
+                                IconButton(onClick = { goBack() }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.ArrowBack, "Indietro", tint = palette.text)
+                                }
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Image(
+                                painter = painterResource(R.drawable.spectro_header_logo),
+                                contentDescription = "Spectro",
+                                modifier = Modifier.width(88.dp).height(68.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "SPECTRO",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 28.sp,
+                                    color = palette.primary,
+                                    letterSpacing = 1.2.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Clip
+                                )
+                                Text(
+                                    "ERP 3.0 • NATIVE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = palette.text,
+                                    letterSpacing = 1.1.sp,
+                                    maxLines = 1
+                                )
+                            }
                         }
-                        Image(painterResource(R.drawable.spectro_header_logo), null, Modifier.width(76.dp).height(46.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("SPECTRO", fontWeight = FontWeight.Black, fontSize = 22.sp, color = palette.primary, letterSpacing = 1.sp)
-                            Text("ERP 3.0 • NATIVE", fontSize = 9.sp, fontWeight = FontWeight.Black, color = palette.textMuted, letterSpacing = 1.3.sp)
-                        }
-                        FilledIconButton(onClick = { searchOpen = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)) { Icon(Icons.Rounded.Search, null, tint = palette.text) }
-                        Spacer(Modifier.width(8.dp))
                         val openTaskCount = vm.openTasks().size
                         val urgentTaskCount = vm.urgentTasks().size
-                        BadgedBox(
-                            badge = {
-                                if (openTaskCount > 0) {
-                                    Badge(containerColor = if (urgentTaskCount > 0) palette.danger else palette.primary) {
-                                        Text(openTaskCount.coerceAtMost(99).toString())
-                                    }
-                                }
-                            }
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             FilledIconButton(
-                                onClick = { navigate(AppTab.ACTIVITIES) },
+                                onClick = { searchOpen = true },
+                                modifier = Modifier.size(42.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                            ) { Icon(Icons.Rounded.Search, "Cerca", tint = palette.text) }
+                            Spacer(Modifier.width(8.dp))
+                            BadgedBox(
+                                badge = {
+                                    if (openTaskCount > 0) {
+                                        Badge(containerColor = if (urgentTaskCount > 0) palette.secondary else palette.primary, contentColor = Color.Black) {
+                                            Text(openTaskCount.coerceAtMost(99).toString(), fontWeight = FontWeight.Black)
+                                        }
+                                    }
+                                }
                             ) {
-                                Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.danger else palette.text)
+                                FilledIconButton(
+                                    onClick = { navigate(AppTab.ACTIVITIES) },
+                                    modifier = Modifier.size(42.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                                ) {
+                                    Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.secondary else palette.text)
+                                }
                             }
+                            Spacer(Modifier.width(8.dp))
+                            FilledIconButton(
+                                onClick = { settingsOpen = true },
+                                modifier = Modifier.size(42.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                            ) { Icon(Icons.Rounded.Settings, "Impostazioni", tint = palette.text) }
                         }
-                        Spacer(Modifier.width(8.dp))
-                        FilledIconButton(onClick = { settingsOpen = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)) { Icon(Icons.Rounded.Settings, null, tint = palette.text) }
                     }
                 }
             },
@@ -143,7 +196,14 @@ fun SpectroApp(vm: SpectroViewModel) {
                         AppTab.WORK -> WorkOrdersScreen(vm, palette, onEdit = ::editOrder, onOpen = ::openOrder, onStartProduction = ::startProduction)
                         AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork, sourceWork) { done -> editingProduction = null; editingWork = null; sourceWork = null; navigate(if (done == CreateMode.WORK) AppTab.WORK else AppTab.DASHBOARD, rememberCurrent = false) }
                         AppTab.INVENTORY -> InventoryScreen(vm, palette)
-                        AppTab.CLIENTS -> ClientsScreen(vm, palette, onOpenOrder = ::openOrder)
+                        AppTab.CLIENTS -> ClientsScreen(
+                            vm,
+                            palette,
+                            onOpenClient = {
+                                clientProfileSection = ClientProfileSection.HOME
+                                selectedClient = it
+                            }
+                        )
                         AppTab.ISSUES -> IssuesCenterScreen(vm, palette, onOpenOrder = ::openOrder)
                         AppTab.COTTON -> CottonScreen(vm, palette, initialOpenOrderId = cottonOpenId, onOpenConsumed = { cottonOpenId = null })
                         AppTab.ZENTHA -> ZenthaScreen(vm, palette, initialOpenOrderId = zenthaOpenId, onOpenConsumed = { zenthaOpenId = null })
@@ -160,7 +220,7 @@ fun SpectroApp(vm: SpectroViewModel) {
             vm = vm,
             p = palette,
             onDismiss = { searchOpen = false },
-            onOpenClient = { selectedClient = it },
+            onOpenClient = { clientProfileSection = ClientProfileSection.HOME; selectedClient = it },
             onOpenOrder = ::openOrder,
             onOpenProduction = { detail = it },
             onOpenCotton = { cottonOpenId = it.id; navigate(AppTab.COTTON) },
@@ -173,19 +233,38 @@ fun SpectroApp(vm: SpectroViewModel) {
                 p = palette,
                 client = client,
                 onDismiss = { selectedClient = null },
-                onOpenOrder = { selectedClient = null; openOrder(it) },
-                onOpenProduction = { selectedClient = null; detail = it },
-                onOpenInventory = { selectedClient = null; selectedInventory = it },
-                onOpenCotton = { selectedClient = null; cottonOpenId = it.id; navigate(AppTab.COTTON) }
+                onOpenOrder = {
+                    clientReturn = selectedClient
+                    selectedClient = null
+                    openOrder(it)
+                },
+                onOpenProduction = {
+                    clientReturn = selectedClient
+                    selectedClient = null
+                    detail = it
+                },
+                onOpenInventory = {
+                    clientReturn = selectedClient
+                    selectedClient = null
+                    selectedInventory = it
+                },
+                onOpenCotton = { selectedClient = null; cottonOpenId = it.id; navigate(AppTab.COTTON) },
+                initialSection = clientProfileSection,
+                onSectionChange = { clientProfileSection = it }
             )
         }
-        selectedInventory?.let { item -> InventoryDetailSheet(vm, palette, item, onDismiss = { selectedInventory = null }) }
+        selectedInventory?.let { item ->
+            InventoryDetailSheet(vm, palette, item, onDismiss = {
+                selectedInventory = null
+                clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+            })
+        }
         selectedOrder?.let { order ->
             OrderTimelineScreen(
                 vm = vm,
                 p = palette,
                 order = order,
-                onBack = { selectedOrder = null },
+                onBack = { closeOrder() },
                 onEdit = ::editOrder,
                 onStartProduction = ::startProduction,
                 onComplete = { vm.completeWorkOrder(it.id) },
@@ -198,15 +277,23 @@ fun SpectroApp(vm: SpectroViewModel) {
                 r = r,
                 p = palette,
                 linkedOrder = linkedOrder,
-                onDismiss = { detail = null },
+                onDismiss = {
+                    detail = null
+                    clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+                },
                 onEdit = { editingProduction = r; editingWork = null; sourceWork = null; createMode = if (r.type == RecordType.NEGATIVE) CreateMode.NEGATIVE else CreateMode.PRODUCTION; detail = null; navigate(AppTab.CREATE) },
-                onDelete = { vm.deleteProduction(r.id); detail = null },
+                onDelete = {
+                    vm.deleteProduction(r.id)
+                    detail = null
+                    clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+                },
                 onOpenHistory = {
                     linkedOrder?.let { order -> detail = null; openOrder(order) }
                 },
                 onCompleteOrder = {
                     linkedOrder?.let { vm.completeWorkOrder(it.id) }
                     detail = null
+                    clientReturn?.let { client -> selectedClient = client; clientReturn = null }
                 }
             )
         }
@@ -240,7 +327,7 @@ private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, onSelect: (App
         Row(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(36.dp)).background(p.surface).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceAround) {
             BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
             BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
-            FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.White)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
+            FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.Black)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
             BottomIcon(Icons.Rounded.Inventory2, selected == AppTab.INVENTORY, p) { onSelect(AppTab.INVENTORY) }
             BottomIcon(Icons.Rounded.Apps, moreSelected, p) { onSelect(AppTab.MORE) }
         }

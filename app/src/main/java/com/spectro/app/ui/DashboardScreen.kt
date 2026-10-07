@@ -114,7 +114,7 @@ fun DashboardScreen(
             if (activeOrders.isNotEmpty()) {
                 item { SectionTitle("Ordini attivi") }
                 items(activeOrders, key = { "order-${it.id}" }) { order ->
-                    DashboardOrderCard(order, p, onOpenOrder, onEditOrder, onComplete = { vm.completeWorkOrder(it.id) }, onDelete = { deleteTarget = it })
+                    DashboardOrderCard(vm, order, p, onOpenOrder, onEditOrder, onComplete = { vm.completeWorkOrder(it.id) }, onDelete = { deleteTarget = it })
                 }
             }
             item {
@@ -158,11 +158,28 @@ fun DashboardScreen(
                     onNext = { selectedDate = LocalDate.parse(selectedDate).plusDays(1).toString() }
                 )
             }
-            item { SectionTitle("Registrazioni del giorno") }
+            item { SectionTitle("Produzioni del giorno") }
             if (day == null || day.records.isEmpty()) {
                 item { EmptyState(Icons.Rounded.ReceiptLong, "Nessuna registrazione", "Aggiungi la prima produzione con il pulsante +") }
             } else {
-                items(day.records, key = { it.id }) { record -> RecordCard(record, p, onRecord) }
+                val linkedGroups = day.records
+                    .filter { it.type == RecordType.PRODUCTION && it.workOrderId != null }
+                    .groupBy { it.workOrderId!! }
+                    .toList()
+                    .sortedBy { (_, rows) -> rows.minOfOrNull { it.id } ?: 0L }
+                val standalone = day.records.filter { it.type != RecordType.PRODUCTION || it.workOrderId == null }
+
+                items(linkedGroups, key = { "day-order-${it.first}" }) { (orderId, records) ->
+                    val linkedOrder = vm.state.workOrders.firstOrNull { it.id == orderId }
+                    GroupedProductionCard(
+                        records = records,
+                        order = linkedOrder,
+                        p = p,
+                        onOpenOrder = onOpenOrder,
+                        onRecord = onRecord
+                    )
+                }
+                items(standalone, key = { "standalone-${it.id}" }) { record -> RecordCard(record, p, onRecord) }
             }
         } else {
             val stats = vm.monthlyStats(statsMonth)
@@ -392,7 +409,56 @@ private fun RecordCard(record: ProductionRecord, p: SpectroPalette, onRecord: (P
 }
 
 @Composable
-private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onComplete: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
+private fun GroupedProductionCard(
+    records: List<ProductionRecord>,
+    order: WorkOrder?,
+    p: SpectroPalette,
+    onOpenOrder: (WorkOrder) -> Unit,
+    onRecord: (ProductionRecord) -> Unit
+) {
+    val fabrics = aggregateProductionFabrics(records)
+    val totalPaper = records.sumOf { it.printedPaperMeters }
+    val totalFabric = records.sumOf { it.fabricUsedMeters }
+    val totalRevenue = records.sumOf { it.grossRevenue }
+    val title = order?.title?.ifBlank { order.orderCode } ?: records.firstOrNull()?.orderRef.orEmpty().ifBlank { "Produzione" }
+    val client = order?.client ?: records.firstOrNull()?.clientName.orEmpty()
+
+    SpectroCard(p = p, onClick = {
+        if (order != null) onOpenOrder(order) else records.lastOrNull()?.let(onRecord)
+    }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(46.dp).background(p.primary.copy(alpha = .14f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PrecisionManufacturing, null, tint = p.primary)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = p.text, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1)
+                Text("$client • ${records.size} lavorazioni", color = p.textMuted, fontSize = 11.sp)
+            }
+            Text(euro(totalRevenue), color = p.success, fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(11.dp))
+        fabrics.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(row.fabricName, color = p.text, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text(meters(row.meters), color = p.primary, fontWeight = FontWeight.Black, fontSize = 14.sp)
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Metric("Tessuto totale", meters(totalFabric), modifier = Modifier.weight(1f))
+            Metric("Carta totale", meters(totalPaper), modifier = Modifier.weight(1f))
+            Metric("Note", records.count { it.technicalNotes.isNotBlank() }.toString(), modifier = Modifier.weight(1f))
+        }
+        if (order != null) {
+            Spacer(Modifier.height(7.dp))
+            Text("Tocca per aprire ordine, singole produzioni, note, immagini e timeline", color = p.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun DashboardOrderCard(vm: SpectroViewModel, order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onComplete: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
     val overdue = order.dueDate.isNotBlank() && runCatching { LocalDate.parse(order.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
     val accent = when {
         order.status == WorkStatus.BLOCKED || overdue -> p.danger
@@ -400,21 +466,32 @@ private fun DashboardOrderCard(order: WorkOrder, p: SpectroPalette, onOpen: (Wor
         order.status in listOf(WorkStatus.IN_PRODUCTION, WorkStatus.IN_PROGRESS, WorkStatus.PRINTED, WorkStatus.TRANSFERRED) -> p.success
         else -> p.primary
     }
+    val productions = vm.productionsForOrder(order.id)
+    val fabrics = orderFabricRows(vm, order)
     SpectroCard(p = p, onClick = { onOpen(order) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(5.dp).height(58.dp).background(accent, RoundedCornerShape(99.dp)))
             Spacer(Modifier.width(11.dp))
             Column(Modifier.weight(1f)) {
-                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, maxLines = 1)
+                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, color = p.text, maxLines = 1)
                 Text("${order.client} • ${workStatusLabel(order.status)}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
                 if (order.orderCode.isNotBlank()) Text(order.orderCode, color = p.textMuted, fontSize = 10.sp, maxLines = 1)
                 if (order.dueDate.isNotBlank()) Text("Consegna ${order.dueDate}${if (overdue) " • SCADUTA" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (overdue) FontWeight.Black else FontWeight.Normal)
             }
-            if (order.productionRecordId != null && !order.status.isFinishedOrder()) {
+            if (productions.isNotEmpty() && !order.status.isFinishedOrder()) {
                 IconButton(onClick = { onComplete(order) }) { Icon(Icons.Rounded.TaskAlt, "Completa ed evadi", tint = p.success) }
             }
             IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
             IconButton(onClick = { onDelete(order) }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+        }
+        if (fabrics.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            fabrics.take(3).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(row.fabricName, color = p.text, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    Text(if (row.meters > 0) meters(row.meters) else "-", color = p.primary, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                }
+            }
         }
     }
 }

@@ -102,8 +102,8 @@ fun GradientButton(text: String, p: SpectroPalette, modifier: Modifier = Modifie
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (icon != null) { Icon(icon, null, tint = Color.White); Spacer(Modifier.width(9.dp)) }
-            Text(text, color = Color.White, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            if (icon != null) { Icon(icon, null, tint = Color.Black); Spacer(Modifier.width(9.dp)) }
+            Text(text, color = Color.Black, fontWeight = FontWeight.Black, fontSize = 15.sp)
         }
     }
 }
@@ -120,7 +120,7 @@ fun SegmentedChoice(options: List<Pair<String, String>>, selected: String, p: Sp
                 Modifier.weight(1f).clip(RoundedCornerShape(13.dp)).background(color).clickable { onSelected(key) }.padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(label, fontWeight = FontWeight.Black, fontSize = 12.sp, color = if (active) Color.White else p.textMuted)
+                Text(label, fontWeight = FontWeight.Black, fontSize = 12.sp, color = if (active) Color.Black else p.textMuted)
             }
         }
     }
@@ -523,3 +523,43 @@ fun operationalTaskStatusLabel(v: com.spectro.app.data.OperationalTaskStatus): S
     com.spectro.app.data.OperationalTaskStatus.DONE -> "Completata"
     com.spectro.app.data.OperationalTaskStatus.CANCELLED -> "Annullata"
 }
+
+/** Riepilogo tessuti collegati a un ordine, usato in card cliente/ordini/produzione. */
+data class OrderFabricRow(val fabricName: String, val meters: Double)
+
+fun orderFabricRows(vm: SpectroViewModel, order: com.spectro.app.data.WorkOrder): List<OrderFabricRow> {
+    val productions = vm.productionsForOrder(order.id)
+    val grouped = productions
+        .filter { it.fabricDisplayName.isNotBlank() && !it.fabricDisplayName.equals("Nessuno", true) }
+        .groupBy { it.fabricDisplayName.substringBefore(" (").trim().uppercase() }
+        .map { (name, rows) -> OrderFabricRow(name, rows.sumOf { it.fabricUsedMeters }) }
+        .sortedBy { it.fabricName }
+
+    if (grouped.isNotEmpty()) {
+        if (grouped.size == 1 && grouped.first().meters <= .0001 && order.orderedMeters > 0) {
+            return listOf(grouped.first().copy(meters = order.orderedMeters))
+        }
+        return grouped
+    }
+
+    val inventory = order.fabricInventoryId?.let { id -> vm.state.inventory.firstOrNull { it.id == id } }
+    if (inventory != null) return listOf(OrderFabricRow(inventory.fabricName.trim().uppercase(), order.orderedMeters))
+    return if (order.orderedMeters > 0) listOf(OrderFabricRow("TESSUTO", order.orderedMeters)) else emptyList()
+}
+
+fun aggregateProductionFabrics(records: List<com.spectro.app.data.ProductionRecord>): List<OrderFabricRow> =
+    records
+        .filter { it.type == com.spectro.app.data.RecordType.PRODUCTION }
+        .groupBy {
+            it.fabricDisplayName
+                .takeIf { name -> name.isNotBlank() && !name.equals("Nessuno", true) }
+                ?.substringBefore(" (")
+                ?.trim()
+                ?.uppercase()
+                ?: "TESSUTO"
+        }
+        .map { (name, rows) ->
+            val fabricMeters = rows.sumOf { it.fabricUsedMeters }
+            OrderFabricRow(name, if (fabricMeters > .0001) fabricMeters else rows.sumOf { it.printedPaperMeters })
+        }
+        .sortedBy { it.fabricName }

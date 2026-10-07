@@ -22,8 +22,8 @@ object ReportExporter {
     private val WHITE = Color.rgb(248, 248, 250)
     private val MUTED = Color.rgb(205, 205, 216)
     private val RED = Color.rgb(255, 48, 48)
-    private val ORANGE = Color.rgb(255, 105, 30)
-    private val MAGENTA = Color.rgb(255, 0, 168)
+    private val ORANGE = Color.rgb(255, 122, 0)
+    private val MAGENTA = Color.rgb(255, 43, 214)
     private val GREEN = Color.rgb(34, 197, 94)
     private val CYAN = Color.rgb(0, 220, 255)
     private val YELLOW = Color.rgb(245, 158, 11)
@@ -246,24 +246,36 @@ object ReportExporter {
         d.paragraph("Note", work.notes, CYAN); d.images(work.images); d.finish(file); sharePdf(context, file, "Condividi lavoro economico")
     }
 
-    fun shareOrderTimeline(context: Context, order: WorkOrder, events: List<OrderTimelineEvent>, production: ProductionRecord? = null) {
+    fun shareOrderTimeline(context: Context, order: WorkOrder, events: List<OrderTimelineEvent>, productions: List<ProductionRecord> = emptyList()) {
         val file = outFile(context, "Spectro_Storico_${order.orderCode.ifBlank { order.id.toString() }}.pdf")
         val critical = events.filter { it.severity != TimelineSeverity.INFO }
         val d = DarkPdf(context, "Storico ordine", "${order.title.ifBlank { order.orderCode }} • ${order.client}")
-        d.metricRow(listOf(Triple("Aggiornamenti", events.size.toString(), CYAN), Triple("Criticità", critical.size.toString(), YELLOW), Triple("Aperte", critical.count { it.status == TimelineStatus.OPEN }.toString(), if (critical.any { it.status == TimelineStatus.OPEN }) RED else GREEN)))
+        d.metricRow(listOf(Triple("Aggiornamenti", events.size.toString(), CYAN), Triple("Criticità", critical.size.toString(), YELLOW), Triple("Produzioni", productions.size.toString(), MAGENTA)))
         d.section("Dati ordine")
-        d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Data ordine", order.receivedDate); d.infoRow("Consegna", order.dueDate); d.infoRow("Metri", "${order.orderedMeters} mt"); d.infoRow("Disegno", order.designCode)
+        d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Data ordine", order.receivedDate); d.infoRow("Consegna", order.dueDate); d.infoRow("Metri ordine", "${order.orderedMeters} mt"); d.infoRow("Disegno", order.designCode)
         d.paragraph("Note ordine", order.description)
-        if (production != null) {
-            d.section("Produzione collegata", CYAN)
-            d.infoRow("Data produzione", production.date)
-            d.infoRow("Carta stampata", "${production.printedPaperMeters} mt")
-            d.infoRow("Tessuto lavorato", "${production.fabricUsedMeters} mt")
-            d.infoRow("Fatturato", eur(production.grossRevenue), GREEN)
-            d.infoRow("Utile lordo", eur(production.grossProfit), if (production.grossProfit >= 0) GREEN else RED)
-            d.paragraph("Nota produzione", production.technicalNotes, CYAN)
-            d.images(production.images)
+        d.images(order.images)
+
+        if (productions.isNotEmpty()) {
+            val totalPaper = productions.sumOf { it.printedPaperMeters }
+            val totalFabric = productions.sumOf { it.fabricUsedMeters }
+            val totalRevenue = productions.sumOf { it.grossRevenue }
+            val totalProfit = productions.sumOf { it.grossProfit }
+            d.section("Produzione complessiva", CYAN)
+            d.metricRow(listOf(Triple("Carta", "${"%.1f".format(Locale.ITALY, totalPaper)} mt", CYAN), Triple("Tessuto", "${"%.1f".format(Locale.ITALY, totalFabric)} mt", MAGENTA), Triple("Utile", eur(totalProfit), if (totalProfit >= 0) GREEN else RED)))
+            d.infoRow("Fatturato produzioni", eur(totalRevenue), GREEN)
+            productions.sortedWith(compareBy<ProductionRecord> { it.date }.thenBy { it.id }).forEachIndexed { index, production ->
+                d.detailCard(
+                    "Produzione ${index + 1} • ${production.date}",
+                    "${production.fabricDisplayName.uppercase()} • Carta ${"%.1f".format(Locale.ITALY, production.printedPaperMeters)} mt • Tessuto ${"%.1f".format(Locale.ITALY, production.fabricUsedMeters)} mt",
+                    eur(production.grossRevenue),
+                    GREEN
+                )
+                d.paragraph("Nota produzione ${index + 1}", production.technicalNotes, CYAN)
+                d.images(production.images)
+            }
         }
+
         d.section("Timeline completa", MAGENTA)
         if (events.isEmpty()) d.detailCard("Nessun aggiornamento registrato") else events.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id }).forEach { d.timelineEvent(it) }
         d.finish(file); sharePdf(context, file, "Condividi storico ordine Spectro")

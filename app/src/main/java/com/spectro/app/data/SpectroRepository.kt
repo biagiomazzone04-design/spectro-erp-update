@@ -119,8 +119,23 @@ class SpectroRepository(context: Context) {
             if (abs(previous.orderedMeters - updated.orderedMeters) > .0001) changes += "Metri: ${previous.orderedMeters} → ${updated.orderedMeters}"
             if (previous.fabricInventoryId != updated.fabricInventoryId) changes += "Tessuto/magazzino modificato"
             if (previous.designCode != updated.designCode) changes += "Codice disegno: ${previous.designCode.ifBlank { "-" }} → ${updated.designCode.ifBlank { "-" }}"
+            if (previous.description != updated.description) {
+                changes += "Note ordine modificate:\nPRIMA: ${previous.description.ifBlank { "-" }}\nDOPO: ${updated.description.ifBlank { "-" }}"
+            }
+            if (previous.images != updated.images) changes += "Allegati ordine modificati: ${previous.images.size} → ${updated.images.size}"
             if (previous.status != updated.status) changes += "Stato: ${previous.status.name} → ${updated.status.name}"
-            if (changes.isNotEmpty()) insertSystemTimeline(updated, "Ordine modificato", changes.joinToString("\n"), TimelineCategory.ORDER_CHANGE, sql, previous.dueDate, updated.dueDate)
+            if (changes.isNotEmpty()) {
+                insertSystemTimeline(
+                    updated,
+                    "Ordine modificato",
+                    changes.joinToString("\n"),
+                    TimelineCategory.ORDER_CHANGE,
+                    sql,
+                    previous.dueDate,
+                    updated.dueDate,
+                    images = (previous.images + updated.images).distinct()
+                )
+            }
             updated.id
         }
     }
@@ -150,23 +165,33 @@ class SpectroRepository(context: Context) {
         if (item.status.isArchivedOrder()) return@transaction
         require(item.status != WorkStatus.CANCELLED) { "Un ordine annullato non può essere evaso." }
 
-        val production = item.productionRecordId?.let { db.getProductionById(it, sql) }
-        require(production != null) { "Prima di completare l'ordine crea o collega la produzione." }
+        val productions = db.getProduction(sql)
+            .filter { it.workOrderId == id && it.type == RecordType.PRODUCTION }
+            .sortedWith(compareBy<ProductionRecord> { it.date }.thenBy { it.id })
+        require(productions.isNotEmpty()) { "Prima di completare l'ordine crea o collega almeno una produzione." }
 
+        val latestProduction = productions.last()
         val completedDate = LocalDate.now().toString()
         val updated = item.copy(
             status = WorkStatus.DELIVERED,
             effectiveDeliveryDate = completedDate,
             blocker = Blocker.NONE,
-            productionRecordId = production.id
+            productionRecordId = latestProduction.id
         )
         db.updateWorkOrder(updated, sql)
 
+        val totalPaper = productions.sumOf { it.printedPaperMeters }
+        val totalFabric = productions.sumOf { it.fabricUsedMeters }
+        val totalRevenue = productions.sumOf { it.grossRevenue }
+        val totalProfit = productions.sumOf { it.grossProfit }
+        val notes = productions.mapNotNull { it.technicalNotes.trim().takeIf { note -> note.isNotBlank() } }.distinct()
         val detail = buildString {
-            append("Ordine completato ed evaso. La produzione #${production.id} resta collegata allo storico.")
-            if (production.printedPaperMeters > 0) append("\nCarta stampata: ${"%.1f".format(production.printedPaperMeters)} mt.")
-            if (production.fabricUsedMeters > 0) append("\nTessuto lavorato: ${"%.1f".format(production.fabricUsedMeters)} mt.")
-            if (production.technicalNotes.isNotBlank()) append("\nNota produzione: ${production.technicalNotes.trim()}")
+            append("Ordine completato ed evaso. Tutte le ${productions.size} registrazioni produttive restano collegate allo storico.")
+            if (totalPaper > 0) append("\nCarta stampata totale: ${"%.1f".format(totalPaper)} mt.")
+            if (totalFabric > 0) append("\nTessuto lavorato totale: ${"%.1f".format(totalFabric)} mt.")
+            if (totalRevenue > 0) append("\nFatturato produzioni: € ${"%.2f".format(totalRevenue)}.")
+            append("\nUtile produzioni: € ${"%.2f".format(totalProfit)}.")
+            if (notes.isNotEmpty()) append("\nNote produzione conservate: ${notes.size}.")
             if (completionNote.isNotBlank()) append("\nNota chiusura: ${completionNote.trim()}")
         }
         insertSystemTimeline(updated, "Ordine completato ed evaso", detail, TimelineCategory.DELIVERY, sql)
@@ -175,7 +200,8 @@ class SpectroRepository(context: Context) {
     fun reopenWorkOrder(id: Long, note: String = "") = db.transaction { sql ->
         val item = db.getWorkOrderById(id, sql) ?: return@transaction
         if (!item.status.isArchivedOrder()) return@transaction
-        val next = if (item.productionRecordId != null) WorkStatus.IN_PRODUCTION else WorkStatus.IN_PROCESS
+        val hasProductions = db.getProduction(sql).any { it.workOrderId == id && it.type == RecordType.PRODUCTION }
+        val next = if (hasProductions) WorkStatus.IN_PRODUCTION else WorkStatus.IN_PROCESS
         val updated = item.copy(status = next, effectiveDeliveryDate = "")
         db.updateWorkOrder(updated, sql)
         insertSystemTimeline(updated, "Ordine riaperto", note.trim().ifBlank { "Ordine riaperto dallo storico." }, TimelineCategory.STATUS_CHANGE, sql)
@@ -252,11 +278,16 @@ class SpectroRepository(context: Context) {
             }
             saved.workOrderId?.let { workId ->
                 db.getWorkOrderById(workId, sql)?.let { w ->
+                    val otherProductions = db.getProduction(sql).filter { it.workOrderId == workId && it.type == RecordType.PRODUCTION && it.id != savedId }
                     val nextStatus = if (w.status.isArchivedOrder()) w.status else WorkStatus.IN_PRODUCTION
                     val updated = w.copy(status = nextStatus, productionRecordId = savedId)
                     db.updateWorkOrder(updated, sql)
-                    if (!w.status.isArchivedOrder() && (w.status != WorkStatus.IN_PRODUCTION || w.productionRecordId != savedId)) {
-                        insertSystemTimeline(updated, "Ordine trasferito in produzione", "Creato ordine produttivo e collegato alla registrazione #$savedId. Tutto lo storico precedente resta associato allo stesso ordine.", TimelineCategory.PRODUCTION, sql)
+                    if (!w.status.isArchivedOrder() && previous == null) {
+                        if (otherProductions.isEmpty()) {
+                            insertSystemTimeline(updated, "Ordine trasferito in produzione", "Creata la prima registrazione produttiva #$savedId. Tutto lo storico precedente resta associato allo stesso ordine.", TimelineCategory.PRODUCTION, sql)
+                        } else {
+                            insertSystemTimeline(updated, "Produzione aggiunta", "Aggiunta la registrazione produttiva #$savedId allo stesso ordine. Produzioni collegate: ${otherProductions.size + 1}.", TimelineCategory.PRODUCTION, sql)
+                        }
                     }
                     val oldNote = previous?.technicalNotes?.trim().orEmpty()
                     val newNote = saved.technicalNotes.trim()
@@ -287,7 +318,21 @@ class SpectroRepository(context: Context) {
                 require(linked == null || !linked.status.isArchivedOrder()) { "Questa produzione appartiene a un ordine già evaso. Riapri prima l'ordine se devi rimuovere la produzione." }
             }
             restoreProductionConsumption(record, sql)
-            record.workOrderId?.let { workId -> db.getWorkOrderById(workId, sql)?.let { w -> if (w.productionRecordId == id) db.updateWorkOrder(w.copy(productionRecordId = null, status = WorkStatus.IN_PROCESS), sql) } }
+            record.workOrderId?.let { workId ->
+                db.getWorkOrderById(workId, sql)?.let { w ->
+                    val remaining = db.getProduction(sql)
+                        .filter { it.workOrderId == workId && it.type == RecordType.PRODUCTION && it.id != id }
+                        .sortedWith(compareBy<ProductionRecord> { it.date }.thenBy { it.id })
+                    val latest = remaining.lastOrNull()
+                    db.updateWorkOrder(
+                        w.copy(
+                            productionRecordId = latest?.id,
+                            status = if (latest != null) WorkStatus.IN_PRODUCTION else WorkStatus.IN_PROCESS
+                        ),
+                        sql
+                    )
+                }
+            }
         }
         db.deleteProduction(id, sql)
     }
@@ -467,8 +512,37 @@ class SpectroRepository(context: Context) {
         db.setInventoryQuantity(item.id, item.quantityMeters + max(0.0, record.fabricUsedMeters) + max(0.0, record.fabricWasteMeters), sql)
     }
 
-    private fun insertSystemTimeline(order: WorkOrder, title: String, description: String, category: TimelineCategory, sql: SQLiteDatabase, oldDue: String = "", newDue: String = "") {
-        db.insertTimelineEvent(OrderTimelineEvent(workOrderId = order.id, clientId = order.clientId, clientName = order.client, orderRef = order.orderCode.ifBlank { order.title }, date = LocalDate.now().toString(), time = LocalTime.now().withSecond(0).withNano(0).toString(), category = category, responsibility = TimelineResponsibility.NONE, severity = TimelineSeverity.INFO, status = TimelineStatus.RESOLVED, title = title, description = description, oldDueDate = oldDue, newDueDate = newDue, resolvedDate = LocalDate.now().toString()), sql)
+    private fun insertSystemTimeline(
+        order: WorkOrder,
+        title: String,
+        description: String,
+        category: TimelineCategory,
+        sql: SQLiteDatabase,
+        oldDue: String = "",
+        newDue: String = "",
+        images: List<String> = emptyList()
+    ) {
+        db.insertTimelineEvent(
+            OrderTimelineEvent(
+                workOrderId = order.id,
+                clientId = order.clientId,
+                clientName = order.client,
+                orderRef = order.orderCode.ifBlank { order.title },
+                date = LocalDate.now().toString(),
+                time = LocalTime.now().withSecond(0).withNano(0).toString(),
+                category = category,
+                responsibility = TimelineResponsibility.NONE,
+                severity = TimelineSeverity.INFO,
+                status = TimelineStatus.RESOLVED,
+                title = title,
+                description = description,
+                oldDueDate = oldDue,
+                newDueDate = newDue,
+                images = images,
+                resolvedDate = LocalDate.now().toString()
+            ),
+            sql
+        )
     }
 
     private fun generateOrderCode(prefix: String, date: String, id: Long): String {

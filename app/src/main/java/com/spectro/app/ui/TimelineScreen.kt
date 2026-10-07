@@ -41,13 +41,18 @@ fun OrderTimelineScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     val current = vm.state.workOrders.firstOrNull { it.id == order.id } ?: order
     val timeline = vm.timelineForOrder(current.id)
-    val linkedProduction = current.productionRecordId?.let { id -> vm.state.production.firstOrNull { it.id == id } }
+    val productions = vm.productionsForOrder(current.id)
+    val fabricRows = orderFabricRows(vm, current)
     val context = LocalContext.current
 
-    LazyColumn(Modifier.fillMaxSize().background(p.background), contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize().background(p.background),
+        contentPadding = PaddingValues(20.dp, 12.dp, 20.dp, 120.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Indietro") }
+                IconButton(onClick = onBack) { Icon(Icons.Rounded.ArrowBack, "Indietro", tint = p.text) }
                 Column(Modifier.weight(1f)) {
                     Text(current.title.ifBlank { current.orderCode }, fontSize = 24.sp, fontWeight = FontWeight.Black, color = p.text)
                     Text("${current.client} • ${workStatusLabel(current.status)}", color = p.textMuted)
@@ -57,47 +62,61 @@ fun OrderTimelineScreen(
                 IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
             }
         }
+
         item {
             SpectroCard(p = p) {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Metric("Ordine", meters(current.orderedMeters), modifier = Modifier.weight(1f))
                     Metric("Consegna", current.dueDate.ifBlank { "-" }, modifier = Modifier.weight(1f))
-                    Metric("Disegno", current.designCode.ifBlank { "-" }, modifier = Modifier.weight(1f))
+                    Metric("Produzioni", productions.size.toString(), valueColor = if (productions.isNotEmpty()) p.primary else p.textMuted, modifier = Modifier.weight(1f))
                 }
-                if (current.description.isNotBlank()) { Spacer(Modifier.height(10.dp)); Text(current.description) }
+                if (fabricRows.isNotEmpty()) {
+                    Spacer(Modifier.height(14.dp))
+                    Text("TESSUTI / METRAGGI", color = p.textMuted, fontWeight = FontWeight.Black, fontSize = 10.sp)
+                    Spacer(Modifier.height(7.dp))
+                    fabricRows.forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(row.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                            Text(if (row.meters > 0) meters(row.meters) else "-", color = p.primary, fontWeight = FontWeight.Black, fontSize = 16.sp)
+                        }
+                    }
+                }
+                if (current.designCode.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("DISEGNO", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(current.designCode, color = p.text, fontWeight = FontWeight.Bold)
+                }
+                if (current.description.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("NOTE ORDINE", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Text(current.description, color = p.text, fontSize = 14.sp)
+                }
+                if (current.images.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("IMMAGINI ORDINE", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(6.dp))
+                    ImageStrip(current.images)
+                }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { ReportExporter.shareWorkOrder(context, current) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(5.dp)); Text("Ordine") }
-                    OutlinedButton(onClick = { ReportExporter.shareOrderTimeline(context, current, timeline, linkedProduction) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
+                    OutlinedButton(onClick = { ReportExporter.shareWorkOrder(context, current) }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(5.dp)); Text("Ordine")
+                    }
+                    OutlinedButton(onClick = { ReportExporter.shareOrderTimeline(context, current, timeline, productions) }, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Dossier")
+                    }
                 }
+
                 when {
-                    current.productionRecordId == null && !current.status.isFinishedOrder() -> {
-                        Spacer(Modifier.height(8.dp))
-                        Button(onClick = { onStartProduction(current) }, Modifier.fillMaxWidth()) {
-                            Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Crea ordine produttivo da questo ordine")
-                        }
-                    }
-                    current.productionRecordId != null && !current.status.isFinishedOrder() -> {
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = { onComplete(current) },
-                            Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = p.success)
-                        ) {
-                            Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(6.dp)); Text("Completa ed evadi ordine")
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Text("L'ordine verrà tolto dagli attivi ma resterà nello storico cliente con produzione, note, immagini e criticità.", color = p.textMuted, fontSize = 10.sp)
-                    }
                     current.status.isArchivedOrder() -> {
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(10.dp))
                         SpectroCard(p = p) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Rounded.Inventory, null, tint = p.success)
                                 Spacer(Modifier.width(8.dp))
                                 Column(Modifier.weight(1f)) {
                                     Text("ORDINE ARCHIVIATO", color = p.success, fontWeight = FontWeight.Black)
-                                    Text("Evaso ${current.effectiveDeliveryDate.ifBlank { "-" }} • storico completo conservato", color = p.textMuted, fontSize = 10.sp)
+                                    Text("Evaso ${current.effectiveDeliveryDate.ifBlank { "-" }} • tutti i dati restano consultabili", color = p.textMuted, fontSize = 10.sp)
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
@@ -106,38 +125,82 @@ fun OrderTimelineScreen(
                             }
                         }
                     }
+                    productions.isEmpty() -> {
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = { onStartProduction(current) }, Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Crea prima produzione")
+                        }
+                    }
+                    else -> {
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { onStartProduction(current) }, Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(5.dp)); Text("Produzione")
+                            }
+                            Button(
+                                onClick = { onComplete(current) },
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(containerColor = p.success, contentColor = androidx.compose.ui.graphics.Color.Black)
+                            ) {
+                                Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(5.dp)); Text("Evadi")
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Text("Puoi aggiungere più produzioni allo stesso ordine. Quando lo evadi sparisce dagli attivi ma resta nello storico cliente con note, immagini e criticità.", color = p.textMuted, fontSize = 10.sp)
+                    }
                 }
             }
         }
-        if (linkedProduction != null) {
+
+        if (productions.isNotEmpty()) {
             item {
+                val totalPaper = productions.sumOf { it.printedPaperMeters }
+                val totalFabric = productions.sumOf { it.fabricUsedMeters }
+                val totalRevenue = productions.sumOf { it.grossRevenue }
+                SpectroCard(p = p) {
+                    Text("RIEPILOGO PRODUZIONE", color = p.primary, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Lavorazioni", productions.size.toString(), modifier = Modifier.weight(1f))
+                        Metric("Carta", meters(totalPaper), modifier = Modifier.weight(1f))
+                        Metric("Tessuto", meters(totalFabric), modifier = Modifier.weight(1f))
+                    }
+                    if (totalRevenue > 0) {
+                        Spacer(Modifier.height(8.dp)); Metric("Fatturato produzioni", euro(totalRevenue), p.success)
+                    }
+                }
+            }
+            item { SectionTitle("Produzioni collegate") }
+            items(productions, key = { "order-prod-${it.id}" }) { prod ->
                 SpectroCard(p = p) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Rounded.PrecisionManufacturing, null, tint = p.primary)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text("PRODUZIONE COLLEGATA", fontWeight = FontWeight.Black, color = p.primary)
-                            Text("${linkedProduction.date} • ${linkedProduction.orderRef.ifBlank { current.title }}", color = p.textMuted, fontSize = 11.sp)
+                            Text(prod.date, color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(prod.orderRef.ifBlank { current.title }, color = p.textMuted, fontSize = 11.sp)
                         }
+                        Text(meters(if (prod.fabricUsedMeters > 0) prod.fabricUsedMeters else prod.printedPaperMeters), color = p.primary, fontWeight = FontWeight.Black)
                     }
                     Spacer(Modifier.height(10.dp))
+                    Text(prod.fabricDisplayName.ifBlank { "TESSUTO" }.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 16.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Metric("Carta", meters(linkedProduction.printedPaperMeters), modifier = Modifier.weight(1f))
-                        Metric("Tessuto", meters(linkedProduction.fabricUsedMeters), modifier = Modifier.weight(1f))
-                        Metric("Utile", euro(linkedProduction.grossProfit), if (linkedProduction.grossProfit >= 0) p.success else p.danger, Modifier.weight(1f))
+                        Metric("Carta", meters(prod.printedPaperMeters), modifier = Modifier.weight(1f))
+                        Metric("Tessuto", meters(prod.fabricUsedMeters), modifier = Modifier.weight(1f))
+                        Metric("Utile", euro(prod.grossProfit), if (prod.grossProfit >= 0) p.success else p.danger, Modifier.weight(1f))
                     }
-                    if (linkedProduction.technicalNotes.isNotBlank()) {
+                    if (prod.technicalNotes.isNotBlank()) {
                         Spacer(Modifier.height(10.dp))
-                        Text("Nota produzione", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text(linkedProduction.technicalNotes, color = p.text)
+                        Text("NOTA PRODUZIONE", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        Text(prod.technicalNotes, color = p.text)
                     }
-                    if (linkedProduction.images.isNotEmpty()) {
-                        Spacer(Modifier.height(10.dp))
-                        ImageStrip(linkedProduction.images)
+                    if (prod.images.isNotEmpty()) {
+                        Spacer(Modifier.height(10.dp)); ImageStrip(prod.images)
                     }
                 }
             }
         }
+
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Timeline ordine", fontSize = 20.sp, fontWeight = FontWeight.Black, color = p.text, modifier = Modifier.weight(1f))
@@ -153,7 +216,7 @@ fun OrderTimelineScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("Eliminare definitivamente l'ordine?") },
-            text = { Text("Verranno eliminati l'ordine, la sua timeline e l'eventuale registrazione produttiva collegata. Se è stato consumato tessuto, la giacenza verrà ripristinata automaticamente.") },
+            text = { Text("Verranno eliminati ordine, timeline e tutte le produzioni collegate. Usa questa funzione solo per errori: per togliere un ordine dagli attivi usa Completa/Evadi.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

@@ -53,11 +53,13 @@ fun WorkOrdersScreen(
         }
         if (orders.isEmpty()) item { EmptyState(Icons.Rounded.Assignment, "Nessun ordine", "Usa + per inserire un ordine in processo") }
         items(orders, key = { it.id }) { item ->
+            val productions = vm.productionsForOrder(item.id)
+            val fabrics = orderFabricRows(vm, item)
             val overdue = item.status !in finished && item.dueDate.isNotBlank() && runCatching { LocalDate.parse(item.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
             val accent = when {
                 item.status in finished -> p.success
                 item.status == WorkStatus.BLOCKED || overdue -> p.danger
-                item.status in listOf(WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.ON_HOLD) -> p.warning
+                item.status in listOf(WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.ON_HOLD) -> p.secondary
                 item.priority == Priority.HIGH -> p.danger
                 else -> p.primary
             }
@@ -66,16 +68,27 @@ fun WorkOrdersScreen(
                     Box(Modifier.width(5.dp).height(62.dp).background(accent, RoundedCornerShape(99.dp)))
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(item.title.ifBlank { item.orderCode }, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1)
+                        Text(item.title.ifBlank { item.orderCode }, fontWeight = FontWeight.Black, fontSize = 18.sp, color = p.text, maxLines = 1)
                         Text("${item.client} • ${workStatusLabel(item.status)}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
                         if (item.orderCode.isNotBlank()) Text(item.orderCode, color = p.textMuted, fontSize = 10.sp)
-                        if (item.designCode.isNotBlank()) Text("Disegno ${item.designCode}", color = p.textMuted, fontSize = 11.sp)
                     }
                     AssistChip(onClick = {}, label = { Text(workStatusLabel(item.status).uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Black) })
                 }
+                if (fabrics.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    fabrics.forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(row.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                            Text(if (row.meters > 0) meters(row.meters) else "-", color = p.primary, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                        }
+                    }
+                }
+                if (item.description.isNotBlank()) {
+                    Spacer(Modifier.height(7.dp)); Text(item.description, color = p.textMuted, fontSize = 11.sp, maxLines = 2)
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Metric("Metri", if (item.orderedMeters > 0) meters(item.orderedMeters) else "-", modifier = Modifier.weight(1f))
+                    Metric("Produzioni", productions.size.toString(), modifier = Modifier.weight(1f))
                     Metric("Consegna", item.dueDate.ifBlank { "-" }, valueColor = if (overdue) p.danger else p.text, modifier = Modifier.weight(1f))
                     Metric("Timeline", vm.timelineForOrder(item.id).size.toString(), modifier = Modifier.weight(1f))
                 }
@@ -83,13 +96,16 @@ fun WorkOrdersScreen(
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedButton(onClick = { onEdit(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(5.dp)); Text("Modifica") }
-                    when {
-                        item.productionRecordId == null && item.status !in finished ->
-                            Button(onClick = { onStartProduction(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(5.dp)); Text("Produzione") }
-                        item.productionRecordId != null && item.status !in finished ->
-                            Button(onClick = { vm.completeWorkOrder(item.id) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = p.success)) { Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(5.dp)); Text("Evadi") }
-                        else ->
-                            OutlinedButton(onClick = { onOpen(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
+                    if (item.status !in finished) {
+                        Button(onClick = { onStartProduction(item) }, modifier = Modifier.weight(1f)) {
+                            Icon(if (productions.isEmpty()) Icons.Rounded.PlayArrow else Icons.Rounded.Add, null)
+                            Spacer(Modifier.width(5.dp)); Text(if (productions.isEmpty()) "Produzione" else "+ Produz.")
+                        }
+                        if (productions.isNotEmpty()) {
+                            IconButton(onClick = { vm.completeWorkOrder(item.id) }) { Icon(Icons.Rounded.TaskAlt, "Completa ed evadi", tint = p.success) }
+                        }
+                    } else {
+                        OutlinedButton(onClick = { onOpen(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
                     }
                     IconButton(onClick = { deleteTarget = item }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
                 }

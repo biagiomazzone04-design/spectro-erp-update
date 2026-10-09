@@ -51,9 +51,12 @@ fun SpectroCard(
     onClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val base = modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(p.surface).border(1.dp, p.border, RoundedCornerShape(24.dp))
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if(pressed && onClick != null) .985f else 1f, label = "cardPress")
+    val base = modifier.scale(scale).fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(p.surface).border(1.dp, p.border, RoundedCornerShape(24.dp))
     Column(
-        modifier = (if (onClick != null) base.clickable(onClick = onClick) else base).padding(20.dp),
+        modifier = (if (onClick != null) base.clickable(interactionSource = interaction, indication = ripple(), onClick = onClick) else base).padding(20.dp),
         content = content
     )
 }

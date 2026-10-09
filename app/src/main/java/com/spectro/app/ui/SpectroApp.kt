@@ -2,6 +2,10 @@ package com.spectro.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -20,6 +24,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.ContentScale
@@ -39,9 +47,12 @@ enum class AppTab { DASHBOARD, WORK, CREATE, INVENTORY, MORE, CLIENTS, ISSUES, C
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpectroApp(vm: SpectroViewModel) {
+    val context = LocalContext.current
+    var favorites by remember { mutableStateOf(ShortcutStore.read(context)) }
+    val screenState = rememberSaveableStateHolder()
     val state = vm.state
     val palette = paletteFor(state.settings.themeKey)
-    var tab by remember { mutableStateOf(AppTab.DASHBOARD) }
+    var tab by rememberSaveable { mutableStateOf(AppTab.DASHBOARD) }
     val navHistory = remember { mutableStateListOf<AppTab>() }
     var settingsOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
@@ -110,7 +121,7 @@ fun SpectroApp(vm: SpectroViewModel) {
                     ) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             if (tab != AppTab.DASHBOARD) {
-                                IconButton(onClick = { goBack() }, modifier = Modifier.size(40.dp)) {
+                                IconButton(onClick = { goBack() }, modifier = Modifier.size(48.dp)) {
                                     Icon(Icons.Rounded.ArrowBack, "Indietro", tint = palette.text)
                                 }
                                 Spacer(Modifier.width(4.dp))
@@ -118,21 +129,14 @@ fun SpectroApp(vm: SpectroViewModel) {
                             Image(
                                 painter = painterResource(R.drawable.spectro_header_logo),
                                 contentDescription = "Spectro",
-                                modifier = Modifier.width(88.dp).height(68.dp),
+                                modifier = Modifier.width(76.dp).height(56.dp),
                                 contentScale = ContentScale.Fit
                             )
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(
-                                    "SPECTRO",
-                                    fontWeight = FontWeight.Black,
-                                    fontSize = 28.sp,
-                                    color = palette.primary,
-                                    letterSpacing = 1.2.sp,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Clip
-                                )
+                                BasicText("SPECTRO", modifier = Modifier.fillMaxWidth(), maxLines = 1, softWrap = false,
+                                    autoSize = TextAutoSize.StepBased(minFontSize = 10.sp, maxFontSize = 28.sp),
+                                    style = TextStyle(fontWeight = FontWeight.Black, color = palette.primary, letterSpacing = 1.2.sp))
                                 Text(
                                     "ERP 3.0 • NATIVE",
                                     fontSize = 10.sp,
@@ -150,9 +154,14 @@ fun SpectroApp(vm: SpectroViewModel) {
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            TextButton(onClick = { navigate(AppTab.MORE) }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Rounded.Apps, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(if(tab == AppTab.DASHBOARD) "Moduli" else tab.displayName(), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                             FilledIconButton(
                                 onClick = { searchOpen = true },
-                                modifier = Modifier.size(42.dp),
+                                modifier = Modifier.size(48.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
                             ) { Icon(Icons.Rounded.Search, "Cerca", tint = palette.text) }
                             Spacer(Modifier.width(8.dp))
@@ -167,7 +176,7 @@ fun SpectroApp(vm: SpectroViewModel) {
                             ) {
                                 FilledIconButton(
                                     onClick = { navigate(AppTab.ACTIVITIES) },
-                                    modifier = Modifier.size(42.dp),
+                                    modifier = Modifier.size(48.dp),
                                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
                                 ) {
                                     Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.secondary else palette.text)
@@ -176,7 +185,7 @@ fun SpectroApp(vm: SpectroViewModel) {
                             Spacer(Modifier.width(8.dp))
                             FilledIconButton(
                                 onClick = { settingsOpen = true },
-                                modifier = Modifier.size(42.dp),
+                                modifier = Modifier.size(48.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
                             ) { Icon(Icons.Rounded.Settings, "Impostazioni", tint = palette.text) }
                         }
@@ -185,15 +194,17 @@ fun SpectroApp(vm: SpectroViewModel) {
             },
             bottomBar = { SpectroBottomBar(tab, palette) { next -> if (next == AppTab.CREATE) { editingProduction = null; editingWork = null; sourceWork = null; createMode = CreateMode.PRODUCTION }; navigate(next) } }
         ) { padding ->
-            Box(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
-                AnimatedContent(tab, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(130)) }, label = "tabs") { current ->
+            Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding()) {
+                AnimatedContent(tab, transitionSpec = { (fadeIn(tween(200)) + slideInVertically(tween(200)) { it / 40 }) togetherWith (fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 60 }) }, label = "tabs") { current ->
+                    screenState.SaveableStateProvider(current.name) {
                     when (current) {
                         AppTab.DASHBOARD -> DashboardScreen(
                             vm,
                             palette,
                             onRecord = { detail = it },
                             onOpenOrder = ::openOrder,
-                            onEditOrder = ::editOrder
+                            onEditOrder = ::editOrder,
+                            shortcuts = { ModuleShortcuts(favorites, { navigate(it) }, { navigate(AppTab.MORE) }) }
                         )
                         AppTab.WORK -> WorkOrdersScreen(vm, palette, onEdit = ::editOrder, onOpen = ::openOrder, onStartProduction = ::startProduction)
                         AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork, sourceWork) { done -> editingProduction = null; editingWork = null; sourceWork = null; navigate(if (done == CreateMode.WORK) AppTab.WORK else AppTab.DASHBOARD, rememberCurrent = false) }
@@ -211,7 +222,11 @@ fun SpectroApp(vm: SpectroViewModel) {
                         AppTab.ZENTHA -> ZenthaScreen(vm, palette, initialOpenOrderId = zenthaOpenId, onOpenConsumed = { zenthaOpenId = null })
                         AppTab.ECONOMIC -> EconomicWorkScreen(vm, palette)
                         AppTab.ACTIVITIES -> OperationalTasksScreen(vm, palette, onOpenOrder = ::openOrder)
-                        AppTab.MORE -> MoreModulesScreen(vm, palette) { navigate(it) }
+                        AppTab.MORE -> MoreModulesScreen(palette, favorites,
+                            counts = mapOf(AppTab.CLIENTS to "${state.clients.size} clienti", AppTab.ISSUES to "${vm.openIssues().size} criticità aperte", AppTab.ACTIVITIES to "${vm.openTasks().size} attività • ${vm.urgentTasks().size} urgenti", AppTab.ZENTHA to "${state.zenthaOrders.count { !it.status.isFinished() }} ordini aperti", AppTab.ECONOMIC to "${state.economicWorks.size} lavorazioni"),
+                            onToggleFavorite = { destination -> favorites = if(destination in favorites) favorites - destination else favorites + destination; ShortcutStore.write(context, favorites) },
+                            onOpen = { navigate(it) })
+                    }
                     }
                 }
             }
@@ -303,42 +318,17 @@ fun SpectroApp(vm: SpectroViewModel) {
 }
 
 @Composable
-private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (AppTab) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Altri moduli", fontSize = 28.sp, fontWeight = FontWeight.Black)
-        Text("CRM, criticità, cotone, attività, ricavi e Zentha.", color = p.textMuted)
-        Spacer(Modifier.height(4.dp))
-        ModuleCard("Clienti", "Anagrafica, scadenze e storico", Icons.Rounded.People, p) { onOpen(AppTab.CLIENTS) }
-        ModuleCard("Criticità", "Centro operativo di problemi e ritardi • ${vm.openIssues().size} aperte", Icons.Rounded.ReportProblem, p) { onOpen(AppTab.ISSUES) }
-        ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
-        ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
-        ModuleCard("Altri ricavi", "Trasferimenti, lavorazioni e materiali fatturati", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
-        ModuleCard("ZENTHA", "Catalogo, ordini, utile 50/50 e pagamenti", Icons.Rounded.SportsVolleyball, p) { onOpen(AppTab.ZENTHA) }
-    }
-}
-
-@Composable
-private fun ModuleCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, p: SpectroPalette, onClick: () -> Unit) {
-    SpectroCard(p = p, onClick = onClick) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = p.primary, modifier = Modifier.size(30.dp)); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Black, fontSize = 18.sp); Text(subtitle, color = p.textMuted, fontSize = 12.sp) }; Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted) } }
-}
-
-@Composable
 private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, onSelect: (AppTab) -> Unit) {
-    val moreSelected = selected in listOf(AppTab.MORE, AppTab.CLIENTS, AppTab.ISSUES, AppTab.COTTON, AppTab.ZENTHA, AppTab.ECONOMIC, AppTab.ACTIVITIES)
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
-        Row(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(36.dp)).background(p.surface).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceAround) {
-            BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
-            BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
-            FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.Black)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
-            BottomIcon(Icons.Rounded.Inventory2, selected == AppTab.INVENTORY, p) { onSelect(AppTab.INVENTORY) }
-            BottomIcon(Icons.Rounded.Apps, moreSelected, p) { onSelect(AppTab.MORE) }
+    val main = listOf(AppTab.DASHBOARD, AppTab.WORK, AppTab.CREATE, AppTab.INVENTORY, AppTab.MORE)
+    NavigationBar(containerColor = p.surface, tonalElevation = 0.dp) {
+        main.forEach { destination ->
+            val active = selected == destination || (destination == AppTab.MORE && selected !in main)
+            val title = when(destination) { AppTab.DASHBOARD -> "Home"; AppTab.CREATE -> "Crea"; else -> destination.displayName() }
+            val icon = when(destination) { AppTab.DASHBOARD -> Icons.Rounded.GridView; AppTab.WORK -> Icons.Rounded.Assignment; AppTab.CREATE -> Icons.Rounded.Add; AppTab.INVENTORY -> Icons.Rounded.Inventory2; else -> Icons.Rounded.Apps }
+            NavigationBarItem(modifier = Modifier.testTag("nav-${destination.name}"), selected = active, onClick = { onSelect(destination) }, icon = { Icon(icon, null) }, label = { Text(title, maxLines = 1, fontSize = 10.sp) },
+                colors = NavigationBarItemDefaults.colors(selectedIconColor = p.primary, selectedTextColor = p.text, indicatorColor = p.primary.copy(alpha = .14f), unselectedIconColor = p.textMuted, unselectedTextColor = p.textMuted))
         }
     }
-}
-
-@Composable
-private fun BottomIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, p: SpectroPalette, onClick: () -> Unit) {
-    IconButton(onClick = onClick) { Icon(icon, null, tint = if (active) p.primary else p.textMuted) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

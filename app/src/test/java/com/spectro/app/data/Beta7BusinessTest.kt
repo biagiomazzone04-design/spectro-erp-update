@@ -76,4 +76,14 @@ class Beta7BusinessTest {
         assertEquals(1, stats.byProduct.size); assertEquals(20.0, stats.byProduct.single().second, .001)
     }
 
+    @Test fun dashboardViewsMatchTheirCountsAndExcludeFinishedLateOrders() {
+        val due = order.copy(dueDate = "2026-10-01", status = ZenthaOrderStatus.PRODUCTION)
+        assertTrue(matchesZenthaOrderView(due, "In ritardo", 100.0, "2026-10-09"))
+        assertTrue(matchesZenthaOrderView(due, "In produzione", 100.0, "2026-10-09"))
+        assertFalse(matchesZenthaOrderView(due.copy(status = ZenthaOrderStatus.DELIVERED), "In ritardo", 100.0, "2026-10-09"))
+        assertFalse(matchesZenthaOrderView(due.copy(status = ZenthaOrderStatus.CANCELLED), "Da incassare", 100.0, "2026-10-09"))
+        assertTrue(matchesZenthaOrderView(due, "Pagati", 0.0, "2026-10-09"))
+        assertFalse(matchesZenthaOrderView(due, "Pronti", 0.0, "2026-10-09"))
+    }
+
 }

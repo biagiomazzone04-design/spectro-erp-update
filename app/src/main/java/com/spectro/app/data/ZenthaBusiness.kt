@@ -112,3 +112,15 @@ fun zenthaStatistics(s: SpectroSnapshot, period: String = ""): ZenthaStatistics 
         productMetric { it.quantity.toDouble() }, items.groupMetric({ it.sizeSnapshot.ifBlank { "Non specificata (legacy)" } }, { it.quantity.toDouble() }),
         productMetric { it.margin }, delivered.takeIf { it.isNotEmpty() }?.average())
 }
+
+/** Shared predicates for dashboard shortcuts and order lists. */
+fun matchesZenthaOrderView(order: ZenthaOrder, view: String, outstanding: Double, today: String): Boolean = when(view) {
+    "Aperti" -> !order.status.isFinished()
+    "Attesa approvazione" -> order.status == ZenthaOrderStatus.WAITING_APPROVAL
+    "In produzione" -> order.status in setOf(ZenthaOrderStatus.PRODUCTION, ZenthaOrderStatus.QUALITY_CHECK)
+    "In ritardo" -> !order.status.isFinished() && order.dueDate.isNotBlank() && order.dueDate < today
+    "Pronti" -> order.status == ZenthaOrderStatus.READY
+    "Da incassare" -> order.status != ZenthaOrderStatus.CANCELLED && outstanding > 0
+    "Pagati" -> order.status != ZenthaOrderStatus.CANCELLED && outstanding <= 0
+    else -> true
+}

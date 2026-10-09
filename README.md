@@ -1,12 +1,17 @@
-# Spectro ERP Native 3.0.0 Beta 7
+# Spectro ERP Native 3.0.0 Beta 7.1
 
 ERP Android Kotlin/Jetpack Compose per produzione tessile, ordini, magazzino a colli, criticità, Cotone, attività operative e Zentha Sport.
 
 ## Identità Android
 - applicationId/package: `com.spectro.app`, invariato.
 - minSdk 26, compileSdk/targetSdk 36.
-- versionCode 18, versionName `3.0.0-beta7`.
+- versionCode 19, versionName `3.0.0-beta7.1`.
 - Firma RELEASE: configurazione e secret GitHub `SPECTRO_SIGNING_BUNDLE_B64` invariati.
+
+## Beta 7.1: navigazione e accessibilità
+Menu moduli scorrevole e ricercabile, preferiti nella Home, barra con etichette e contenuti separati dalla navigazione inferiore. Zentha offre KPI cliccabili, filtri operativi e un selettore delle aree sempre accessibile. Animazioni brevi accompagnano pressione e cambio schermata.
+
+[Changelog UI](CHANGELOG_V3.0.0_BETA7.1.md). La fase PWA Windows/Mac a quattro utenti, con permessi modificabili, è definita in [setup cloud](SPECTRO_CLOUD_SETUP.md): non è ancora attiva nell'app.
 
 ## Beta 7
 - Storico cliente unificato: WorkOrder e produzioni legacy senza `workOrderId`, ricerca e dossier PDF; nessun doppio conteggio delle produzioni collegate. Caso Goccia verificato: 2 ordini + 7 legacy = 9 voci.
@@ -36,4 +41,4 @@ gradle --no-daemon --max-workers=4 :app:testDebugUnitTest :app:assembleDebug
 
 Robolectric usa SDK 28 per test SQLite e backup; il suo cache/lock risiede in `app/build/test-home`. Richiede accesso ai repository Maven al primo avvio. I test verificano i contenuti dei sette PDF; rendering e condivisione Android richiedono una prova su dispositivo.
 
-GitHub Actions esegue test e build RELEASE con la firma esistente, per `main`, `spectro-3.0-beta` e `spectro-3.0-beta7`, producendo `SpectroERP-v3.0.0-BETA7-RELEASE`. L'APK debug locale è per test; l'aggiornamento dell'app installata richiede l'APK release con la firma originale, senza disinstallazione.
+GitHub Actions esegue test e build RELEASE con la firma esistente, per `main`, `spectro-3.0-beta` e `spectro-3.0-beta7`, producendo `SpectroERP-v3.0.0-BETA7.1-RELEASE`. L'APK debug locale è per test; l'aggiornamento dell'app installata richiede l'APK release con la firma originale, senza disinstallazione.

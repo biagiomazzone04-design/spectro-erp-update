@@ -38,7 +38,8 @@ fun DashboardScreen(
     p: SpectroPalette,
     onRecord: (ProductionRecord) -> Unit,
     onOpenOrder: (WorkOrder) -> Unit = {},
-    onEditOrder: (WorkOrder) -> Unit = {}
+    onEditOrder: (WorkOrder) -> Unit = {},
+    shortcuts: @Composable () -> Unit = {}
 ) {
     var mode by remember { mutableStateOf("day") }
     var query by remember { mutableStateOf("") }
@@ -56,6 +57,7 @@ fun DashboardScreen(
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 120.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
+        item { shortcuts() }
         item {
             SegmentedChoice(
                 options = listOf("day" to "GIORNALIERO", "stats" to "STATISTICHE"),

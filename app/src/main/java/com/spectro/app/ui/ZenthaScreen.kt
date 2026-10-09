@@ -4,6 +4,9 @@ package com.spectro.app.ui
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -62,8 +65,8 @@ internal fun ZenthaAttachments(paths: List<String>, mimeType: String = "*/*", on
 
 @Composable
 fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette, initialOpenOrderId: Long? = null, onOpenConsumed: () -> Unit = {}) {
-    var section by remember { mutableStateOf("Dashboard") }
-    var query by remember { mutableStateOf("") }
+    var section by rememberSaveable { mutableStateOf("Dashboard") }
+    var query by rememberSaveable { mutableStateOf("") }
     var orderId by remember { mutableStateOf<Long?>(null) }
     var editOrder by remember { mutableStateOf<ZenthaOrder?>(null) }
     var createOrder by remember { mutableStateOf(false) }
@@ -74,33 +77,55 @@ fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette, initialOpenOrderId: Lo
     var createList by remember { mutableStateOf(false) }
     var client by remember { mutableStateOf<Client?>(null) }
     var balance by remember { mutableStateOf<ZenthaStockBalance?>(null) }
-    var period by remember { mutableStateOf(LocalDate.now().toString().take(7)) }
+    var period by rememberSaveable { mutableStateOf(LocalDate.now().toString().take(7)) }
+    var orderFilter by rememberSaveable { mutableStateOf("Tutti") }
+    var lowStockOnly by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(section) { listState.scrollToItem(0) }
     val s = vm.snapshot()
     val data = vm.state.zentha
     LaunchedEffect(initialOpenOrderId) { if(initialOpenOrderId != null) { orderId = initialOpenOrderId; onOpenConsumed() } }
     val orders = s.zenthaOrders.filter { (it.clientName + " " + it.orderCode + " " + it.notes).contains(query, true) }.sortedByDescending { it.orderDate }
     val open = s.zenthaOrders.filter { !it.status.isFinished() }
     val low = data.balances.filter { it.minimumQuantity > 0 && it.quantityAvailable <= it.minimumQuantity }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 16.dp, 20.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(20.dp, 16.dp, 20.dp, 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item { Text("ZENTHA ERP 2.0", fontSize = 27.sp, fontWeight = FontWeight.Black); Text("Sport, squadre e produzione", color = p.textMuted) }
-        item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("Dashboard", "Ordini", "Clienti", "Magazzino", "Prodotti", "Listini", "Produzione", "Pagamenti", "Statistiche").forEach { tab -> FilterChip(section == tab, { section = tab }, label = { Text(tab) }) }
-        } }
+        stickyHeader {
+            Surface(color = p.background) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    SimpleSelectField("Area di lavoro", section, listOf("Dashboard", "Ordini", "Clienti", "Magazzino", "Prodotti", "Listini", "Produzione", "Pagamenti", "Statistiche").map { it to it }) {
+                        section = it; query = ""; orderFilter = "Tutti"; lowStockOnly = false
+                    }
+                }
+            }
+        }
         if(section !in listOf("Dashboard", "Statistiche")) item { SpectroTextField("Cerca", query, { query = it }) }
         when(section) {
             "Dashboard" -> {
                 val month = zenthaStatistics(s, LocalDate.now().toString().take(7))
-                item { ZenthaKpis(p, listOf("Ordini aperti" to open.size.toString(), "Attesa approvazione" to open.count { it.status == ZenthaOrderStatus.WAITING_APPROVAL }.toString(), "In produzione" to open.count { it.status in setOf(ZenthaOrderStatus.PRODUCTION, ZenthaOrderStatus.QUALITY_CHECK) }.toString(), "In ritardo" to open.count { it.dueDate.isNotBlank() && it.dueDate < LocalDate.now().toString() }.toString(), "Pronti" to open.count { it.status == ZenthaOrderStatus.READY }.toString(), "Scorte basse" to low.size.toString(), "Da incassare" to euro(zenthaStatistics(s).outstanding), "Utile mese" to euro(month.profit))) }
+                item { ZenthaKpis(p, listOf("Ordini aperti" to open.size.toString(), "Attesa approvazione" to open.count { it.status == ZenthaOrderStatus.WAITING_APPROVAL }.toString(), "In produzione" to open.count { it.status in setOf(ZenthaOrderStatus.PRODUCTION, ZenthaOrderStatus.QUALITY_CHECK) }.toString(), "In ritardo" to open.count { it.dueDate.isNotBlank() && it.dueDate < LocalDate.now().toString() }.toString(), "Pronti" to open.count { it.status == ZenthaOrderStatus.READY }.toString(), "Scorte basse" to low.size.toString(), "Da incassare" to euro(zenthaStatistics(s).outstanding), "Utile mese" to euro(month.profit))) { label ->
+                    query = ""; orderFilter = "Tutti"; lowStockOnly = false
+                    when(label) {
+                        "Scorte basse" -> { section = "Magazzino"; lowStockOnly = true }
+                        "Utile mese" -> { section = "Statistiche"; period = LocalDate.now().toString().take(7) }
+                        "Da incassare" -> { section = "Pagamenti"; orderFilter = "Da incassare" }
+                        else -> { section = "Ordini"; orderFilter = when(label) { "Ordini aperti" -> "Aperti"; else -> label } }
+                    }
+                } }
+                item { Text("Tocca un indicatore per aprire gli ordini o le scorte corrispondenti.", color = p.textMuted, style = MaterialTheme.typography.bodySmall) }
                 item { Button(onClick = { createOrder = true }, modifier = Modifier.fillMaxWidth()) { Text("Nuovo ordine") } }
                 items(open.sortedBy { it.dueDate.ifBlank { "9999" } }.take(8), key = { it.id }) { order -> ZenthaOrderCard(order, vm, p) { orderId = order.id } }
             }
             "Ordini", "Produzione", "Pagamenti" -> {
                 if(section == "Ordini") item { Button(onClick = { createOrder = true }) { Text("Nuovo ordine") } }
-                val filtered = orders.filter { when(section) {
+                item { SimpleSelectField("Vista ordini", orderFilter, listOf("Tutti", "Aperti", "Attesa approvazione", "In produzione", "In ritardo", "Pronti", "Da incassare", "Pagati").map { it to it }) { orderFilter = it } }
+                val filtered = orders.filter { order -> matchesZenthaOrderView(order, orderFilter, vm.zenthaTotals(order.id).outstanding, LocalDate.now().toString()) }.filter { when(section) {
                     "Produzione" -> !it.status.isFinished()
                     "Pagamenti" -> it.status != ZenthaOrderStatus.CANCELLED
                     else -> true
                 } }
+                val accounted = filtered.filter { it.status != ZenthaOrderStatus.CANCELLED }
+                item { Text("${filtered.size} ordini • ${euro(accounted.sumOf { vm.zenthaTotals(it.id).revenue })} ricavi • ${euro(accounted.sumOf { vm.zenthaTotals(it.id).outstanding })} da incassare\nTotali esclusi gli annullati", style = MaterialTheme.typography.bodyMedium, color = p.textMuted) }
                 if(filtered.isEmpty()) item { Text("Nessun ordine corrispondente.") }
                 items(filtered, key = { it.id }) { order -> ZenthaOrderCard(order, vm, p) { orderId = order.id } }
             }
@@ -120,7 +145,8 @@ fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette, initialOpenOrderId: Lo
             "Magazzino" -> {
                 item { Text("Giacenze Zentha in pezzi. Lo scarico ordine si conferma dalla scheda ordine; le modifiche successive riallineano solo la differenza.", color = p.textMuted) }
                 item { Text("${low.size} varianti sotto scorta • valore ${euro(zenthaStatistics(s).stockValue)}", fontWeight = FontWeight.Bold) }
-                items(data.balances.filter { b -> data.variants.firstOrNull { it.id == b.variantId }?.let { v -> (v.label + v.sku + s.zenthaProducts.firstOrNull { it.id == v.productId }?.name.orEmpty()).contains(query, true) } ?: false }, key = { it.id }) { b ->
+                item { Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) { Switch(lowStockOnly, { lowStockOnly = it }); Text("Solo sotto scorta", Modifier.padding(start = 8.dp)) } }
+                items(data.balances.filter { !lowStockOnly || it in low }.filter { b -> data.variants.firstOrNull { it.id == b.variantId }?.let { v -> (v.label + v.sku + s.zenthaProducts.firstOrNull { it.id == v.productId }?.name.orEmpty()).contains(query, true) } ?: false }, key = { it.id }) { b ->
                     val v = data.variants.first { it.id == b.variantId }
                     SpectroCard(p = p, onClick = { balance = b }) {
                         Text(s.zenthaProducts.firstOrNull { it.id == v.productId }?.name.orEmpty(), fontWeight = FontWeight.Black)
@@ -148,6 +174,9 @@ fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette, initialOpenOrderId: Lo
             }
             "Statistiche" -> {
                 val stats = zenthaStatistics(s, period)
+                item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("Mese" to LocalDate.now().toString().take(7), "Anno" to LocalDate.now().year.toString(), "Tutti" to "").forEach { (label, value) -> FilterChip(period == value, { period = value }, label = { Text(label) }) }
+                } }
                 item { SpectroTextField("Periodo: AAAA-MM, AAAA oppure vuoto per tutti", period, { period = it }) }
                 item { ZenthaKpis(p, listOf("Vendite" to euro(stats.revenue), "Utile" to euro(stats.profit), "Pagato" to euro(stats.paid), "Da incassare" to euro(stats.outstanding), "Valore stock attuale" to euro(stats.stockValue), "Giorni ordine–consegna" to (stats.averageDeliveryDays?.let { "%.1f".format(it) } ?: "Non disponibile"))) }
                 item { Text("Margini prodotto prima di sconti e costi generali ordine. Tempi calcolati solo sulle consegne con data registrata.", color = p.textMuted) }
@@ -176,9 +205,14 @@ fun ZenthaScreen(vm: SpectroViewModel, p: SpectroPalette, initialOpenOrderId: Lo
 }
 
 @Composable
-internal fun ZenthaKpis(p: SpectroPalette, values: List<Pair<String, String>>) {
+internal fun ZenthaKpis(p: SpectroPalette, values: List<Pair<String, String>>, onSelect: ((String) -> Unit)? = null) {
     SpectroCard(p = p) { values.chunked(2).forEach { pair -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        pair.forEach { (label, value) -> Metric(label, value, modifier = Modifier.weight(1f)) }
+        pair.forEach { (label, value) ->
+            Column(Modifier.weight(1f).then(if(onSelect != null) Modifier.clickable(role = Role.Button, onClickLabel = "Apri $label") { onSelect(label) } else Modifier).heightIn(min = 72.dp).padding(4.dp)) {
+                Metric(label, value)
+                if(onSelect != null) Text("Apri →", color = p.primary, style = MaterialTheme.typography.labelSmall)
+            }
+        }
     }; Spacer(Modifier.height(12.dp)) } }
 }
 @Composable

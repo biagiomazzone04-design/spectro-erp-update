@@ -1,3 +1,5 @@
+> Aggiornamento Beta 7.1: confermati PWA Windows/Mac, quattro utenti e permessi per utente modificabili. Procedura e stato effettivo in [SPECTRO_CLOUD_SETUP.md](SPECTRO_CLOUD_SETUP.md). Il cloud non è ancora attivo.
+
 # Spectro Cloud / Multiutente - roadmap
 
 Beta 5 rimane locale/offline e NON attiva ancora alcun servizio cloud.

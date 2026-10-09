@@ -12,8 +12,19 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "3.0.0-beta6"
+        versionCode = 18
+        versionName = "3.0.0-beta7"
+    }
+
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            // Keep Robolectric's download cache and lock inside the writable build directory.
+            val testHome = layout.buildDirectory.dir("test-home").get().asFile
+            it.systemProperty("user.home", testHome.absolutePath)
+            it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
+            it.doFirst { testHome.mkdirs() }
+        }
     }
 
     buildFeatures {
@@ -70,4 +81,5 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.16.1")
 }

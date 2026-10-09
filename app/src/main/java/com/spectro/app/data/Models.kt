@@ -45,7 +45,8 @@ enum class OperationalTaskType { SAMPLE, GRAPHICS_SEARCH, CLIENT_REQUEST, PREPAR
 enum class OperationalTaskStatus { TODO, IN_PROGRESS, DONE, CANCELLED }
 
 enum class ZenthaOrderStatus {
-    DRAFT, CONFIRMED, GRAPHICS, WAITING_APPROVAL, PRODUCTION, READY, DELIVERED, CLOSED, CANCELLED
+    DRAFT, CONFIRMED, GRAPHICS, WAITING_APPROVAL, PRODUCTION, READY, DELIVERED, CLOSED, CANCELLED,
+    RECEIVED, INCOMPLETE_DATA, PROOF_SENT, APPROVED, QUALITY_CHECK
 }
 
 data class Client(
@@ -319,8 +320,16 @@ data class ZenthaProduct(
     val standardPrice: Double,
     val description: String = "",
     val imagePath: String = "",
-    val active: Boolean = true
-)
+    val active: Boolean = true,
+    val line: String = "",
+    val printingCost: Double = 0.0,
+    val sewingCost: Double = 0.0,
+    val accessoriesCost: Double = 0.0,
+    val packagingCost: Double = 0.0,
+    val otherCost: Double = 0.0
+) {
+    val realCost: Double get() = standardCost + printingCost + sewingCost + accessoriesCost + packagingCost + otherCost
+}
 
 data class ZenthaOrder(
     val id: Long = 0,
@@ -333,7 +342,12 @@ data class ZenthaOrder(
     val notes: String = "",
     val attachments: List<String> = emptyList(),
     val splitPercentA: Double = 50.0,
-    val splitPercentB: Double = 50.0
+    val splitPercentB: Double = 50.0,
+    val contact: String = "",
+    val discount: Double = 0.0,
+    val shippingRevenue: Double = 0.0,
+    val otherRevenue: Double = 0.0,
+    val stockPosted: Boolean = false
 )
 
 data class ZenthaOrderItem(
@@ -343,7 +357,11 @@ data class ZenthaOrderItem(
     val productName: String,
     val quantity: Int,
     val unitPrice: Double,
-    val unitCost: Double
+    val unitCost: Double,
+    val variantId: Long? = null,
+    val variantLabel: String = "",
+    val sizeSnapshot: String = "",
+    val skuSnapshot: String = ""
 ) {
     val revenue: Double get() = quantity * unitPrice
     val cost: Double get() = quantity * unitCost
@@ -443,5 +461,6 @@ data class SpectroSnapshot(
     val zenthaExtraCosts: List<ZenthaExtraCost> = emptyList(),
     val zenthaPayments: List<ZenthaPayment> = emptyList(),
     val economicWorks: List<EconomicWork> = emptyList(),
-    val operationalTasks: List<OperationalTask> = emptyList()
+    val operationalTasks: List<OperationalTask> = emptyList(),
+    val zentha: ZenthaData = ZenthaData()
 )

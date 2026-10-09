@@ -64,7 +64,7 @@ object DraftStore {
     fun loadWork(context: Context, key: String = "new"): WorkDraft? = raw(context, scoped("work", key), if (key == "new") "work" else null)?.let { o ->
         WorkDraft(o.optString("date"), o.nullableLong("clientId"), o.optString("client"), o.optString("title"), o.optString("due"), o.optString("priority", "NORMAL"), o.optString("blocker", "NONE"), o.optString("status", "IN_PROCESS"), o.optString("description"), o.optJSONArray("images").strings(), o.optString("orderedMeters"), o.optString("printPrice"), o.optString("designCode"), o.nullableLong("fabricId"))
     }
-    fun clearWork(context: Context, key: String = "new") = prefs(context).edit().remove(scoped("work", key)).apply()
+    fun clearWork(context: Context, key: String = "new") { prefs(context).edit().remove(scoped("work", key)).apply(); if(key == "new") legacyPrefs(context).edit().remove("work").apply() }
     fun hasWork(context: Context, key: String = "new") = prefs(context).contains(scoped("work", key)) || (key == "new" && legacyPrefs(context).contains("work"))
 
     fun saveProduction(context: Context, d: ProductionDraft, key: String = "new") = prefs(context).edit().putString(scoped("production", key), JSONObject().apply {
@@ -76,7 +76,7 @@ object DraftStore {
     fun loadProduction(context: Context, key: String = "new"): ProductionDraft? = raw(context, scoped("production", key), if (key == "new") "production" else null)?.let { o ->
         ProductionDraft(o.optInt("step",1), o.nullableLong("workOrderId"), o.optString("date"), o.nullableLong("clientId"), o.optString("clientName"), o.optString("orderRef"), o.optString("designs"), o.optString("printPrice"), o.optString("plotter","X1"), o.optString("paper"), o.optString("protection"), o.optString("paperWaste"), o.optString("fabricMode",FabricMode.NONE.name), o.nullableLong("fabricId"), o.optString("fabricUsed"), o.optString("fabricWaste"), o.optString("salePrice"), o.optString("manualFabric"), o.optString("notes"), o.optJSONArray("images").strings(), o.optJSONObject("allocations").doubleMap())
     }
-    fun clearProduction(context: Context, key: String = "new") = prefs(context).edit().remove(scoped("production", key)).apply()
+    fun clearProduction(context: Context, key: String = "new") { prefs(context).edit().remove(scoped("production", key)).apply(); if(key == "new") legacyPrefs(context).edit().remove("production").apply() }
     fun hasProduction(context: Context, key: String = "new") = prefs(context).contains(scoped("production", key)) || (key == "new" && legacyPrefs(context).contains("production"))
 
     fun saveCotton(context: Context, d: CottonDraft, key: String = "new") = prefs(context).edit().putString(scoped("cotton", key), JSONObject().apply {

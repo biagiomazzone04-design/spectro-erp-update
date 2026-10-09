@@ -192,9 +192,10 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
             if (step > 1) OutlinedButton(onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Indietro") }
             if (step < 3) Button(onClick = { step++ }, modifier = Modifier.weight(1f)) { Text("Continua") }
             else Button(onClick = {
-                vm.saveProduction(ProductionRecord(id = editing?.id ?: 0L, type = RecordType.PRODUCTION, date = date, clientId = clientId, clientName = clientName.trim(), orderRef = orderRef.trim(), designs = designs.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }, printPricePerMeter = printPrice.toDoubleSafe(), plotter = plotter, printedPaperMeters = paper.toDoubleSafe(), protectionPaperMeters = protection.toDoubleSafe(), paperWasteMeters = paperWaste.toDoubleSafe(), fabricMode = fabricMode, fabricId = fabricId, fabricUsedMeters = fabricUsed.toDoubleSafe(), fabricWasteMeters = fabricWaste.toDoubleSafe(), fabricSalePricePerMeter = salePrice.toDoubleSafe(), manualFabricName = manualFabric.trim(), technicalNotes = notes.trim(), images = images, applyFixedCosts = true, workOrderId = workOrderId), allocations)
-                DraftStore.clearProduction(context, draftKey)
-                onDone()
+                vm.saveProduction(ProductionRecord(id = editing?.id ?: 0L, type = RecordType.PRODUCTION, date = date, clientId = clientId, clientName = clientName.trim(), orderRef = orderRef.trim(), designs = designs.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }, printPricePerMeter = printPrice.toDoubleSafe(), plotter = plotter, printedPaperMeters = paper.toDoubleSafe(), protectionPaperMeters = protection.toDoubleSafe(), paperWasteMeters = paperWaste.toDoubleSafe(), fabricMode = fabricMode, fabricId = fabricId, fabricUsedMeters = fabricUsed.toDoubleSafe(), fabricWasteMeters = fabricWaste.toDoubleSafe(), fabricSalePricePerMeter = salePrice.toDoubleSafe(), manualFabricName = manualFabric.trim(), technicalNotes = notes.trim(), images = images, applyFixedCosts = true, workOrderId = workOrderId), allocations) {
+                    DraftStore.clearProduction(context, draftKey)
+                    onDone()
+                }
             }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(7.dp)); Text("Salva") }
         }
     }
@@ -269,9 +270,10 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
         if (images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
         Spacer(Modifier.height(16.dp)); GradientButton(if (editing == null) "Salva ordine in processo" else "Salva modifiche", p) {
             if (client.isNotBlank() && title.isNotBlank()) {
-                vm.saveWorkOrder(WorkOrder(id = editing?.id ?: 0L, receivedDate = date, client = client.trim(), title = title.trim(), description = description.trim(), images = images, status = status, dueDate = due.trim(), priority = priority, blocker = blocker, clientId = clientId, orderCode = editing?.orderCode.orEmpty(), fabricInventoryId = fabricId, orderedMeters = orderedMeters.toDoubleSafe(), printPricePerMeter = printPrice.toDoubleSafe(), designCode = designCode.trim(), productionRecordId = editing?.productionRecordId, effectiveDeliveryDate = editing?.effectiveDeliveryDate.orEmpty(), cancelReason = editing?.cancelReason.orEmpty()))
-                DraftStore.clearWork(context, draftKey)
-                onDone()
+                vm.saveWorkOrder(WorkOrder(id = editing?.id ?: 0L, receivedDate = date, client = client.trim(), title = title.trim(), description = description.trim(), images = images, status = status, dueDate = due.trim(), priority = priority, blocker = blocker, clientId = clientId, orderCode = editing?.orderCode.orEmpty(), fabricInventoryId = fabricId, orderedMeters = orderedMeters.toDoubleSafe(), printPricePerMeter = printPrice.toDoubleSafe(), designCode = designCode.trim(), productionRecordId = editing?.productionRecordId, effectiveDeliveryDate = editing?.effectiveDeliveryDate.orEmpty(), cancelReason = editing?.cancelReason.orEmpty())) {
+                    DraftStore.clearWork(context, draftKey)
+                    onDone()
+                }
             }
         }
     }

@@ -190,9 +190,10 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         confirmButton = {
             Button(onClick = {
                 if (title.isNotBlank() && clientName.isNotBlank() && fabric.isNotBlank() && ordered.toDoubleSafe() > 0) {
-                    vm.saveCottonOrder(calc.copy(title = title.trim(), notes = notes.trim()), allocations)
-                    DraftStore.clearCotton(context, draftKey)
-                    onDismiss()
+                    vm.saveCottonOrder(calc.copy(title = title.trim(), notes = notes.trim()), allocations) {
+                        DraftStore.clearCotton(context, draftKey)
+                        onDismiss()
+                    }
                 }
             }) { Text("Salva") }
         },

@@ -296,10 +296,10 @@ private fun AddTimelineEventDialog(vm: SpectroViewModel, p: SpectroPalette, orde
         confirmButton = {
             Button(onClick = {
                 if (title.isNotBlank() && (description.isNotBlank() || images.isNotEmpty())) {
-                    vm.saveTimelineEvent(OrderTimelineEvent(workOrderId = order.id, clientId = order.clientId, clientName = order.client, orderRef = order.title.ifBlank { order.orderCode }, date = date, time = LocalTime.now().withSecond(0).withNano(0).toString(), category = category, responsibility = responsibility, severity = severity, status = if (severity == TimelineSeverity.INFO) TimelineStatus.RESOLVED else TimelineStatus.OPEN, title = title.trim(), description = description.trim(), oldDueDate = if (newDue.isNotBlank() && newDue != order.dueDate) order.dueDate else "", newDueDate = if (newDue != order.dueDate) newDue else "", images = images))
-                    if (newDue.isNotBlank() && newDue != order.dueDate) vm.saveWorkOrder(order.copy(dueDate = newDue))
-                    DraftStore.clearTimeline(context, order.id)
-                    onDismiss()
+                    vm.saveTimelineEvent(OrderTimelineEvent(workOrderId = order.id, clientId = order.clientId, clientName = order.client, orderRef = order.title.ifBlank { order.orderCode }, date = date, time = LocalTime.now().withSecond(0).withNano(0).toString(), category = category, responsibility = responsibility, severity = severity, status = if (severity == TimelineSeverity.INFO) TimelineStatus.RESOLVED else TimelineStatus.OPEN, title = title.trim(), description = description.trim(), oldDueDate = if (newDue.isNotBlank() && newDue != order.dueDate) order.dueDate else "", newDueDate = if (newDue != order.dueDate) newDue else "", images = images)) {
+                        DraftStore.clearTimeline(context, order.id)
+                        onDismiss()
+                    }
                 }
             }) { Text("Aggiungi") }
         },

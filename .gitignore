@@ -12,3 +12,6 @@ app/build/
 # Signing key - never commit
 *.jks
 *.keystore
+
+# Kotlin incremental build cache
+.kotlin/

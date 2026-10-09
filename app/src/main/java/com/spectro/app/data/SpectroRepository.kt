@@ -10,15 +10,16 @@ import kotlin.math.max
 
 class SpectroRepository(context: Context) {
     private val db = SpectroDatabase(context.applicationContext)
+    val zentha = ZenthaRepository(db)
 
-    fun snapshot(): SpectroSnapshot = SpectroSnapshot(
+    fun snapshot(): SpectroSnapshot = db.transaction { SpectroSnapshot(
         clients = db.getClients(), inventory = db.getInventory(), production = db.getProduction(), workOrders = db.getWorkOrders(), settings = db.getSettings(),
         clientIssues = db.getClientIssues(), issueUpdates = db.getIssueUpdates(), payments = db.getPayments(),
         fabricRolls = db.getFabricRolls(), stockMovements = db.getStockMovements(), rollUsages = db.getRollUsages(), timelineEvents = db.getTimelineEvents(),
         cottonOrders = db.getCottonOrders(), zenthaProducts = db.getZenthaProducts(), zenthaOrders = db.getZenthaOrders(), zenthaItems = db.getZenthaItems(),
         zenthaExtraCosts = db.getZenthaExtraCosts(), zenthaPayments = db.getZenthaPayments(),
-        economicWorks = db.getEconomicWorks(), operationalTasks = db.getOperationalTasks()
-    )
+        economicWorks = db.getEconomicWorks(), operationalTasks = db.getOperationalTasks(), zentha = ZenthaStore.snapshot(db.readableDatabase)
+    ) }
 
     fun saveClient(client: Client): Long {
         require(client.name.isNotBlank()) { "Inserisci il nome del cliente." }
@@ -37,7 +38,8 @@ class SpectroRepository(context: Context) {
             db.getCottonOrders().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
             db.getZenthaOrders().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
             db.getEconomicWorks().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
-            db.getOperationalTasks().any { it.clientId == id || it.clientName.equals(client.name, true) }
+            db.getOperationalTasks().any { it.clientId == id || it.clientName.equals(client.name, true) } ||
+            ZenthaStore.clientProfiles(db.readableDatabase).any { it.clientId == id } || ZenthaStore.priceRules(db.readableDatabase).any { it.clientId == id }
         require(!used) { "Cliente presente nello storico. Per proteggere ordini, produzione e contabilità non può essere eliminato." }
         db.deleteClient(id)
     }
@@ -215,12 +217,15 @@ class SpectroRepository(context: Context) {
         insertSystemTimeline(updated, "Ordine annullato", reason.trim(), TimelineCategory.STATUS_CHANGE, sql)
     }
 
-    fun saveTimelineEvent(item: OrderTimelineEvent): Long {
-        require(db.getWorkOrders().any { it.id == item.workOrderId }) { "Ordine non trovato." }
+    fun saveTimelineEvent(item: OrderTimelineEvent): Long = db.transaction { sql ->
+        val order = db.getWorkOrderById(item.workOrderId, sql) ?: error("Ordine non trovato.")
         require(validDate(item.date)) { "Data evento non valida." }
         require(item.title.isNotBlank()) { "Inserisci il titolo dell'aggiornamento." }
-        require(item.description.isNotBlank() || item.images.isNotEmpty()) { "Inserisci una descrizione o almeno un allegato." }
-        return if (item.id == 0L) db.insertTimelineEvent(item) else { db.updateTimelineEvent(item); item.id }
+        require(item.description.isNotBlank() || item.images.isNotEmpty()) { "Inserisci una descrizione o un allegato." }
+        require(item.newDueDate.isBlank() || validDate(item.newDueDate)) { "Data consegna non valida." }
+        val id = if(item.id == 0L) db.insertTimelineEvent(item, sql) else { db.updateTimelineEvent(item, sql); item.id }
+        if(item.newDueDate.isNotBlank()) db.updateWorkOrder(order.copy(dueDate = item.newDueDate), sql)
+        id
     }
 
     fun resolveTimelineEvent(id: Long, note: String) {
@@ -354,40 +359,11 @@ class SpectroRepository(context: Context) {
     }
     fun deleteCottonOrder(id: Long) = db.transaction { sql -> restoreOrderRollUsages(OrderKind.COTTON, id, sql); db.deleteCottonOrder(id, sql) }
 
-    fun saveZenthaProduct(item: ZenthaProduct): Long {
-        require(item.name.isNotBlank()) { "Inserisci il nome del prodotto." }
-        require(item.standardCost >= 0 && item.standardPrice >= 0) { "Costo e prezzo non possono essere negativi." }
-        return if (item.id == 0L) db.insertZenthaProduct(item) else { db.updateZenthaProduct(item); item.id }
-    }
-    fun deleteZenthaProduct(id: Long) {
-        require(db.getZenthaItems().none { it.productId == id }) { "Prodotto già utilizzato in ordini Zentha. Disattivalo invece di eliminarlo." }
-        db.deleteZenthaProduct(id)
-    }
-
-    fun saveZenthaOrder(order: ZenthaOrder, items: List<ZenthaOrderItem>, extraCosts: List<ZenthaExtraCost>): Long = db.transaction { sql ->
-        require(order.clientName.isNotBlank()) { "Inserisci il cliente Zentha." }
-        require(validDate(order.orderDate)) { "Data ordine non valida." }
-        require(order.dueDate.isBlank() || validDate(order.dueDate)) { "Data consegna non valida." }
-        require(items.isNotEmpty()) { "Aggiungi almeno un prodotto all'ordine Zentha." }
-        require(items.all { it.quantity > 0 && it.unitPrice >= 0 && it.unitCost >= 0 }) { "Controlla quantità, prezzi e costi dei prodotti." }
-        require(extraCosts.all { it.amount >= 0 }) { "I costi extra non possono essere negativi." }
-        val id = if (order.id == 0L) db.insertZenthaOrder(order.copy(orderCode = ""), sql) else { db.updateZenthaOrder(order, sql); order.id }
-        val saved = order.copy(id = id, orderCode = order.orderCode.ifBlank { generateOrderCode("ZEN", order.orderDate, id) })
-        db.updateZenthaOrder(saved, sql)
-        db.deleteZenthaItems(id, sql); items.forEach { db.insertZenthaItem(it.copy(id = 0, orderId = id), sql) }
-        db.deleteZenthaExtraCosts(id, sql); extraCosts.forEach { db.insertZenthaExtraCost(it.copy(id = 0, orderId = id), sql) }
-        id
-    }
-    fun deleteZenthaOrder(id: Long) = db.transaction { sql ->
-        require(db.getZenthaPayments(sql).none { it.orderId == id }) { "L'ordine contiene pagamenti. Annullalo invece di eliminarlo." }
-        db.deleteZenthaItems(id, sql); db.deleteZenthaExtraCosts(id, sql); db.deleteZenthaOrder(id, sql)
-    }
-    fun addZenthaPayment(item: ZenthaPayment): Long {
-        require(db.getZenthaOrders().any { it.id == item.orderId }) { "Ordine Zentha non trovato." }
-        require(validDate(item.date)) { "Data pagamento non valida." }
-        require(item.amount > 0) { "L'importo deve essere maggiore di zero." }
-        return db.insertZenthaPayment(item.copy(id = 0))
-    }
+    fun saveZenthaProduct(item: ZenthaProduct) = zentha.saveProduct(item)
+    fun deleteZenthaProduct(id: Long) = zentha.deleteProduct(id)
+    fun saveZenthaOrder(order: ZenthaOrder, items: List<ZenthaOrderItem>, extraCosts: List<ZenthaExtraCost>) = zentha.saveOrder(order, items, extraCosts)
+    fun deleteZenthaOrder(id: Long) = zentha.deleteOrder(id)
+    fun addZenthaPayment(item: ZenthaPayment) = zentha.addPayment(item)
     fun deleteZenthaPayment(id: Long) = db.deleteZenthaPayment(id)
 
     fun saveEconomicWork(item: EconomicWork): Long {
@@ -468,6 +444,7 @@ class SpectroRepository(context: Context) {
     private fun rollStatus(available: Double, initial: Double) = when { available <= .0001 -> RollStatus.DEPLETED; available + .0001 >= initial -> RollStatus.INTACT; else -> RollStatus.OPEN }
 
     private fun applyRollAllocations(kind: OrderKind, orderId: Long, orderRef: String, inventoryId: Long, allocations: Map<Long, Double>, sql: SQLiteDatabase) {
+        require(allocations.values.all { it.isFinite() && it >= 0 }) { "Metri colli non validi." }
         allocations.filterValues { it > 0 }.forEach { (rollId, meters) ->
             val roll = db.getFabricRollById(rollId, sql) ?: throw IllegalArgumentException("Collo non trovato.")
             require(roll.inventoryId == inventoryId) { "Il collo selezionato appartiene a un altro tessuto." }
@@ -503,13 +480,37 @@ class SpectroRepository(context: Context) {
         val item = db.getInventoryById(record.fabricId, sql) ?: throw IllegalArgumentException("Tessuto non trovato in magazzino.")
         val consume = max(0.0, record.fabricUsedMeters) + max(0.0, record.fabricWasteMeters)
         require(consume <= item.quantityMeters + .0001) { "Giacenza insufficiente: disponibili ${"%.2f".format(item.quantityMeters)} mt, richiesti ${"%.2f".format(consume)} mt." }
-        db.setInventoryQuantity(item.id, item.quantityMeters - consume, sql)
+        val rolls = db.getFabricRolls(sql).filter { it.inventoryId == item.id }.sortedWith(compareBy<FabricRoll> { it.createdDate }.thenBy { it.id })
+        if(rolls.isEmpty()) db.setInventoryQuantity(item.id, item.quantityMeters - consume, sql)
+        else {
+            require(abs(rolls.sumOf { it.availableMeters } - item.quantityMeters) <= .0001) { "Giacenza tessuto e colli incoerenti: verifica i colli prima dello scarico." }
+            var remaining = consume
+            val allocations = linkedMapOf<Long, Double>()
+            rolls.forEach { roll ->
+                val meters = minOf(remaining, roll.availableMeters).coerceAtLeast(0.0)
+                if(meters > 0) { allocations[roll.id] = meters; remaining -= meters }
+            }
+            require(remaining <= .0001) { "Giacenza colli insufficiente." }
+            applyRollAllocations(OrderKind.PRODUCTION, record.id, record.orderRef, item.id, allocations, sql)
+        }
     }
 
     private fun restoreLegacyInventoryConsumption(record: ProductionRecord, sql: SQLiteDatabase) {
         if (record.type != RecordType.PRODUCTION || record.fabricMode != FabricMode.INVENTORY || record.fabricId == null) return
         val item = db.getInventoryById(record.fabricId, sql) ?: return
-        db.setInventoryQuantity(item.id, item.quantityMeters + max(0.0, record.fabricUsedMeters) + max(0.0, record.fabricWasteMeters), sql)
+        val target = item.quantityMeters + max(0.0, record.fabricUsedMeters) + max(0.0, record.fabricWasteMeters)
+        val rolls = db.getFabricRolls(sql).filter { it.inventoryId == item.id }
+        if(rolls.isEmpty()) db.setInventoryQuantity(item.id, target, sql)
+        else {
+            val returned = target - rolls.sumOf { it.availableMeters }
+            require(returned >= -.0001) { "Giacenza legacy incoerente: verifica i colli prima di modificare la produzione." }
+            if(returned > .0001) {
+                // The original roll is unknown: keep this legacy return explicitly identifiable.
+                val rollId = db.insertFabricRoll(FabricRoll(inventoryId = item.id, rollCode = "RESO-LEGACY-${record.id}", initialMeters = returned, availableMeters = returned, createdDate = LocalDate.now().toString(), note = "Ripristino produzione legacy senza collo originale"), sql)
+                db.insertStockMovement(StockMovement(inventoryId = item.id, rollId = rollId, type = StockMovementType.RETURN, dateTime = nowDateTime(), meters = returned, orderKind = OrderKind.PRODUCTION, orderId = record.id, orderRef = record.orderRef, note = "Ripristino produzione legacy"), sql)
+            }
+            syncInventoryQuantity(item.id, sql)
+        }
     }
 
     private fun insertSystemTimeline(

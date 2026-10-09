@@ -6,6 +6,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -354,7 +356,7 @@ private fun RecordDetailSheet(
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
-        Column(Modifier.fillMaxWidth().padding(20.dp).navigationBarsPadding()) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp).navigationBarsPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text(r.date, color = p.textMuted, fontSize = 12.sp); Text(r.clientName, fontSize = 26.sp, fontWeight = FontWeight.Black); Text(if (r.type == RecordType.NEGATIVE) "Evento negativo" else r.orderRef.ifBlank { "Produzione" }, color = if (r.type == RecordType.NEGATIVE) p.danger else p.primary, fontWeight = FontWeight.Bold) }
                 IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, null, tint = p.primary) }
@@ -365,7 +367,7 @@ private fun RecordDetailSheet(
             Spacer(Modifier.height(16.dp))
             SpectroCard(p = p) {
                 if (r.type == RecordType.PRODUCTION) {
-                    Metric("Tessuto", r.fabricDisplayName); Spacer(Modifier.height(10.dp)); Row { Metric("Carta", meters(r.printedPaperMeters), modifier = Modifier.weight(1f)); Metric("Tessuto", meters(r.fabricUsedMeters), modifier = Modifier.weight(1f)) }
+                    Metric("Tessuto", r.fabricDisplayName); Text("Disegni: ${r.designs.joinToString().ifBlank { "—" }}"); Spacer(Modifier.height(10.dp)); Row { Metric("Carta", meters(r.printedPaperMeters), modifier = Modifier.weight(1f)); Metric("Tessuto", meters(r.fabricUsedMeters), modifier = Modifier.weight(1f)) }
                     HorizontalDivider(Modifier.padding(vertical = 14.dp), color = p.border); Row { Metric("Fatturato", euro(r.grossRevenue), p.success, Modifier.weight(1f)); Metric("Materie", euro(r.materialCostTotal), modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(12.dp)); Metric("Utile lordo", euro(r.grossProfit), if (r.grossProfit >= 0) p.success else p.danger)
                 } else { Text(r.technicalNotes, color = p.text); Spacer(Modifier.height(12.dp)); Metric("Perdita totale", euro(r.materialCostTotal), p.danger) }
             }

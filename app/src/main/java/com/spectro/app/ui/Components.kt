@@ -184,20 +184,16 @@ fun SectionTitle(text: String, actionLabel: String? = null, onAction: (() -> Uni
 fun ImageStrip(paths: List<String>, onRemove: ((Int) -> Unit)? = null) {
     if (paths.isEmpty()) return
     var viewerPath by remember { mutableStateOf<String?>(null) }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        paths.take(3).forEachIndexed { index, path ->
+    androidx.compose.foundation.lazy.LazyRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(paths.size) { index ->
+            val path = paths[index]
             Box(Modifier.size(88.dp).clickable { viewerPath = path }) {
                 PrivateImage(path, Modifier.fillMaxSize())
-                if (onRemove != null) IconButton(
-                    onClick = { onRemove(index) },
-                    modifier = Modifier.align(Alignment.TopEnd).size(28.dp).background(Color.Black.copy(alpha = .65f), CircleShape)
-                ) { Icon(Icons.Rounded.Close, null, tint = Color.White, modifier = Modifier.size(16.dp)) }
+                if(onRemove != null) IconButton(onClick = { onRemove(index) }, modifier = Modifier.align(Alignment.TopEnd).size(28.dp).background(Color.Black.copy(alpha = .65f), CircleShape)) {
+                    Icon(Icons.Rounded.Close, "Rimuovi immagine", tint = Color.White, modifier = Modifier.size(16.dp))
+                }
             }
         }
-        if (paths.size > 3) Box(
-            Modifier.size(88.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant).clickable { viewerPath = paths[3] },
-            contentAlignment = Alignment.Center
-        ) { Text("+${paths.size - 3}", fontWeight = FontWeight.Black) }
     }
     viewerPath?.let { FullScreenImage(it) { viewerPath = null } }
 }

@@ -90,18 +90,20 @@ object ReportExporter {
             ensure(28f)
             val lp = paint(MUTED, 11f, true)
             val vp = paint(accent ?: WHITE, 12.5f, accent != null)
+            if(lp.measureText(label.uppercase()) > 160f) { paragraph(label, value.ifBlank { "-" }, accent ?: WHITE); return }
             c.drawText(label.uppercase(), left, y, lp)
-            val lines = wrap(value.ifBlank { "-" }, 48)
+            val lines = wrap(value.ifBlank { "-" }, vp, right - 205f)
             c.drawText(lines.firstOrNull().orEmpty(), 205f, y, vp)
             y += 22f
-            lines.drop(1).take(2).forEach { c.drawText(it, 205f, y, vp); y += 18f }
+            lines.drop(1).forEach { ensure(18f); c.drawText(it, 205f, y, vp); y += 18f }
         }
 
         fun paragraph(label: String, text: String, accent: Int = WHITE) {
             if (text.isBlank()) return
             ensure(44f)
-            c.drawText(label.uppercase(), left, y, paint(accent, 11f, true)); y += 19f
-            wrap(text, 78).forEach { line -> ensure(18f); c.drawText(line, left, y, white); y += 18f }
+            val labelPaint = paint(accent, 11f, true)
+            wrap(label.uppercase(), labelPaint, width).forEach { line -> ensure(19f); c.drawText(line, left, y, labelPaint); y += 19f }
+            wrap(text, white, width).forEach { line -> ensure(18f); c.drawText(line, left, y, white); y += 18f }
             y += 7f
         }
 
@@ -144,19 +146,10 @@ object ReportExporter {
 
         fun timelineEvent(event: OrderTimelineEvent) {
             val accent = when (event.severity) { TimelineSeverity.INFO -> CYAN; TimelineSeverity.LOW -> GREEN; TimelineSeverity.MEDIUM -> YELLOW; TimelineSeverity.HIGH, TimelineSeverity.BLOCKING -> RED }
-            val descLines = wrap(localizeStatusTokens(event.description), 72).take(8)
-            val h = 68f + descLines.size * 17f + if (event.images.isNotEmpty()) 84f else 0f
-            ensure(h)
-            c.drawRoundRect(RectF(left, y, right, y + h - 7f), 13f, 13f, paint(PANEL, 1f))
-            c.drawRect(left, y, left + 5f, y + h - 7f, paint(accent, 1f))
-            c.drawText("${event.date}${if (event.time.isNotBlank()) " • ${event.time}" else ""}", left + 15f, y + 20f, paint(MUTED, 10f, true))
-            c.drawText(event.title.take(55), left + 15f, y + 43f, paint(WHITE, 14f, true))
-            c.drawText("${timelineCategoryIt(event.category)} • ${timelineResponsibilityIt(event.responsibility)} • ${timelineSeverityIt(event.severity)}", left + 15f, y + 61f, paint(accent, 9.5f, true))
-            var yy = y + 81f
-            descLines.forEach { c.drawText(it, left + 15f, yy, paint(WHITE, 10.5f)); yy += 17f }
-            if (event.oldDueDate.isNotBlank() || event.newDueDate.isNotBlank()) { c.drawText("Consegna: ${event.oldDueDate.ifBlank { "-" }} → ${event.newDueDate.ifBlank { "-" }}", left + 15f, yy, paint(YELLOW, 9.5f, true)); yy += 18f }
-            if (event.images.isNotEmpty()) imageStrip(event.images, yy, left + 15f)
-            y += h
+            paragraph(event.title, "${event.date} ${event.time} • ${timelineCategoryIt(event.category)} • ${timelineResponsibilityIt(event.responsibility)} • ${timelineSeverityIt(event.severity)}", accent)
+            paragraph("Descrizione", localizeStatusTokens(event.description))
+            if(event.oldDueDate.isNotBlank() || event.newDueDate.isNotBlank()) infoRow("Consegna", "${event.oldDueDate} → ${event.newDueDate}")
+            images(event.images)
         }
 
         fun detailCard(title: String, subtitle: String = "", value: String = "", accent: Int = ORANGE) {
@@ -347,16 +340,29 @@ object ReportExporter {
         d.finish(file); sharePdf(context, file, "Condividi dossier criticità")
     }
 
-    fun shareZenthaOrder(context: Context, order: ZenthaOrder, items: List<ZenthaOrderItem>, extras: List<ZenthaExtraCost>, payments: List<ZenthaPayment>) {
-        val revenue = items.sumOf { it.revenue }; val productCosts = items.sumOf { it.cost }; val extra = extras.sumOf { it.amount }; val profit = revenue - productCosts - extra; val paid = payments.sumOf { it.amount }
-        val file = outFile(context, "Spectro_Zentha_${order.orderDate}_${order.id}.pdf")
-        val d = DarkPdf(context, "Ordine Zentha", "${order.orderCode} • ${order.clientName}")
-        d.metricRow(listOf(Triple("Ricavi", eur(revenue), GREEN), Triple("Costi", eur(productCosts + extra), YELLOW), Triple("Utile", eur(profit), if (profit >= 0) GREEN else RED)))
-        d.barChart("Economia ordine", listOf("Ricavi" to revenue, "Costi prodotti" to productCosts, "Costi extra" to extra, "Utile" to profit), true)
-        d.section("Prodotti"); items.forEach { d.detailCard(it.productName, "${it.quantity} × ${eur(it.unitPrice)} • costo ${eur(it.unitCost)}", eur(it.revenue), GREEN) }
-        d.section("Pagamenti", CYAN); d.infoRow("Incassato", eur(paid), GREEN); d.infoRow("Residuo", eur((revenue - paid).coerceAtLeast(0.0)), if (revenue > paid) YELLOW else GREEN)
-        d.paragraph("Note", order.notes); d.images(order.attachments); d.finish(file); sharePdf(context, file, "Condividi ordine Zentha")
+    fun shareZenthaDocument(context: Context, snapshot: SpectroSnapshot, orderId: Long, type: ZenthaDocument) {
+        val file = createZenthaDocument(context, snapshot, orderId, type)
+        sharePdf(context, file, "Condividi ${type.title}")
     }
+
+    fun createZenthaDocument(context: Context, s: SpectroSnapshot, orderId: Long, type: ZenthaDocument): File {
+        val report = ZenthaReports.create(s, orderId, type)
+        val file = outFile(context, "Zentha_${orderId}_${type.name}.pdf")
+        val d = DarkPdf(context, report.title, report.subtitle)
+        report.blocks.forEach { block -> when(block) {
+            is ZenthaReportBlock.Section -> d.section(block.title)
+            is ZenthaReportBlock.Info -> d.infoRow(block.label, block.value)
+            is ZenthaReportBlock.Paragraph -> d.paragraph(block.label, block.text)
+            is ZenthaReportBlock.Images -> d.images(block.paths)
+            is ZenthaReportBlock.Chart -> d.barChart(block.title, block.values, block.currency)
+            is ZenthaReportBlock.Metrics -> d.metricRow(block.values.map { (label, value, accent) -> Triple(label, value, when(accent) { ReportAccent.PRIMARY -> MAGENTA; ReportAccent.POSITIVE -> GREEN; ReportAccent.ATTENTION -> ORANGE }) })
+        } }
+        d.finish(file)
+        return file
+    }
+
+    fun shareZenthaOrder(context: Context, order: ZenthaOrder, items: List<ZenthaOrderItem>, extras: List<ZenthaExtraCost>, payments: List<ZenthaPayment>) =
+        shareZenthaDocument(context, SpectroSnapshot(zenthaOrders = listOf(order), zenthaItems = items, zenthaExtraCosts = extras, zenthaPayments = payments), order.id, ZenthaDocument.ECONOMY)
 
     private fun workStatusIt(v: WorkStatus): String = when (v) {
         WorkStatus.DRAFT -> "Bozza"; WorkStatus.RECEIVED, WorkStatus.IN_PROCESS -> "In processo"; WorkStatus.TRANSFERRED_TO_PRODUCTION -> "Trasferito in produzione"; WorkStatus.WAITING_MATERIAL -> "Attesa materiale"; WorkStatus.WAITING_CLIENT -> "Attesa cliente"; WorkStatus.IN_PRODUCTION, WorkStatus.IN_PROGRESS -> "In produzione"; WorkStatus.PRINTED -> "Stampato"; WorkStatus.TRANSFERRED -> "Trasferito"; WorkStatus.READY -> "Pronto"; WorkStatus.COMPLETED -> "Completato"; WorkStatus.DELIVERED -> "Evaso"; WorkStatus.CLOSED -> "Chiuso"; WorkStatus.ON_HOLD -> "Sospeso"; WorkStatus.BLOCKED -> "Bloccato"; WorkStatus.CANCELLED -> "Annullato"
@@ -367,11 +373,26 @@ object ReportExporter {
     private fun economicStatusIt(v: EconomicWorkStatus) = when (v) { EconomicWorkStatus.OPEN -> "Aperto"; EconomicWorkStatus.COMPLETED -> "Completato"; EconomicWorkStatus.PAID -> "Incassato"; EconomicWorkStatus.CANCELLED -> "Annullato" }
     private fun localizeStatusTokens(text: String): String { var result = text; WorkStatus.entries.sortedByDescending { it.name.length }.forEach { st -> result = result.replace(Regex("\\b${Regex.escape(st.name)}\\b"), workStatusIt(st)) }; return result }
 
-    private fun wrap(text: String, width: Int): List<String> {
-        if (text.isBlank()) return emptyList()
-        val out = mutableListOf<String>(); var line = ""
-        text.replace('\n', ' ').trim().split(Regex("\\s+")).forEach { word -> val next = if (line.isBlank()) word else "$line $word"; if (next.length > width && line.isNotBlank()) { out += line; line = word } else line = next }
-        if (line.isNotBlank()) out += line; return out
+    private fun wrap(text: String, paint: Paint, width: Float): List<String> {
+        if(text.isBlank()) return emptyList()
+        return buildList {
+            text.lines().forEach { paragraph ->
+                var line = ""
+                paragraph.trim().split(Regex("\\s+")).forEach { word ->
+                    val next = if(line.isBlank()) word else "$line $word"
+                    if(paint.measureText(next) <= width) line = next
+                    else {
+                        if(line.isNotBlank()) add(line)
+                        line = ""
+                        word.forEach { char ->
+                            if(paint.measureText(line + char) > width && line.isNotEmpty()) { add(line); line = "" }
+                            line += char
+                        }
+                    }
+                }
+                add(line)
+            }
+        }
     }
     private fun outFile(context: Context, name: String): File = File(context.cacheDir, "shared").apply { mkdirs() }.resolve(name)
     private fun sharePdf(context: Context, file: File, chooser: String) {

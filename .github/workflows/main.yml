@@ -3,7 +3,7 @@ name: Build Spectro Native APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main, spectro-3.0-beta ]
+    branches: [ main, spectro-3.0-beta, spectro-3.0-beta7 ]
 
 jobs:
   build:
@@ -167,7 +167,7 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v3.0.0-BETA6-RELEASE
+          name: SpectroERP-v3.0.0-BETA7-RELEASE
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

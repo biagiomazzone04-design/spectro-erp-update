@@ -35,18 +35,9 @@ data class SpectroUiState(
     val zenthaPayments: List<ZenthaPayment> = emptyList(),
     val economicWorks: List<EconomicWork> = emptyList(),
     val operationalTasks: List<OperationalTask> = emptyList(),
+    val zentha: ZenthaData = ZenthaData(),
+    val saving: Boolean = false,
     val message: String? = null
-)
-
-data class ZenthaTotals(
-    val revenue: Double,
-    val productCosts: Double,
-    val extraCosts: Double,
-    val profit: Double,
-    val shareA: Double,
-    val shareB: Double,
-    val paid: Double,
-    val outstanding: Double
 )
 
 class SpectroViewModel(app: Application) : AndroidViewModel(app) {
@@ -65,13 +56,16 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun consumeMessage() { state = state.copy(message = null) }
 
-    private fun runWrite(success: String, block: () -> Unit) {
+    private fun runWrite(success: String, onSuccess: () -> Unit = {}, block: () -> Unit) {
+        if (state.saving) return
+        state = state.copy(saving = true)
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { block() }
                 val s = withContext(Dispatchers.IO) { repo.snapshot() }
                 state = s.toUiState(success)
-            } catch (t: Throwable) { state = state.copy(loading = false, message = t.message ?: "Operazione non riuscita") }
+                onSuccess()
+            } catch (t: Throwable) { state = state.copy(loading = false, saving = false, message = t.message ?: "Operazione non riuscita") }
         }
     }
 
@@ -84,17 +78,17 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun adjustRoll(rollId: Long, newMeters: Double, note: String) = runWrite("Giacenza collo rettificata") { repo.adjustRoll(rollId, newMeters, note) }
     fun deleteInventory(id: Long) = runWrite("Tessuto eliminato") { repo.deleteInventory(id) }
 
-    fun saveProduction(v: ProductionRecord, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite("Registrazione produttiva salvata") { repo.saveProduction(v, rollAllocations) }
+    fun saveProduction(v: ProductionRecord, rollAllocations: Map<Long, Double> = emptyMap(), onSuccess: () -> Unit = {}) = runWrite("Registrazione produttiva salvata", onSuccess) { repo.saveProduction(v, rollAllocations) }
     fun deleteProduction(id: Long) = runWrite("Registrazione eliminata e magazzino riallineato") { repo.deleteProduction(id) }
 
-    fun saveWorkOrder(v: WorkOrder) = runWrite("Ordine salvato") { repo.saveWorkOrder(v) }
+    fun saveWorkOrder(v: WorkOrder, onSuccess: () -> Unit = {}) = runWrite("Ordine salvato", onSuccess) { repo.saveWorkOrder(v) }
     fun deleteWorkOrder(id: Long) = runWrite("Ordine eliminato") { repo.deleteWorkOrder(id) }
     fun setWorkStatus(id: Long, status: WorkStatus, note: String = "") = runWrite("Stato ordine aggiornato") { repo.setWorkStatus(id, status, note) }
     fun completeWorkOrder(id: Long, note: String = "") = runWrite("Ordine completato e archiviato nello storico") { repo.completeWorkOrder(id, note) }
     fun reopenWorkOrder(id: Long, note: String = "") = runWrite("Ordine riaperto") { repo.reopenWorkOrder(id, note) }
     fun cancelWorkOrder(id: Long, reason: String) = runWrite("Ordine annullato") { repo.cancelWorkOrder(id, reason) }
 
-    fun saveTimelineEvent(v: OrderTimelineEvent) = runWrite("Aggiornamento aggiunto alla timeline") { repo.saveTimelineEvent(v) }
+    fun saveTimelineEvent(v: OrderTimelineEvent, onSuccess: () -> Unit = {}) = runWrite("Aggiornamento aggiunto alla timeline", onSuccess) { repo.saveTimelineEvent(v) }
     fun resolveTimelineEvent(id: Long, note: String) = runWrite("Criticità risolta") { repo.resolveTimelineEvent(id, note) }
     fun deleteTimelineEvent(id: Long) = runWrite("Voce timeline eliminata") { repo.deleteTimelineEvent(id) }
 
@@ -107,14 +101,14 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun deletePayment(id: Long) = runWrite("Scadenza eliminata") { repo.deletePayment(id) }
     fun togglePayment(id: Long) = runWrite("Stato pagamento aggiornato") { repo.togglePayment(id) }
 
-    fun saveCottonOrder(v: CottonOrder, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite("Ordine cotone salvato") { repo.saveCottonOrder(v, rollAllocations) }
+    fun saveCottonOrder(v: CottonOrder, rollAllocations: Map<Long, Double> = emptyMap(), onSuccess: () -> Unit = {}) = runWrite("Ordine cotone salvato", onSuccess) { repo.saveCottonOrder(v, rollAllocations) }
     fun deleteCottonOrder(id: Long) = runWrite("Ordine cotone eliminato") { repo.deleteCottonOrder(id) }
 
-    fun saveZenthaProduct(v: ZenthaProduct) = runWrite("Prodotto Zentha salvato") { repo.saveZenthaProduct(v) }
+    fun saveZenthaProduct(v: ZenthaProduct, onSuccess: () -> Unit = {}) = runWrite("Prodotto Zentha salvato", onSuccess) { repo.saveZenthaProduct(v) }
     fun deleteZenthaProduct(id: Long) = runWrite("Prodotto Zentha eliminato") { repo.deleteZenthaProduct(id) }
-    fun saveZenthaOrder(order: ZenthaOrder, items: List<ZenthaOrderItem>, extraCosts: List<ZenthaExtraCost>) = runWrite("Ordine Zentha salvato") { repo.saveZenthaOrder(order, items, extraCosts) }
+    fun saveZenthaOrder(order: ZenthaOrder, items: List<ZenthaOrderItem>, extraCosts: List<ZenthaExtraCost>, onSuccess: () -> Unit = {}) = runWrite("Ordine Zentha salvato", onSuccess) { repo.saveZenthaOrder(order, items, extraCosts) }
     fun deleteZenthaOrder(id: Long) = runWrite("Ordine Zentha eliminato") { repo.deleteZenthaOrder(id) }
-    fun addZenthaPayment(v: ZenthaPayment) = runWrite("Pagamento Zentha registrato") { repo.addZenthaPayment(v) }
+    fun addZenthaPayment(v: ZenthaPayment, onSuccess: () -> Unit = {}) = runWrite("Pagamento Zentha registrato", onSuccess) { repo.addZenthaPayment(v) }
     fun deleteZenthaPayment(id: Long) = runWrite("Pagamento Zentha eliminato") { repo.deleteZenthaPayment(id) }
 
     fun saveEconomicWork(v: EconomicWork) = runWrite("Lavoro economico salvato") { repo.saveEconomicWork(v) }
@@ -133,7 +127,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         fabricRolls = state.fabricRolls, stockMovements = state.stockMovements, rollUsages = state.rollUsages, timelineEvents = state.timelineEvents,
         cottonOrders = state.cottonOrders, zenthaProducts = state.zenthaProducts, zenthaOrders = state.zenthaOrders, zenthaItems = state.zenthaItems,
         zenthaExtraCosts = state.zenthaExtraCosts, zenthaPayments = state.zenthaPayments,
-        economicWorks = state.economicWorks, operationalTasks = state.operationalTasks
+        economicWorks = state.economicWorks, operationalTasks = state.operationalTasks, zentha = state.zentha
     )
 
     fun rollsForInventory(inventoryId: Long): List<FabricRoll> = state.fabricRolls.filter { it.inventoryId == inventoryId }.sortedBy { it.id }
@@ -147,19 +141,21 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun inProcessOrders(): List<WorkOrder> = state.workOrders.filter { it.status in listOf(WorkStatus.RECEIVED, WorkStatus.IN_PROCESS, WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.BLOCKED, WorkStatus.ON_HOLD) && productionsForOrder(it.id).isEmpty() }
 
     fun zenthaTotals(orderId: Long): ZenthaTotals {
-        val order = state.zenthaOrders.firstOrNull { it.id == orderId }
-        val items = state.zenthaItems.filter { it.orderId == orderId }
-        val extras = state.zenthaExtraCosts.filter { it.orderId == orderId }
-        val pays = state.zenthaPayments.filter { it.orderId == orderId }
-        val revenue = items.sumOf { it.revenue }
-        val productCosts = items.sumOf { it.cost }
-        val extraCosts = extras.sumOf { it.amount }
-        val profit = revenue - productCosts - extraCosts
-        val splitA = order?.splitPercentA ?: state.settings.zenthaSplitA
-        val splitB = order?.splitPercentB ?: state.settings.zenthaSplitB
-        val paid = pays.sumOf { it.amount }
-        return ZenthaTotals(revenue, productCosts, extraCosts, profit, profit * splitA / 100.0, profit * splitB / 100.0, paid, (revenue - paid).coerceAtLeast(0.0))
+        val order = state.zenthaOrders.first { it.id == orderId }
+        return ZenthaBusiness.totals(order, state.zenthaItems, state.zenthaExtraCosts, state.zenthaPayments)
     }
+    fun saveZenthaVariant(v: ZenthaProductVariant, done: () -> Unit = {}) = runWrite("Variante salvata", done) { repo.zentha.saveVariant(v) }
+    fun saveZenthaBalance(v: ZenthaStockBalance, done: () -> Unit = {}) = runWrite("Soglia salvata", done) { repo.zentha.saveBalanceSettings(v) }
+    fun moveZenthaStock(v: ZenthaStockMovement, done: () -> Unit = {}) = runWrite("Movimento registrato", done) { repo.zentha.moveStock(v) }
+    fun saveZenthaPriceList(v: ZenthaPriceList, done: () -> Unit = {}) = runWrite("Listino salvato", done) { repo.zentha.savePriceList(v) }
+    fun saveZenthaPriceRule(v: ZenthaPriceListRule, done: () -> Unit = {}) = runWrite("Prezzo salvato", done) { repo.zentha.savePriceRule(v) }
+    fun deleteZenthaPriceRule(id: Long) = runWrite("Regola eliminata") { repo.zentha.deletePriceRule(id) }
+    fun saveZenthaClient(v: ZenthaClientProfile, done: () -> Unit = {}) = runWrite("Profilo cliente salvato", done) { repo.zentha.saveClientProfile(v) }
+    fun saveZenthaRoster(v: ZenthaRosterEntry, done: () -> Unit = {}) = runWrite("Atleta salvato", done) { repo.zentha.saveRoster(v) }
+    fun deleteZenthaRoster(id: Long, done: () -> Unit = {}) = runWrite("Atleta rimosso", done) { repo.zentha.deleteRoster(id) }
+    fun saveZenthaCustomization(v: ZenthaCustomization, done: () -> Unit = {}) = runWrite("Personalizzazione salvata", done) { repo.zentha.saveCustomization(v) }
+    fun setZenthaStatus(id: Long, status: ZenthaOrderStatus) = runWrite("Stato e cronologia aggiornati") { repo.zentha.changeStatus(id, status) }
+    fun postZenthaStock(id: Long) = runWrite("Magazzino allineato all'ordine") { repo.zentha.postStock(id) }
 
     fun dashboardDays(query: String = ""): List<DashboardDay> {
         val filtered = state.production.filter { r -> query.isBlank() || r.clientName.contains(query, true) || r.orderRef.contains(query, true) || r.designs.any { it.contains(query, true) } }
@@ -267,6 +263,6 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         fabricRolls = fabricRolls, stockMovements = stockMovements, rollUsages = rollUsages, timelineEvents = timelineEvents,
         cottonOrders = cottonOrders, zenthaProducts = zenthaProducts, zenthaOrders = zenthaOrders, zenthaItems = zenthaItems,
         zenthaExtraCosts = zenthaExtraCosts, zenthaPayments = zenthaPayments, economicWorks = economicWorks,
-        operationalTasks = operationalTasks, message = message
+        operationalTasks = operationalTasks, zentha = zentha, message = message
     )
 }

@@ -90,13 +90,15 @@ fun SearchClientProfileSheet(
 ) {
     val context = LocalContext.current
     var section by remember(client.id) { mutableStateOf(initialSection) }
+    var historyQuery by remember(client.id) { mutableStateOf("") }
+    val history = unifiedClientHistory(client, vm.snapshot(), historyQuery)
     var expandedFabric by remember(client.id) { mutableStateOf<String?>(null) }
 
     val works = vm.state.workOrders
-        .filter { it.clientId == client.id || it.client.equals(client.name, true) }
+        .filter { client.matches(it.clientId, it.client) }
         .sortedWith(compareByDescending<WorkOrder> { if (!it.status.isFinishedOrder()) 1 else 0 }.thenByDescending { it.receivedDate })
     val productions = vm.state.production
-        .filter { it.type == RecordType.PRODUCTION && (it.clientId == client.id || it.clientName.equals(client.name, true)) }
+        .filter { it.type == RecordType.PRODUCTION && (client.matches(it.clientId, it.clientName)) }
         .sortedWith(compareByDescending<ProductionRecord> { it.date }.thenByDescending { it.id })
     val inventoryAll = vm.state.inventory
         .filter { it.ownerType == OwnerType.CLIENT && it.ownerName.equals(client.name, true) }
@@ -104,13 +106,13 @@ fun SearchClientProfileSheet(
     val inventoryActive = inventoryAll.filter { it.quantityMeters > .0001 }
     val inventoryHistory = inventoryAll.filter { it.quantityMeters <= .0001 }
     val cottonOrders = vm.state.cottonOrders
-        .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
+        .filter { client.matches(it.clientId, it.clientName) }
         .sortedByDescending { it.orderDate }
     val economicWorks = vm.state.economicWorks
-        .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
+        .filter { client.matches(it.clientId, it.clientName) }
         .sortedByDescending { it.date }
     val criticalities = vm.state.timelineEvents
-        .filter { (it.clientId == client.id || it.clientName.equals(client.name, true)) && it.severity != TimelineSeverity.INFO }
+        .filter { (client.matches(it.clientId, it.clientName)) && it.severity != TimelineSeverity.INFO }
         .sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
     val revenue = productions.sumOf { it.grossRevenue } + cottonOrders.sumOf { it.grossRevenue } + economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }
     val paperMeters = productions.sumOf { it.printedPaperMeters }
@@ -170,7 +172,7 @@ fun SearchClientProfileSheet(
                         ClientAreaCard("MAGAZZINO", "${inventoryActive.map { it.fabricName.uppercase() }.distinct().size} tessuti attivi • ${meters(totalStock)}", Icons.Rounded.Inventory2, p, p.primary) { section = ClientProfileSection.INVENTORY }
                     }
                     item {
-                        ClientAreaCard("ORDINI", "${works.size} ordini • ${works.count { it.status.isArchivedOrder() }} evasi", Icons.Rounded.Assignment, p, p.primary) { section = ClientProfileSection.ORDERS }
+                        ClientAreaCard("ORDINI", "${works.size} ordini • ${productions.count { it.workOrderId == null }} produzioni storiche", Icons.Rounded.Assignment, p, p.primary) { section = ClientProfileSection.ORDERS }
                     }
                     item {
                         ClientAreaCard("CRITICITÀ", "${criticalities.size} registrate • ${criticalities.count { it.status == TimelineStatus.OPEN }} aperte", Icons.Rounded.ReportProblem, p, p.secondary) { section = ClientProfileSection.ISSUES }
@@ -242,61 +244,10 @@ fun SearchClientProfileSheet(
                 }
 
                 ClientProfileSection.ORDERS -> {
-                    if (works.isEmpty() && cottonOrders.isEmpty()) item { Text("Nessun ordine registrato.", color = p.textMuted) }
-                    if (works.isNotEmpty()) item { SectionTitle("Sublimazione") }
-                    items(works, key = { "wo${it.id}" }) { w ->
-                        val fabrics = orderFabricRows(vm, w)
-                        val productionRows = vm.productionsForOrder(w.id)
-                        val productionNotes = productionRows.mapNotNull { it.technicalNotes.trim().takeIf(String::isNotBlank) }.distinct()
-                        val previewImages = (w.images + productionRows.flatMap { it.images }).distinct()
-                        SpectroCard(p = p, onClick = { onOpenOrder(w) }) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(w.title.ifBlank { w.orderCode }, fontWeight = FontWeight.Black, fontSize = 18.sp, color = p.text)
-                                    Text("${workStatusLabel(w.status)} • ${w.receivedDate}", color = if (w.status.isArchivedOrder()) p.success else p.textMuted, fontSize = 11.sp)
-                                    if (w.orderCode.isNotBlank()) Text(w.orderCode, color = p.textMuted, fontSize = 9.sp)
-                                }
-                                IconButton(onClick = { ReportExporter.shareWorkOrder(context, w) }) { Icon(Icons.Rounded.PictureAsPdf, "PDF", tint = p.primary) }
-                                Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
-                            }
-                            if (fabrics.isNotEmpty()) {
-                                Spacer(Modifier.height(10.dp))
-                                fabrics.forEach { row ->
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(row.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                                        Text(if (row.meters > 0) meters(row.meters) else "-", color = p.primary, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                                    }
-                                }
-                            }
-                            if (w.description.isNotBlank()) {
-                                Spacer(Modifier.height(8.dp)); Text(w.description, color = p.textMuted, fontSize = 11.sp, maxLines = 3)
-                            }
-                            if (productionNotes.isNotEmpty()) {
-                                Spacer(Modifier.height(8.dp))
-                                Text("NOTE PRODUZIONE", color = p.textMuted, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                productionNotes.take(2).forEach { note -> Text(note, color = p.text, fontSize = 11.sp, maxLines = 2) }
-                            }
-                            if (previewImages.isNotEmpty()) { Spacer(Modifier.height(8.dp)); ImageStrip(previewImages) }
-                            if (productionRows.isNotEmpty()) {
-                                Spacer(Modifier.height(8.dp))
-                                Text("${productionRows.size} produzioni collegate • carta ${meters(productionRows.sumOf { it.printedPaperMeters })} • tessuto ${meters(productionRows.sumOf { it.fabricUsedMeters })}", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                    if (cottonOrders.isNotEmpty()) item { SectionTitle("Cotone") }
-                    items(cottonOrders, key = { "cot${it.id}" }) { c ->
-                        SpectroCard(p = p, onClick = { onOpenCotton(c) }) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(c.title.ifBlank { c.orderCode.ifBlank { "Ordine cotone" } }, fontWeight = FontWeight.Black, color = p.text)
-                                    Text(c.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
-                                    Text("${meters(if (c.actualProducedMeters > 0) c.actualProducedMeters else c.orderedMeters)} • ${workStatusLabel(c.status)}", color = p.textMuted, fontSize = 11.sp)
-                                }
-                                IconButton(onClick = { ReportExporter.shareCottonOrder(context, c) }) { Icon(Icons.Rounded.PictureAsPdf, "PDF", tint = p.primary) }
-                                Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
-                            }
-                        }
-                    }
+                    item { OutlinedTextField(historyQuery, { historyQuery = it }, Modifier.fillMaxWidth(), label = { Text("Ordine, riferimento, tessuto, disegno o data") }, singleLine = true) }
+                    item { Text("${history.size} voci • dalla più recente", color = p.textMuted) }
+                    if(history.isEmpty()) item { Text("Nessuna lavorazione corrispondente.", color = p.textMuted) }
+                    items(history, key = { it.key }) { entry -> ClientHistoryCard(entry, vm, p, onOpenOrder, onOpenProduction, onOpenCotton) }
                 }
 
                 ClientProfileSection.ISSUES -> {

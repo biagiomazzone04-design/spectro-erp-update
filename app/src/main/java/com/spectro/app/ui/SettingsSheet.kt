@@ -115,7 +115,7 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                     Text("Backup e sicurezza dati", fontWeight = FontWeight.Black, fontSize = 17.sp)
                     Text("Backup portabile con database e foto allegate. Puoi ripristinarlo anche dopo una reinstallazione.", color = p.textMuted, fontSize = 12.sp)
                     Spacer(Modifier.height(14.dp))
-                    OutlinedButton(onClick = { BackupManager.shareBackup(context, vm.snapshot()) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Backup, null); Spacer(Modifier.width(8.dp)); Text("Esporta backup") }
+                    OutlinedButton(onClick = { runCatching { BackupManager.shareBackup(context, vm.snapshot()) }.onFailure { restoreError = it.message ?: "Esportazione non riuscita." } }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Backup, null); Spacer(Modifier.width(8.dp)); Text("Esporta backup") }
                     Spacer(Modifier.height(10.dp))
                     OutlinedButton(onClick = { restoreLauncher.launch(arrayOf("application/zip", "application/json", "application/octet-stream", "*/*")) }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Restore, null); Spacer(Modifier.width(8.dp)); Text("Ripristina da file") }
                 }

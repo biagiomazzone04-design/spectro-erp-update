@@ -444,4 +444,22 @@ data class SpectroSnapshot(
     val zenthaPayments: List<ZenthaPayment> = emptyList(),
     val economicWorks: List<EconomicWork> = emptyList(),
     val operationalTasks: List<OperationalTask> = emptyList()
+) {
+    val recordCount: Int
+        get() = clients.size + inventory.size + production.size + workOrders.size +
+            clientIssues.size + issueUpdates.size + payments.size + fabricRolls.size +
+            stockMovements.size + rollUsages.size + timelineEvents.size + cottonOrders.size +
+            zenthaProducts.size + zenthaOrders.size + zenthaItems.size +
+            zenthaExtraCosts.size + zenthaPayments.size + economicWorks.size +
+            operationalTasks.size + 1 // impostazioni aziendali
+}
+
+data class LocalSyncState(
+    val organizationId: String = "",
+    val deviceId: String = "",
+    val baseRevision: Long = 0,
+    val lastSeenRemoteRevision: Long = 0,
+    val lastSyncedAt: String = "",
+    val lastError: String = "",
+    val recoveryBackupPath: String = ""
 )

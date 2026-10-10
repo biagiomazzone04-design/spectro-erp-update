@@ -5,6 +5,7 @@ import android.database.sqlite.SQLiteDatabase
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -409,6 +410,12 @@ class SpectroRepository(context: Context) {
 
     fun resetAll() = db.clearAll()
     fun replaceAll(snapshot: SpectroSnapshot) = db.replaceAll(snapshot)
+    fun localSyncState(): LocalSyncState {
+        val current = db.getLocalSyncState()
+        if (current.deviceId.isNotBlank()) return current
+        return current.copy(deviceId = UUID.randomUUID().toString()).also(db::saveLocalSyncState)
+    }
+    fun saveLocalSyncState(state: LocalSyncState) = db.saveLocalSyncState(state)
 
     private fun validateInventory(item: InventoryItem) {
         require(item.ownerName.isNotBlank()) { "Inserisci il proprietario del tessuto." }

@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
+import com.spectro.app.auth.AppPermission
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.ReportExporter
 
@@ -33,15 +34,15 @@ fun GlobalSearchSheet(
 ) {
     var q by remember { mutableStateOf("") }
     val query = q.trim()
-    val productions = if (query.isBlank()) emptyList() else vm.state.production.filter { it.clientName.contains(query, true) || it.orderRef.contains(query, true) || it.designs.any { d -> d.contains(query, true) } || it.technicalNotes.contains(query, true) }.take(10)
-    val works = if (query.isBlank()) emptyList() else vm.state.workOrders.filter { it.client.contains(query, true) || it.title.contains(query, true) || it.orderCode.contains(query, true) || it.designCode.contains(query, true) || it.description.contains(query, true) }.take(10)
-    val clients = if (query.isBlank()) emptyList() else vm.state.clients.filter { c ->
-        c.name.contains(query, true) || vm.state.inventory.any { it.ownerName.equals(c.name, true) && (it.fabricName.contains(query, true) || it.ownerName.contains(query, true)) } || vm.state.workOrders.any { (it.clientId == c.id || it.client.equals(c.name, true)) && (it.title.contains(query, true) || it.orderCode.contains(query, true)) }
+    val productions = if (query.isBlank() || !vm.can(AppPermission.PRODUCTION_VIEW)) emptyList() else vm.state.production.filter { it.clientName.contains(query, true) || it.orderRef.contains(query, true) || it.designs.any { d -> d.contains(query, true) } || it.technicalNotes.contains(query, true) }.take(10)
+    val works = if (query.isBlank() || !vm.can(AppPermission.ORDERS_VIEW)) emptyList() else vm.state.workOrders.filter { it.client.contains(query, true) || it.title.contains(query, true) || it.orderCode.contains(query, true) || it.designCode.contains(query, true) || it.description.contains(query, true) }.take(10)
+    val clients = if (query.isBlank() || !vm.can(AppPermission.CLIENTS_VIEW)) emptyList() else vm.state.clients.filter { c ->
+        c.name.contains(query, true) || (vm.can(AppPermission.INVENTORY_VIEW) && vm.state.inventory.any { it.ownerName.equals(c.name, true) && (it.fabricName.contains(query, true) || it.ownerName.contains(query, true)) }) || (vm.can(AppPermission.ORDERS_VIEW) && vm.state.workOrders.any { (it.clientId == c.id || it.client.equals(c.name, true)) && (it.title.contains(query, true) || it.orderCode.contains(query, true)) })
     }.take(10)
-    val inventory = if (query.isBlank()) emptyList() else vm.state.inventory.filter { i -> i.ownerName.contains(query, true) || i.fabricName.contains(query, true) || i.lotCode.contains(query, true) || vm.rollsForInventory(i.id).any { it.rollCode.contains(query, true) } }.take(10)
-    val timeline = if (query.isBlank()) emptyList() else vm.state.timelineEvents.filter { it.clientName.contains(query, true) || it.orderRef.contains(query, true) || it.title.contains(query, true) || it.description.contains(query, true) }.take(10)
-    val cotton = if (query.isBlank()) emptyList() else vm.state.cottonOrders.filter { it.clientName.contains(query, true) || it.orderCode.contains(query, true) || it.title.contains(query, true) || it.fabricName.contains(query, true) || it.notes.contains(query, true) }.take(10)
-    val zentha = if (query.isBlank()) emptyList() else vm.state.zenthaOrders.filter { it.clientName.contains(query, true) || it.orderCode.contains(query, true) || it.notes.contains(query, true) }.take(10)
+    val inventory = if (query.isBlank() || !vm.can(AppPermission.INVENTORY_VIEW)) emptyList() else vm.state.inventory.filter { i -> i.ownerName.contains(query, true) || i.fabricName.contains(query, true) || i.lotCode.contains(query, true) || vm.rollsForInventory(i.id).any { it.rollCode.contains(query, true) } }.take(10)
+    val timeline = if (query.isBlank() || !vm.can(AppPermission.ISSUES_VIEW)) emptyList() else vm.state.timelineEvents.filter { it.clientName.contains(query, true) || it.orderRef.contains(query, true) || it.title.contains(query, true) || it.description.contains(query, true) }.take(10)
+    val cotton = if (query.isBlank() || !vm.can(AppPermission.COTTON_VIEW)) emptyList() else vm.state.cottonOrders.filter { it.clientName.contains(query, true) || it.orderCode.contains(query, true) || it.title.contains(query, true) || it.fabricName.contains(query, true) || it.notes.contains(query, true) }.take(10)
+    val zentha = if (query.isBlank() || !vm.can(AppPermission.ZENTHA_VIEW)) emptyList() else vm.state.zenthaOrders.filter { it.clientName.contains(query, true) || it.orderCode.contains(query, true) || it.notes.contains(query, true) }.take(10)
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -92,26 +93,26 @@ fun SearchClientProfileSheet(
     var section by remember(client.id) { mutableStateOf(initialSection) }
     var expandedFabric by remember(client.id) { mutableStateOf<String?>(null) }
 
-    val works = vm.state.workOrders
+    val works = if (vm.can(AppPermission.ORDERS_VIEW)) vm.state.workOrders
         .filter { it.clientId == client.id || it.client.equals(client.name, true) }
-        .sortedWith(compareByDescending<WorkOrder> { if (!it.status.isFinishedOrder()) 1 else 0 }.thenByDescending { it.receivedDate })
-    val productions = vm.state.production
+        .sortedWith(compareByDescending<WorkOrder> { if (!it.status.isFinishedOrder()) 1 else 0 }.thenByDescending { it.receivedDate }) else emptyList()
+    val productions = if (vm.can(AppPermission.PRODUCTION_VIEW)) vm.state.production
         .filter { it.type == RecordType.PRODUCTION && (it.clientId == client.id || it.clientName.equals(client.name, true)) }
-        .sortedWith(compareByDescending<ProductionRecord> { it.date }.thenByDescending { it.id })
-    val inventoryAll = vm.state.inventory
+        .sortedWith(compareByDescending<ProductionRecord> { it.date }.thenByDescending { it.id }) else emptyList()
+    val inventoryAll = if (vm.can(AppPermission.INVENTORY_VIEW)) vm.state.inventory
         .filter { it.ownerType == OwnerType.CLIENT && it.ownerName.equals(client.name, true) }
-        .sortedWith(compareBy<InventoryItem> { it.fabricName.lowercase() }.thenByDescending { it.createdDate })
+        .sortedWith(compareBy<InventoryItem> { it.fabricName.lowercase() }.thenByDescending { it.createdDate }) else emptyList()
     val inventoryActive = inventoryAll.filter { it.quantityMeters > .0001 }
     val inventoryHistory = inventoryAll.filter { it.quantityMeters <= .0001 }
-    val cottonOrders = vm.state.cottonOrders
+    val cottonOrders = if (vm.can(AppPermission.COTTON_VIEW)) vm.state.cottonOrders
         .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
-        .sortedByDescending { it.orderDate }
-    val economicWorks = vm.state.economicWorks
+        .sortedByDescending { it.orderDate } else emptyList()
+    val economicWorks = if (vm.can(AppPermission.FINANCE_VIEW)) vm.state.economicWorks
         .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
-        .sortedByDescending { it.date }
-    val criticalities = vm.state.timelineEvents
+        .sortedByDescending { it.date } else emptyList()
+    val criticalities = if (vm.can(AppPermission.ISSUES_VIEW)) vm.state.timelineEvents
         .filter { (it.clientId == client.id || it.clientName.equals(client.name, true)) && it.severity != TimelineSeverity.INFO }
-        .sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time })
+        .sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time }) else emptyList()
     val revenue = productions.sumOf { it.grossRevenue } + cottonOrders.sumOf { it.grossRevenue } + economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }
     val paperMeters = productions.sumOf { it.printedPaperMeters }
     val fabricMeters = productions.sumOf { it.fabricUsedMeters }
@@ -162,20 +163,20 @@ fun SearchClientProfileSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Metric("Criticità", criticalities.size.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.secondary else p.success, Modifier.weight(1f))
                                 Metric("Carta", meters(paperMeters), modifier = Modifier.weight(1f))
-                                Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
+                                if (vm.can(AppPermission.FINANCE_VIEW)) Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
                             }
                         }
                     }
-                    item {
+                    if (vm.can(AppPermission.INVENTORY_VIEW)) item {
                         ClientAreaCard("MAGAZZINO", "${inventoryActive.map { it.fabricName.uppercase() }.distinct().size} tessuti attivi • ${meters(totalStock)}", Icons.Rounded.Inventory2, p, p.primary) { section = ClientProfileSection.INVENTORY }
                     }
-                    item {
+                    if (vm.can(AppPermission.ORDERS_VIEW)) item {
                         ClientAreaCard("ORDINI", "${works.size} ordini • ${works.count { it.status.isArchivedOrder() }} evasi", Icons.Rounded.Assignment, p, p.primary) { section = ClientProfileSection.ORDERS }
                     }
-                    item {
+                    if (vm.can(AppPermission.ISSUES_VIEW)) item {
                         ClientAreaCard("CRITICITÀ", "${criticalities.size} registrate • ${criticalities.count { it.status == TimelineStatus.OPEN }} aperte", Icons.Rounded.ReportProblem, p, p.secondary) { section = ClientProfileSection.ISSUES }
                     }
-                    item {
+                    if (vm.can(AppPermission.FINANCE_VIEW)) item {
                         ClientAreaCard("STATISTICHE", "Produzione, metri, fatturato e storico cliente", Icons.Rounded.Analytics, p, p.primary) { section = ClientProfileSection.STATS }
                     }
                 }

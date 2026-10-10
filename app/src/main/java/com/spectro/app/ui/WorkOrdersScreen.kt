@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
+import com.spectro.app.auth.AppPermission
 import com.spectro.app.ui.theme.SpectroPalette
 import java.time.LocalDate
 
@@ -95,19 +96,19 @@ fun WorkOrdersScreen(
                 if (overdue) { Spacer(Modifier.height(8.dp)); Text("CONSEGNA SCADUTA", color = p.danger, fontWeight = FontWeight.Black, fontSize = 11.sp) }
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(onClick = { onEdit(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(5.dp)); Text("Modifica") }
-                    if (item.status !in finished) {
+                    if (vm.can(AppPermission.ORDERS_MANAGE)) OutlinedButton(onClick = { onEdit(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(5.dp)); Text("Modifica") }
+                    if (item.status !in finished && vm.can(AppPermission.PRODUCTION_MANAGE)) {
                         Button(onClick = { onStartProduction(item) }, modifier = Modifier.weight(1f)) {
                             Icon(if (productions.isEmpty()) Icons.Rounded.PlayArrow else Icons.Rounded.Add, null)
                             Spacer(Modifier.width(5.dp)); Text(if (productions.isEmpty()) "Produzione" else "+ Produz.")
                         }
-                        if (productions.isNotEmpty()) {
+                        if (productions.isNotEmpty() && vm.can(AppPermission.ORDERS_MANAGE)) {
                             IconButton(onClick = { vm.completeWorkOrder(item.id) }) { Icon(Icons.Rounded.TaskAlt, "Completa ed evadi", tint = p.success) }
                         }
                     } else {
                         OutlinedButton(onClick = { onOpen(item) }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Storico") }
                     }
-                    IconButton(onClick = { deleteTarget = item }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+                    if (vm.can(AppPermission.ORDERS_MANAGE)) IconButton(onClick = { deleteTarget = item }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
                 }
             }
         }

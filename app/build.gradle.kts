@@ -12,8 +12,20 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "3.0.0-beta6"
+        versionCode = 18
+        versionName = "3.1.0-beta1"
+
+        // Project URL and sb_publishable key are public client configuration.
+        // RLS protects the data; properties/environment can override these
+        // defaults whenever the publishable key is rotated.
+        val supabaseUrl = providers.gradleProperty("SPECTRO_SUPABASE_URL")
+            .orElse(providers.environmentVariable("SPECTRO_SUPABASE_URL"))
+            .getOrElse("https://fbfxtyowcxgagseqdlyz.supabase.co")
+        val supabaseAnonKey = providers.gradleProperty("SPECTRO_SUPABASE_ANON_KEY")
+            .orElse(providers.environmentVariable("SPECTRO_SUPABASE_ANON_KEY"))
+            .getOrElse("sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU")
+        buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     buildFeatures {

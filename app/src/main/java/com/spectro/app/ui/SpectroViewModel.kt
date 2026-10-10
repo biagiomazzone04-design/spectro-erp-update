@@ -6,7 +6,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.spectro.app.auth.AppPermission
+import com.spectro.app.auth.AuthState
+import com.spectro.app.auth.SupabaseAuthRepository
 import com.spectro.app.data.*
+import com.spectro.app.sync.CloudSyncRepository
+import com.spectro.app.sync.SyncInspection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,12 +54,94 @@ data class ZenthaTotals(
     val outstanding: Double
 )
 
+data class CloudSyncUiState(
+    val loading: Boolean = false,
+    val inspection: SyncInspection? = null,
+    val message: String? = null,
+    val error: String? = null
+)
+
 class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = SpectroRepository(app)
+    private val authRepository = SupabaseAuthRepository(app)
+    private val cloudSyncRepository = CloudSyncRepository(app, authRepository, repo)
     var state by mutableStateOf(SpectroUiState())
         private set
+    var authState by mutableStateOf<AuthState>(AuthState.Loading)
+        private set
+    var authMessage by mutableStateOf<String?>(null)
+        private set
+    var cloudSyncState by mutableStateOf(CloudSyncUiState())
+        private set
 
-    init { refresh() }
+    init {
+        viewModelScope.launch {
+            authState = authRepository.restore()
+            if (authState is AuthState.SignedIn) refresh()
+            else state = state.copy(loading = false)
+        }
+    }
+
+    fun signIn(email: String, password: String) {
+        viewModelScope.launch {
+            authState = AuthState.Loading
+            authMessage = null
+            try {
+                authState = authRepository.signIn(email, password)
+                if (authState is AuthState.SignedIn) refresh()
+            } catch (t: Throwable) {
+                authState = AuthState.SignedOut
+                authMessage = t.message ?: "Accesso non riuscito."
+            }
+        }
+    }
+
+    fun signUp(email: String, password: String, displayName: String) {
+        viewModelScope.launch {
+            authMessage = runCatching { authRepository.signUp(email, password, displayName) }
+                .getOrElse { it.message ?: "Registrazione non riuscita." }
+        }
+    }
+
+    fun retryAccess() {
+        viewModelScope.launch {
+            authState = AuthState.Loading
+            authState = runCatching { authRepository.retryAccess() }
+                .getOrElse { AuthState.AwaitingAccess("", it.message ?: "Impossibile verificare i permessi.") }
+            if (authState is AuthState.SignedIn) refresh()
+        }
+    }
+
+    fun bootstrapOrganization() {
+        viewModelScope.launch {
+            val email = (authState as? AuthState.AwaitingAccess)?.email.orEmpty()
+            authState = AuthState.Loading
+            authMessage = null
+            authState = runCatching { authRepository.bootstrapOrganization() }
+                .getOrElse {
+                    AuthState.AwaitingAccess(
+                        email,
+                        it.message ?: "Impossibile creare la prima azienda. Se esiste già, chiedi a un amministratore di assegnarti un ruolo."
+                    )
+                }
+            if (authState is AuthState.SignedIn) refresh("Azienda Spectro configurata. Sei l’amministratore iniziale.")
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            authRepository.signOut()
+            authState = AuthState.SignedOut
+            authMessage = null
+            cloudSyncState = CloudSyncUiState()
+            state = SpectroUiState(loading = false)
+        }
+    }
+
+    fun consumeAuthMessage() { authMessage = null }
+
+    fun can(permission: AppPermission): Boolean =
+        (authState as? AuthState.SignedIn)?.access?.can(permission) == true
 
     fun refresh(message: String? = null) {
         viewModelScope.launch {
@@ -65,7 +152,11 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun consumeMessage() { state = state.copy(message = null) }
 
-    private fun runWrite(success: String, block: () -> Unit) {
+    private fun runWrite(permission: AppPermission, success: String, block: () -> Unit) {
+        if (!can(permission)) {
+            state = state.copy(loading = false, message = "Il tuo ruolo non consente questa operazione.")
+            return
+        }
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { block() }
@@ -75,57 +166,114 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun saveClient(v: Client) = runWrite("Cliente salvato") { repo.saveClient(v) }
-    fun deleteClient(id: Long) = runWrite("Cliente eliminato") { repo.deleteClient(id) }
+    fun saveClient(v: Client) = runWrite(AppPermission.CLIENTS_MANAGE, "Cliente salvato") { repo.saveClient(v) }
+    fun deleteClient(id: Long) = runWrite(AppPermission.CLIENTS_MANAGE, "Cliente eliminato") { repo.deleteClient(id) }
 
-    fun saveInventory(v: InventoryItem) = runWrite("Magazzino aggiornato") { repo.saveInventory(v) }
-    fun createInventoryWithRolls(v: InventoryItem, rolls: List<FabricRollInput>) = runWrite("Carico tessuto salvato") { repo.createInventoryWithRolls(v, rolls) }
-    fun addRoll(inventoryId: Long, code: String, meters: Double, note: String = "", images: List<String> = emptyList()) = runWrite("Collo aggiunto") { repo.addRoll(inventoryId, code, meters, note, images) }
-    fun adjustRoll(rollId: Long, newMeters: Double, note: String) = runWrite("Giacenza collo rettificata") { repo.adjustRoll(rollId, newMeters, note) }
-    fun deleteInventory(id: Long) = runWrite("Tessuto eliminato") { repo.deleteInventory(id) }
+    fun saveInventory(v: InventoryItem) = runWrite(AppPermission.INVENTORY_MANAGE, "Magazzino aggiornato") { repo.saveInventory(v) }
+    fun createInventoryWithRolls(v: InventoryItem, rolls: List<FabricRollInput>) = runWrite(AppPermission.INVENTORY_MANAGE, "Carico tessuto salvato") { repo.createInventoryWithRolls(v, rolls) }
+    fun addRoll(inventoryId: Long, code: String, meters: Double, note: String = "", images: List<String> = emptyList()) = runWrite(AppPermission.INVENTORY_MANAGE, "Collo aggiunto") { repo.addRoll(inventoryId, code, meters, note, images) }
+    fun adjustRoll(rollId: Long, newMeters: Double, note: String) = runWrite(AppPermission.INVENTORY_MANAGE, "Giacenza collo rettificata") { repo.adjustRoll(rollId, newMeters, note) }
+    fun deleteInventory(id: Long) = runWrite(AppPermission.INVENTORY_MANAGE, "Tessuto eliminato") { repo.deleteInventory(id) }
 
-    fun saveProduction(v: ProductionRecord, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite("Registrazione produttiva salvata") { repo.saveProduction(v, rollAllocations) }
-    fun deleteProduction(id: Long) = runWrite("Registrazione eliminata e magazzino riallineato") { repo.deleteProduction(id) }
+    fun saveProduction(v: ProductionRecord, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite(AppPermission.PRODUCTION_MANAGE, "Registrazione produttiva salvata") { repo.saveProduction(v, rollAllocations) }
+    fun deleteProduction(id: Long) = runWrite(AppPermission.PRODUCTION_MANAGE, "Registrazione eliminata e magazzino riallineato") { repo.deleteProduction(id) }
 
-    fun saveWorkOrder(v: WorkOrder) = runWrite("Ordine salvato") { repo.saveWorkOrder(v) }
-    fun deleteWorkOrder(id: Long) = runWrite("Ordine eliminato") { repo.deleteWorkOrder(id) }
-    fun setWorkStatus(id: Long, status: WorkStatus, note: String = "") = runWrite("Stato ordine aggiornato") { repo.setWorkStatus(id, status, note) }
-    fun completeWorkOrder(id: Long, note: String = "") = runWrite("Ordine completato e archiviato nello storico") { repo.completeWorkOrder(id, note) }
-    fun reopenWorkOrder(id: Long, note: String = "") = runWrite("Ordine riaperto") { repo.reopenWorkOrder(id, note) }
-    fun cancelWorkOrder(id: Long, reason: String) = runWrite("Ordine annullato") { repo.cancelWorkOrder(id, reason) }
+    fun saveWorkOrder(v: WorkOrder) = runWrite(AppPermission.ORDERS_MANAGE, "Ordine salvato") { repo.saveWorkOrder(v) }
+    fun deleteWorkOrder(id: Long) = runWrite(AppPermission.ORDERS_MANAGE, "Ordine eliminato") { repo.deleteWorkOrder(id) }
+    fun setWorkStatus(id: Long, status: WorkStatus, note: String = "") = runWrite(AppPermission.ORDERS_MANAGE, "Stato ordine aggiornato") { repo.setWorkStatus(id, status, note) }
+    fun completeWorkOrder(id: Long, note: String = "") = runWrite(AppPermission.ORDERS_MANAGE, "Ordine completato e archiviato nello storico") { repo.completeWorkOrder(id, note) }
+    fun reopenWorkOrder(id: Long, note: String = "") = runWrite(AppPermission.ORDERS_MANAGE, "Ordine riaperto") { repo.reopenWorkOrder(id, note) }
+    fun cancelWorkOrder(id: Long, reason: String) = runWrite(AppPermission.ORDERS_MANAGE, "Ordine annullato") { repo.cancelWorkOrder(id, reason) }
 
-    fun saveTimelineEvent(v: OrderTimelineEvent) = runWrite("Aggiornamento aggiunto alla timeline") { repo.saveTimelineEvent(v) }
-    fun resolveTimelineEvent(id: Long, note: String) = runWrite("Criticità risolta") { repo.resolveTimelineEvent(id, note) }
-    fun deleteTimelineEvent(id: Long) = runWrite("Voce timeline eliminata") { repo.deleteTimelineEvent(id) }
+    fun saveTimelineEvent(v: OrderTimelineEvent) = runWrite(AppPermission.ISSUES_MANAGE, "Aggiornamento aggiunto alla timeline") { repo.saveTimelineEvent(v) }
+    fun resolveTimelineEvent(id: Long, note: String) = runWrite(AppPermission.ISSUES_MANAGE, "Criticità risolta") { repo.resolveTimelineEvent(id, note) }
+    fun deleteTimelineEvent(id: Long) = runWrite(AppPermission.ISSUES_MANAGE, "Voce timeline eliminata") { repo.deleteTimelineEvent(id) }
 
-    fun saveClientIssue(v: ClientIssue) = runWrite("Criticità legacy salvata") { repo.saveClientIssue(v) }
-    fun deleteClientIssue(id: Long) = runWrite("Criticità eliminata") { repo.deleteClientIssue(id) }
-    fun addIssueUpdate(v: IssueUpdate) = runWrite("Aggiornamento aggiunto alla cronologia") { repo.addIssueUpdate(v) }
-    fun deleteIssueUpdate(id: Long) = runWrite("Aggiornamento eliminato") { repo.deleteIssueUpdate(id) }
+    fun saveClientIssue(v: ClientIssue) = runWrite(AppPermission.ISSUES_MANAGE, "Criticità legacy salvata") { repo.saveClientIssue(v) }
+    fun deleteClientIssue(id: Long) = runWrite(AppPermission.ISSUES_MANAGE, "Criticità eliminata") { repo.deleteClientIssue(id) }
+    fun addIssueUpdate(v: IssueUpdate) = runWrite(AppPermission.ISSUES_MANAGE, "Aggiornamento aggiunto alla cronologia") { repo.addIssueUpdate(v) }
+    fun deleteIssueUpdate(id: Long) = runWrite(AppPermission.ISSUES_MANAGE, "Aggiornamento eliminato") { repo.deleteIssueUpdate(id) }
 
-    fun savePayment(v: PaymentDeadline) = runWrite("Scadenza salvata") { repo.savePayment(v) }
-    fun deletePayment(id: Long) = runWrite("Scadenza eliminata") { repo.deletePayment(id) }
-    fun togglePayment(id: Long) = runWrite("Stato pagamento aggiornato") { repo.togglePayment(id) }
+    fun savePayment(v: PaymentDeadline) = runWrite(AppPermission.FINANCE_MANAGE, "Scadenza salvata") { repo.savePayment(v) }
+    fun deletePayment(id: Long) = runWrite(AppPermission.FINANCE_MANAGE, "Scadenza eliminata") { repo.deletePayment(id) }
+    fun togglePayment(id: Long) = runWrite(AppPermission.FINANCE_MANAGE, "Stato pagamento aggiornato") { repo.togglePayment(id) }
 
-    fun saveCottonOrder(v: CottonOrder, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite("Ordine cotone salvato") { repo.saveCottonOrder(v, rollAllocations) }
-    fun deleteCottonOrder(id: Long) = runWrite("Ordine cotone eliminato") { repo.deleteCottonOrder(id) }
+    fun saveCottonOrder(v: CottonOrder, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite(AppPermission.COTTON_MANAGE, "Ordine cotone salvato") { repo.saveCottonOrder(v, rollAllocations) }
+    fun deleteCottonOrder(id: Long) = runWrite(AppPermission.COTTON_MANAGE, "Ordine cotone eliminato") { repo.deleteCottonOrder(id) }
 
-    fun saveZenthaProduct(v: ZenthaProduct) = runWrite("Prodotto Zentha salvato") { repo.saveZenthaProduct(v) }
-    fun deleteZenthaProduct(id: Long) = runWrite("Prodotto Zentha eliminato") { repo.deleteZenthaProduct(id) }
-    fun saveZenthaOrder(order: ZenthaOrder, items: List<ZenthaOrderItem>, extraCosts: List<ZenthaExtraCost>) = runWrite("Ordine Zentha salvato") { repo.saveZenthaOrder(order, items, extraCosts) }
-    fun deleteZenthaOrder(id: Long) = runWrite("Ordine Zentha eliminato") { repo.deleteZenthaOrder(id) }
-    fun addZenthaPayment(v: ZenthaPayment) = runWrite("Pagamento Zentha registrato") { repo.addZenthaPayment(v) }
-    fun deleteZenthaPayment(id: Long) = runWrite("Pagamento Zentha eliminato") { repo.deleteZenthaPayment(id) }
+    fun saveZenthaProduct(v: ZenthaProduct) = runWrite(AppPermission.ZENTHA_MANAGE, "Prodotto Zentha salvato") { repo.saveZenthaProduct(v) }
+    fun deleteZenthaProduct(id: Long) = runWrite(AppPermission.ZENTHA_MANAGE, "Prodotto Zentha eliminato") { repo.deleteZenthaProduct(id) }
+    fun saveZenthaOrder(order: ZenthaOrder, items: List<ZenthaOrderItem>, extraCosts: List<ZenthaExtraCost>) = runWrite(AppPermission.ZENTHA_MANAGE, "Ordine Zentha salvato") { repo.saveZenthaOrder(order, items, extraCosts) }
+    fun deleteZenthaOrder(id: Long) = runWrite(AppPermission.ZENTHA_MANAGE, "Ordine Zentha eliminato") { repo.deleteZenthaOrder(id) }
+    fun addZenthaPayment(v: ZenthaPayment) = runWrite(AppPermission.ZENTHA_MANAGE, "Pagamento Zentha registrato") { repo.addZenthaPayment(v) }
+    fun deleteZenthaPayment(id: Long) = runWrite(AppPermission.ZENTHA_MANAGE, "Pagamento Zentha eliminato") { repo.deleteZenthaPayment(id) }
 
-    fun saveEconomicWork(v: EconomicWork) = runWrite("Lavoro economico salvato") { repo.saveEconomicWork(v) }
-    fun deleteEconomicWork(id: Long) = runWrite("Lavoro economico eliminato") { repo.deleteEconomicWork(id) }
+    fun saveEconomicWork(v: EconomicWork) = runWrite(AppPermission.FINANCE_MANAGE, "Lavoro economico salvato") { repo.saveEconomicWork(v) }
+    fun deleteEconomicWork(id: Long) = runWrite(AppPermission.FINANCE_MANAGE, "Lavoro economico eliminato") { repo.deleteEconomicWork(id) }
 
-    fun saveOperationalTask(v: OperationalTask) = runWrite("Attività salvata") { repo.saveOperationalTask(v) }
-    fun deleteOperationalTask(id: Long) = runWrite("Attività eliminata") { repo.deleteOperationalTask(id) }
+    fun saveOperationalTask(v: OperationalTask) = runWrite(AppPermission.TASKS_MANAGE, "Attività salvata") { repo.saveOperationalTask(v) }
+    fun deleteOperationalTask(id: Long) = runWrite(AppPermission.TASKS_MANAGE, "Attività eliminata") { repo.deleteOperationalTask(id) }
 
-    fun saveSettings(v: AppSettings) = runWrite("Impostazioni salvate") { repo.saveSettings(v) }
-    fun resetAll() = runWrite("Archivio azzerato") { repo.resetAll() }
-    fun restore(s: SpectroSnapshot) = runWrite("Backup ripristinato e migrato") { repo.replaceAll(s) }
+    fun saveSettings(v: AppSettings) = runWrite(AppPermission.SETTINGS_MANAGE, "Impostazioni salvate") { repo.saveSettings(v) }
+    fun resetAll() = runWrite(AppPermission.BACKUP_MANAGE, "Archivio azzerato") { repo.resetAll() }
+    fun restore(s: SpectroSnapshot) = runWrite(AppPermission.BACKUP_MANAGE, "Backup ripristinato e migrato") { repo.replaceAll(s) }
+
+    fun inspectCloudWorkspace() = runCloudSync { access ->
+        val inspection = cloudSyncRepository.inspect(access)
+        CloudSyncUiState(
+            inspection = inspection,
+            message = if (inspection.remote.exists) "Workspace cloud verificato." else "Il cloud è vuoto: questa postazione può pubblicare la prima revisione."
+        )
+    }
+
+    fun publishCloudWorkspace() = runCloudSync { access ->
+        val result = cloudSyncRepository.publish(access)
+        CloudSyncUiState(
+            inspection = result.inspection,
+            message = "Revisione ${result.inspection.remote.revision} pubblicata. Backup locale di recupero: ${result.recoveryBackup.name}"
+        )
+    }
+
+    fun downloadCloudWorkspace() = runCloudSync(refreshData = true) { access ->
+        val result = cloudSyncRepository.download(access)
+        CloudSyncUiState(
+            inspection = result.inspection,
+            message = "Revisione ${result.inspection.remote.revision} applicata. La copia precedente è in ${result.recoveryBackup.name}."
+        )
+    }
+
+    fun clearCloudSyncMessage() {
+        cloudSyncState = cloudSyncState.copy(message = null, error = null)
+    }
+
+    private fun runCloudSync(
+        refreshData: Boolean = false,
+        block: suspend (com.spectro.app.auth.UserAccess) -> CloudSyncUiState
+    ) {
+        if (!can(AppPermission.SYNC_USE)) {
+            cloudSyncState = CloudSyncUiState(error = "Il tuo ruolo non consente la sincronizzazione cloud.")
+            return
+        }
+        val access = (authState as? AuthState.SignedIn)?.access ?: return
+        viewModelScope.launch {
+            cloudSyncState = cloudSyncState.copy(loading = true, message = null, error = null)
+            try {
+                val result = withContext(Dispatchers.IO) { block(access) }
+                if (refreshData) {
+                    val refreshed = withContext(Dispatchers.IO) { repo.snapshot() }
+                    state = refreshed.toUiState("Workspace cloud scaricato in sicurezza")
+                }
+                cloudSyncState = result
+            } catch (t: Throwable) {
+                cloudSyncState = cloudSyncState.copy(
+                    loading = false,
+                    error = t.message ?: "Sincronizzazione cloud non riuscita."
+                )
+            } finally {
+                if (cloudSyncState.loading) cloudSyncState = cloudSyncState.copy(loading = false)
+            }
+        }
+    }
 
     fun snapshot() = SpectroSnapshot(
         clients = state.clients, inventory = state.inventory, production = state.production, workOrders = state.workOrders,

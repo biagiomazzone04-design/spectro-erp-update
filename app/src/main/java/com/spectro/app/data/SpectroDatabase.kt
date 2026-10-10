@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 5) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 6) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -120,6 +120,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         createIssueTables(db)
         createV3Tables(db)
         createV5Tables(db)
+        createV6Tables(db)
         db.execSQL("""
             CREATE TABLE settings(
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -176,6 +177,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         if (oldVersion < 5) {
             createV5Tables(db)
         }
+        if (oldVersion < 6) {
+            createV6Tables(db)
+        }
         createIndexes(db)
     }
 
@@ -224,6 +228,28 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 method TEXT NOT NULL DEFAULT 'UNSPECIFIED',
                 notes TEXT NOT NULL DEFAULT ''
             )
+        """.trimIndent())
+    }
+
+    private fun createV6Tables(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS cloud_sync_state(
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                organization_id TEXT NOT NULL DEFAULT '',
+                device_id TEXT NOT NULL DEFAULT '',
+                base_revision INTEGER NOT NULL DEFAULT 0,
+                last_seen_remote_revision INTEGER NOT NULL DEFAULT 0,
+                last_synced_at TEXT NOT NULL DEFAULT '',
+                last_error TEXT NOT NULL DEFAULT '',
+                recovery_backup_path TEXT NOT NULL DEFAULT ''
+            )
+        """.trimIndent())
+        db.execSQL("""
+            INSERT OR IGNORE INTO cloud_sync_state(
+                id, organization_id, device_id, base_revision,
+                last_seen_remote_revision, last_synced_at, last_error,
+                recovery_backup_path
+            ) VALUES (1, '', '', 0, 0, '', '', '')
         """.trimIndent())
     }
 
@@ -568,6 +594,33 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         AppSettings(c.double("daily_fixed_cost"), c.double("plotter_x1_cost"), c.double("plotter_x2_cost"), c.double("protection_cost"), c.string("theme_key"), c.optionalDouble("zentha_split_a", 50.0), c.optionalDouble("zentha_split_b", 50.0))
     }
     fun saveSettings(settings: AppSettings, db: SQLiteDatabase = writableDatabase) { db.update("settings", ContentValues().apply { put("daily_fixed_cost", settings.dailyFixedCost); put("plotter_x1_cost", settings.plotterX1Cost); put("plotter_x2_cost", settings.plotterX2Cost); put("protection_cost", settings.protectionPaperCost); put("theme_key", settings.themeKey); put("zentha_split_a", settings.zenthaSplitA); put("zentha_split_b", settings.zenthaSplitB) }, "id=1", null) }
+
+    fun getLocalSyncState(db: SQLiteDatabase = readableDatabase): LocalSyncState =
+        db.query("cloud_sync_state", null, "id=1", null, null, null, null).use { c ->
+            if (!c.moveToFirst()) return LocalSyncState()
+            LocalSyncState(
+                organizationId = c.string("organization_id"),
+                deviceId = c.string("device_id"),
+                baseRevision = c.long("base_revision"),
+                lastSeenRemoteRevision = c.long("last_seen_remote_revision"),
+                lastSyncedAt = c.string("last_synced_at"),
+                lastError = c.string("last_error"),
+                recoveryBackupPath = c.string("recovery_backup_path")
+            )
+        }
+
+    fun saveLocalSyncState(state: LocalSyncState, db: SQLiteDatabase = writableDatabase) {
+        db.insertWithOnConflict("cloud_sync_state", null, ContentValues().apply {
+            put("id", 1)
+            put("organization_id", state.organizationId)
+            put("device_id", state.deviceId)
+            put("base_revision", state.baseRevision)
+            put("last_seen_remote_revision", state.lastSeenRemoteRevision)
+            put("last_synced_at", state.lastSyncedAt)
+            put("last_error", state.lastError)
+            put("recovery_backup_path", state.recoveryBackupPath)
+        }, SQLiteDatabase.CONFLICT_REPLACE)
+    }
 
     fun clearAll(db: SQLiteDatabase = writableDatabase) {
         listOf("operational_tasks", "economic_works", "zentha_payments", "zentha_extra_costs", "zentha_order_items", "zentha_orders", "zentha_products", "cotton_orders", "order_timeline", "roll_usages", "stock_movements", "fabric_rolls", "issue_updates", "client_issues", "payments", "production", "work_orders", "inventory", "clients").forEach { db.delete(it, null, null) }

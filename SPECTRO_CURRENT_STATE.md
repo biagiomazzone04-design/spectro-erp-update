@@ -5,7 +5,7 @@ Base: **Spectro ERP 3.0.0 Beta 6**.
 - versionCode 17
 - versionName `3.0.0-beta6`
 - applicationId `com.spectro.app`
-- SQLite schema 5
+- SQLite schema 6
 - backup formato v7
 - branch di sviluppo usato: `spectro-3.0-beta`
 
@@ -16,7 +16,7 @@ Clienti, WorkOrder, produzioni multiple, timeline, criticità, magazzino, colli,
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 
 ## Stato build
-Non c'è una conferma definitiva nella conversazione che lo snapshot Beta 6 sia già stato compilato/installato con successo. Prima di Beta 7 eseguire build completa e correggere eventuali regressioni.
+Lo snapshot Beta 6 con autenticazione, permessi e workspace cloud è stato compilato con `assembleDebug` e verificato con i test unitari. L’installazione su un dispositivo reale resta una verifica operativa da eseguire prima del rilascio.
 
 ## Bug aperto prioritario
 Nel profilo cliente (esempio Goccia) lo storico mostra solo alcuni ordini, mentre esistono altre lavorazioni passate.

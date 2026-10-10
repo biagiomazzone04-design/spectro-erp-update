@@ -1,0 +1,60 @@
+# Spectro ERP multiutente — avvio operativo
+
+Questa versione introduce la base cloud comune per Android, Windows e Mac.
+
+## Cosa è già pronto
+
+- login email/password Supabase nell’app Android;
+- sessione Android cifrata con Android Keystore;
+- ruoli e permessi caricati dal backend;
+- moduli nascosti quando l’utente non è autorizzato;
+- blocco centralizzato delle scritture non autorizzate;
+- portale web/PWA installabile da browser su Windows e Mac;
+- PostgreSQL multi-tenant con RLS, ruoli, override per utente, soft-delete, audit e storage privato;
+- workspace Android completo versionato, con allegati, checksum SHA-256 e controllo conflitti;
+- mirror web dei record privo di percorsi file locali e filtrato modulo per modulo da RLS;
+- backup locale di recupero automatico prima di ogni pubblicazione o download;
+- ruoli iniziali Admin, Produzione, Commerciale, Zentha e Sola lettura.
+
+## Attivazione Supabase
+
+1. Eseguire, nell’ordine, `supabase/migrations/202610100001_multi_user_foundation.sql` e `supabase/migrations/202610100002_workspace_sync.sql` nel SQL Editor del progetto Supabase.
+2. In Authentication abilitare il provider Email.
+3. La chiave pubblica `sb_publishable_` del progetto è già configurata nei client. Se viene ruotata, sostituirla tramite secret GitHub `SPECTRO_SUPABASE_ANON_KEY` e variabile web `VITE_SUPABASE_ANON_KEY`.
+4. Creare il primo account.
+5. Dall’app Android o dal portale web, nella schermata “Ruolo in attesa”, scegliere **Configura prima azienda**. La funzione funziona solo se non esiste ancora alcuna organizzazione e assegna il ruolo Admin al primo utente.
+
+Non usare mai la chiave `service_role` nei client.
+
+## Avvio portale Windows/Mac
+
+```bash
+cd web
+cp .env.example .env.local
+# La chiave publishable è già presente; aggiornarla solo in caso di rotazione.
+npm install
+npm run dev
+```
+
+Per la pubblicazione su Cloudflare Pages:
+
+- directory progetto: `web`;
+- comando build: `npm run build`;
+- directory output: `dist`;
+- variabili: `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+
+Il portale è una PWA: da Edge/Chrome su Windows o Chrome/Safari su macOS può essere aggiunto al Dock/Desktop.
+
+## Prima migrazione e uso quotidiano
+
+1. Accedere su Android con l’utente Admin.
+2. Aprire **Account e impostazioni → Workspace cloud → Verifica stato cloud**.
+3. Se il cloud è vuoto, scegliere **Pubblica**. L’app crea prima un backup locale, comprime database e allegati, calcola SHA-256 e pubblica la revisione 1.
+4. Su una seconda postazione Android scegliere **Verifica** e poi **Scarica**. Anche in questo caso la copia locale precedente viene salvata prima della sostituzione.
+5. Dopo le modifiche, verificare lo stato e pubblicare una nuova revisione. Se un’altra postazione ha già pubblicato, Spectro blocca l’operazione e richiede di scaricare la revisione più recente.
+
+La pubblicazione aggiorna nello stesso commit anche `erp_records`: il portale Windows/Mac mostra quindi soltanto i moduli autorizzati al singolo utente. Foto e archivio completo restano nel bucket privato e non sono scaricabili dai ruoli senza `sync.use`.
+
+## Modello di conflitto intenzionalmente conservativo
+
+La sincronizzazione attuale è a revisione dell’intero workspace, non una fusione automatica record-per-record. Due utenti possono consultare il gestionale e usare il portale con permessi diversi, ma prima di pubblicare da Android devono partire dalla stessa revisione cloud. Questa scelta evita duplicazioni degli ID locali, perdite di allegati e sovrascritture silenziose. La futura sincronizzazione incrementale userà gli UUID già presenti nell’envelope `erp_records`.

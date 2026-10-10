@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
+import com.spectro.app.auth.AppPermission
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.AttachmentStore
 import com.spectro.app.util.DraftStore
@@ -58,8 +59,10 @@ fun OrderTimelineScreen(
                     Text("${current.client} • ${workStatusLabel(current.status)}", color = p.textMuted)
                     if (current.orderCode.isNotBlank()) Text(current.orderCode, color = p.textMuted, fontSize = 10.sp)
                 }
-                IconButton(onClick = { onEdit(current) }) { Icon(Icons.Rounded.Edit, "Modifica", tint = p.primary) }
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+                if (vm.can(AppPermission.ORDERS_MANAGE)) {
+                    IconButton(onClick = { onEdit(current) }) { Icon(Icons.Rounded.Edit, "Modifica", tint = p.primary) }
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+                }
             }
         }
 
@@ -97,13 +100,15 @@ fun OrderTimelineScreen(
                     Spacer(Modifier.height(6.dp))
                     ImageStrip(current.images)
                 }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { ReportExporter.shareWorkOrder(context, current) }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(5.dp)); Text("Ordine")
-                    }
-                    OutlinedButton(onClick = { ReportExporter.shareOrderTimeline(context, current, timeline, productions) }, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Dossier")
+                if (vm.can(AppPermission.REPORTS_EXPORT)) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { ReportExporter.shareWorkOrder(context, current) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(5.dp)); Text("Ordine")
+                        }
+                        OutlinedButton(onClick = { ReportExporter.shareOrderTimeline(context, current, timeline, productions) }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Rounded.History, null); Spacer(Modifier.width(5.dp)); Text("Dossier")
+                        }
                     }
                 }
 
@@ -120,12 +125,12 @@ fun OrderTimelineScreen(
                                 }
                             }
                             Spacer(Modifier.height(8.dp))
-                            OutlinedButton(onClick = { onReopen(current) }, Modifier.fillMaxWidth()) {
+                            if (vm.can(AppPermission.ORDERS_MANAGE)) OutlinedButton(onClick = { onReopen(current) }, Modifier.fillMaxWidth()) {
                                 Icon(Icons.Rounded.RestartAlt, null); Spacer(Modifier.width(6.dp)); Text("Riapri ordine")
                             }
                         }
                     }
-                    productions.isEmpty() -> {
+                    productions.isEmpty() && vm.can(AppPermission.PRODUCTION_MANAGE) -> {
                         Spacer(Modifier.height(10.dp))
                         Button(onClick = { onStartProduction(current) }, Modifier.fillMaxWidth()) {
                             Icon(Icons.Rounded.PlayArrow, null); Spacer(Modifier.width(6.dp)); Text("Crea prima produzione")
@@ -134,12 +139,11 @@ fun OrderTimelineScreen(
                     else -> {
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onStartProduction(current) }, Modifier.weight(1f)) {
+                            if (vm.can(AppPermission.PRODUCTION_MANAGE)) OutlinedButton(onClick = { onStartProduction(current) }, Modifier.weight(1f)) {
                                 Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(5.dp)); Text("Produzione")
                             }
-                            Button(
-                                onClick = { onComplete(current) },
-                                modifier = Modifier.weight(1f),
+                            if (vm.can(AppPermission.ORDERS_MANAGE)) Button(
+                                onClick = { onComplete(current) }, modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.buttonColors(containerColor = p.success, contentColor = androidx.compose.ui.graphics.Color.Black)
                             ) {
                                 Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(5.dp)); Text("Evadi")
@@ -165,7 +169,7 @@ fun OrderTimelineScreen(
                         Metric("Carta", meters(totalPaper), modifier = Modifier.weight(1f))
                         Metric("Tessuto", meters(totalFabric), modifier = Modifier.weight(1f))
                     }
-                    if (totalRevenue > 0) {
+                    if (totalRevenue > 0 && vm.can(AppPermission.FINANCE_VIEW)) {
                         Spacer(Modifier.height(8.dp)); Metric("Fatturato produzioni", euro(totalRevenue), p.success)
                     }
                 }
@@ -187,7 +191,7 @@ fun OrderTimelineScreen(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Metric("Carta", meters(prod.printedPaperMeters), modifier = Modifier.weight(1f))
                         Metric("Tessuto", meters(prod.fabricUsedMeters), modifier = Modifier.weight(1f))
-                        Metric("Utile", euro(prod.grossProfit), if (prod.grossProfit >= 0) p.success else p.danger, Modifier.weight(1f))
+                        if (vm.can(AppPermission.FINANCE_VIEW)) Metric("Utile", euro(prod.grossProfit), if (prod.grossProfit >= 0) p.success else p.danger, Modifier.weight(1f))
                     }
                     if (prod.technicalNotes.isNotBlank()) {
                         Spacer(Modifier.height(10.dp))
@@ -204,7 +208,7 @@ fun OrderTimelineScreen(
         item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Timeline ordine", fontSize = 20.sp, fontWeight = FontWeight.Black, color = p.text, modifier = Modifier.weight(1f))
-                FilledTonalButton(onClick = { addOpen = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(5.dp)); Text("Aggiorna") }
+                if (vm.can(AppPermission.ISSUES_MANAGE)) FilledTonalButton(onClick = { addOpen = true }) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(5.dp)); Text("Aggiorna") }
             }
         }
         if (timeline.isEmpty()) item { EmptyState(Icons.Rounded.History, "Timeline vuota", "Aggiungi note, criticità, approvazioni o ritardi") }
@@ -251,7 +255,7 @@ private fun TimelineCard(vm: SpectroViewModel, p: SpectroPalette, event: OrderTi
         Text("Responsabilità: ${timelineResponsibilityLabel(event.responsibility)} • Gravità: ${timelineSeverityLabel(event.severity)}", color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         if (event.oldDueDate.isNotBlank() || event.newDueDate.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Consegna: ${event.oldDueDate.ifBlank { "-" }} → ${event.newDueDate.ifBlank { "-" }}", color = p.text, fontSize = 12.sp, fontWeight = FontWeight.Bold) }
         if (event.images.isNotEmpty()) { Spacer(Modifier.height(10.dp)); ImageStrip(event.images) }
-        if (event.status == TimelineStatus.OPEN && event.severity != TimelineSeverity.INFO) {
+        if (event.status == TimelineStatus.OPEN && event.severity != TimelineSeverity.INFO && vm.can(AppPermission.ISSUES_MANAGE)) {
             Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = { vm.resolveTimelineEvent(event.id, "Risolta da timeline ordine") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(6.dp)); Text("Segna come risolta") }
         }
         if (event.status == TimelineStatus.RESOLVED && event.resolutionNote.isNotBlank()) { Spacer(Modifier.height(6.dp)); Text("Risolta: ${localizeWorkStatusTokens(event.resolutionNote)}", color = p.success, fontSize = 12.sp) }

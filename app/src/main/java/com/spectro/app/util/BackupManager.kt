@@ -18,7 +18,25 @@ object BackupManager {
 
     fun shareBackup(context: Context, snapshot: SpectroSnapshot) {
         val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-        val file = File(dir, "Spectro_Backup_${System.currentTimeMillis()}.spectrobackup")
+        val file = writePortableBackup(context, snapshot, File(dir, "Spectro_Backup_${System.currentTimeMillis()}.spectrobackup"))
+
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "application/zip"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Salva o condividi backup Spectro"))
+    }
+
+    fun createRecoveryBackup(context: Context, snapshot: SpectroSnapshot, reason: String): File {
+        val safeReason = reason.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val dir = File(context.filesDir, "recovery").apply { mkdirs() }
+        return writePortableBackup(context, snapshot, File(dir, "Spectro_Recovery_${safeReason}_${System.currentTimeMillis()}.spectrobackup"))
+    }
+
+    fun createCloudTransferBackup(context: Context, snapshot: SpectroSnapshot): File {
+        val dir = File(context.cacheDir, "cloud-sync").apply { mkdirs() }
+        return writePortableBackup(context, snapshot, File(dir, "workspace_${System.currentTimeMillis()}.spectrobackup"))
+    }
+
+    fun writePortableBackup(context: Context, snapshot: SpectroSnapshot, file: File): File {
+        file.parentFile?.mkdirs()
         val replacements = linkedMapOf<String, String>()
         val allAttachments = buildList {
             snapshot.inventory.forEach { addAll(it.images) }
@@ -47,18 +65,64 @@ object BackupManager {
             val portable = snapshot.mapAttachments { replacements[it] ?: it }
             zip.putNextEntry(ZipEntry(DATA_ENTRY)); zip.write(portable.toJson().toString(2).toByteArray(Charsets.UTF_8)); zip.closeEntry()
         }
-
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "application/zip"; putExtra(Intent.EXTRA_STREAM, uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION) }, "Salva o condividi backup Spectro"))
+        return file
     }
 
     fun readBackup(context: Context, uri: android.net.Uri): SpectroSnapshot {
         val temp = File(context.cacheDir, "spectro_restore_${System.currentTimeMillis()}.tmp")
         context.contentResolver.openInputStream(uri).use { input -> requireNotNull(input) { "Impossibile leggere il backup." }; temp.outputStream().use { input.copyTo(it) } }
-        return try {
-            val head = temp.inputStream().buffered().use { it.read() to it.read() }
-            if (head.first == 'P'.code && head.second == 'K'.code) readPortableZip(context, temp) else JSONObject(temp.readText()).toSnapshot()
-        } finally { temp.delete() }
+        return try { readBackupFile(context, temp) } finally { temp.delete() }
+    }
+
+    fun readBackupFile(context: Context, file: File): SpectroSnapshot {
+        val head = file.inputStream().buffered().use { it.read() to it.read() }
+        return if (head.first == 'P'.code && head.second == 'K'.code) readPortableZip(context, file)
+        else JSONObject(file.readText()).toSnapshot()
+    }
+
+    /**
+     * Builds the permission-filterable web mirror. Device file paths are never
+     * copied to database rows; the complete attachments remain in the private
+     * versioned workspace archive.
+     */
+    fun toCloudRecords(snapshot: SpectroSnapshot): JSONArray = JSONArray().apply {
+        fun add(module: String, entityType: String, legacyId: Long, raw: JSONObject) {
+            val attachmentKeys = listOf("images", "evidenceImages", "attachments")
+            var attachmentCount = 0
+            attachmentKeys.forEach { key ->
+                attachmentCount += raw.optJSONArray(key)?.length() ?: 0
+                raw.remove(key)
+            }
+            if (raw.optString("imagePath").isNotBlank()) attachmentCount += 1
+            raw.remove("imagePath")
+            if (attachmentCount > 0) raw.put("attachmentCount", attachmentCount)
+            put(JSONObject()
+                .put("module", module)
+                .put("entity_type", entityType)
+                .put("legacy_id", legacyId)
+                .put("payload", raw))
+        }
+
+        snapshot.clients.forEach { add("clients", "client", it.id, it.toJson()) }
+        snapshot.inventory.forEach { add("inventory", "inventory_item", it.id, it.toJson()) }
+        snapshot.fabricRolls.forEach { add("inventory", "fabric_roll", it.id, it.toJson()) }
+        snapshot.stockMovements.forEach { add("inventory", "stock_movement", it.id, it.toJson()) }
+        snapshot.rollUsages.forEach { add("inventory", "roll_usage", it.id, it.toJson()) }
+        snapshot.production.forEach { add("production", "production_record", it.id, it.toJson()) }
+        snapshot.workOrders.forEach { add("orders", "work_order", it.id, it.toJson()) }
+        snapshot.timelineEvents.forEach { add("issues", "order_timeline_event", it.id, it.toJson()) }
+        snapshot.clientIssues.forEach { add("issues", "client_issue", it.id, it.toJson()) }
+        snapshot.issueUpdates.forEach { add("issues", "issue_update", it.id, it.toJson()) }
+        snapshot.payments.forEach { add("finance", "payment_deadline", it.id, it.toJson()) }
+        snapshot.economicWorks.forEach { add("finance", "economic_work", it.id, it.toJson()) }
+        snapshot.cottonOrders.forEach { add("cotton", "cotton_order", it.id, it.toJson()) }
+        snapshot.zenthaProducts.forEach { add("zentha", "zentha_product", it.id, it.toJson()) }
+        snapshot.zenthaOrders.forEach { add("zentha", "zentha_order", it.id, it.toJson()) }
+        snapshot.zenthaItems.forEach { add("zentha", "zentha_order_item", it.id, it.toJson()) }
+        snapshot.zenthaExtraCosts.forEach { add("zentha", "zentha_extra_cost", it.id, it.toJson()) }
+        snapshot.zenthaPayments.forEach { add("zentha", "zentha_payment", it.id, it.toJson()) }
+        snapshot.operationalTasks.forEach { add("tasks", "operational_task", it.id, it.toJson()) }
+        add("settings", "app_settings", 1, snapshot.settings.toJson())
     }
 
     private fun readPortableZip(context: Context, file: File): SpectroSnapshot {

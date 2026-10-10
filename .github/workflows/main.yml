@@ -8,6 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SPECTRO_SUPABASE_URL: https://fbfxtyowcxgagseqdlyz.supabase.co
+      SPECTRO_SUPABASE_ANON_KEY: ${{ secrets.SPECTRO_SUPABASE_ANON_KEY || 'sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU' }}
     permissions:
       contents: read
 
@@ -167,7 +170,7 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v3.0.0-BETA6-RELEASE
+          name: SpectroERP-v3.1.0-BETA1-RELEASE
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

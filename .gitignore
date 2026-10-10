@@ -1,5 +1,7 @@
 *.iml
 .gradle/
+.gradle-local/
+.android-home/
 /local.properties
 /.idea/
 .DS_Store
@@ -8,7 +10,13 @@
 .externalNativeBuild/
 .cxx/
 app/build/
+web/node_modules/
+web/dist/
+.npm-cache/
+.env
+.env.local
 
 # Signing key - never commit
 *.jks
 *.keystore
+*.p12

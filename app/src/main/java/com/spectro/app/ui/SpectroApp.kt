@@ -26,6 +26,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.R
+import com.spectro.app.auth.AppPermission
+import com.spectro.app.auth.AuthState
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.ui.theme.SpectroTheme
@@ -39,7 +41,12 @@ enum class AppTab { DASHBOARD, WORK, CREATE, INVENTORY, MORE, CLIENTS, ISSUES, C
 fun SpectroApp(vm: SpectroViewModel) {
     val state = vm.state
     val palette = paletteFor(state.settings.themeKey)
-    var tab by remember { mutableStateOf(AppTab.DASHBOARD) }
+    val signedIn = vm.authState as? AuthState.SignedIn
+    if (signedIn == null) {
+        SpectroTheme(state.settings.themeKey) { AuthScreen(vm, vm.authState, palette) }
+        return
+    }
+    var tab by remember(signedIn.access.permissions) { mutableStateOf(firstAvailableTab(vm)) }
     val navHistory = remember { mutableStateListOf<AppTab>() }
     var settingsOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
@@ -60,12 +67,12 @@ fun SpectroApp(vm: SpectroViewModel) {
     LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() } }
 
     fun navigate(next: AppTab, rememberCurrent: Boolean = true) {
-        if (next == tab) return
+        if (next == tab || !isTabAllowed(next, vm)) return
         if (rememberCurrent) navHistory.add(tab)
         tab = next
     }
     fun goBack() {
-        tab = if (navHistory.isNotEmpty()) navHistory.removeAt(navHistory.lastIndex) else AppTab.DASHBOARD
+        tab = if (navHistory.isNotEmpty()) navHistory.removeAt(navHistory.lastIndex) else firstAvailableTab(vm)
     }
 
     fun startProduction(order: WorkOrder) {
@@ -148,40 +155,44 @@ fun SpectroApp(vm: SpectroViewModel) {
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            FilledIconButton(
-                                onClick = { searchOpen = true },
-                                modifier = Modifier.size(42.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
-                            ) { Icon(Icons.Rounded.Search, "Cerca", tint = palette.text) }
-                            Spacer(Modifier.width(8.dp))
-                            BadgedBox(
-                                badge = {
-                                    if (openTaskCount > 0) {
-                                        Badge(containerColor = if (urgentTaskCount > 0) palette.secondary else palette.primary, contentColor = Color.Black) {
-                                            Text(openTaskCount.coerceAtMost(99).toString(), fontWeight = FontWeight.Black)
-                                        }
-                                    }
-                                }
-                            ) {
+                            if (canSearch(vm)) {
                                 FilledIconButton(
-                                    onClick = { navigate(AppTab.ACTIVITIES) },
+                                    onClick = { searchOpen = true },
                                     modifier = Modifier.size(42.dp),
                                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
-                                ) {
-                                    Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.secondary else palette.text)
-                                }
+                                ) { Icon(Icons.Rounded.Search, "Cerca", tint = palette.text) }
+                                Spacer(Modifier.width(8.dp))
                             }
-                            Spacer(Modifier.width(8.dp))
+                            if (vm.can(AppPermission.TASKS_VIEW)) {
+                                BadgedBox(
+                                    badge = {
+                                        if (openTaskCount > 0) {
+                                            Badge(containerColor = if (urgentTaskCount > 0) palette.secondary else palette.primary, contentColor = Color.Black) {
+                                                Text(openTaskCount.coerceAtMost(99).toString(), fontWeight = FontWeight.Black)
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    FilledIconButton(
+                                        onClick = { navigate(AppTab.ACTIVITIES) },
+                                        modifier = Modifier.size(42.dp),
+                                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                                    ) {
+                                        Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.secondary else palette.text)
+                                    }
+                                }
+                                Spacer(Modifier.width(8.dp))
+                            }
                             FilledIconButton(
                                 onClick = { settingsOpen = true },
                                 modifier = Modifier.size(42.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
-                            ) { Icon(Icons.Rounded.Settings, "Impostazioni", tint = palette.text) }
+                            ) { Icon(Icons.Rounded.AccountCircle, "Account e impostazioni", tint = palette.text) }
                         }
                     }
                 }
             },
-            bottomBar = { SpectroBottomBar(tab, palette) { next -> if (next == AppTab.CREATE) { editingProduction = null; editingWork = null; sourceWork = null; createMode = CreateMode.PRODUCTION }; navigate(next) } }
+            bottomBar = { SpectroBottomBar(tab, palette, vm) { next -> if (next == AppTab.CREATE) { editingProduction = null; editingWork = null; sourceWork = null; createMode = CreateMode.PRODUCTION }; navigate(next) } }
         ) { padding ->
             Box(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
                 AnimatedContent(tab, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(130)) }, label = "tabs") { current ->
@@ -194,7 +205,11 @@ fun SpectroApp(vm: SpectroViewModel) {
                             onEditOrder = ::editOrder
                         )
                         AppTab.WORK -> WorkOrdersScreen(vm, palette, onEdit = ::editOrder, onOpen = ::openOrder, onStartProduction = ::startProduction)
-                        AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork, sourceWork) { done -> editingProduction = null; editingWork = null; sourceWork = null; navigate(if (done == CreateMode.WORK) AppTab.WORK else AppTab.DASHBOARD, rememberCurrent = false) }
+                        AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork, sourceWork) { done ->
+                            editingProduction = null; editingWork = null; sourceWork = null
+                            val preferred = if (done == CreateMode.WORK) AppTab.WORK else AppTab.DASHBOARD
+                            navigate(if (isTabAllowed(preferred, vm)) preferred else firstAvailableTab(vm), rememberCurrent = false)
+                        }
                         AppTab.INVENTORY -> InventoryScreen(vm, palette)
                         AppTab.CLIENTS -> ClientsScreen(
                             vm,
@@ -277,6 +292,7 @@ fun SpectroApp(vm: SpectroViewModel) {
                 r = r,
                 p = palette,
                 linkedOrder = linkedOrder,
+                showFinance = vm.can(AppPermission.FINANCE_VIEW),
                 onDismiss = {
                     detail = null
                     clientReturn?.let { client -> selectedClient = client; clientReturn = null }
@@ -306,12 +322,12 @@ private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (
         Text("Altri moduli", fontSize = 28.sp, fontWeight = FontWeight.Black)
         Text("CRM, criticità, cotone, attività, ricavi e Zentha.", color = p.textMuted)
         Spacer(Modifier.height(4.dp))
-        ModuleCard("Clienti", "Anagrafica, scadenze e storico", Icons.Rounded.People, p) { onOpen(AppTab.CLIENTS) }
-        ModuleCard("Criticità", "Centro operativo di problemi e ritardi • ${vm.openIssues().size} aperte", Icons.Rounded.ReportProblem, p) { onOpen(AppTab.ISSUES) }
-        ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
-        ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
-        ModuleCard("Altri ricavi", "Trasferimenti, lavorazioni e materiali fatturati", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
-        ModuleCard("ZENTHA", "Catalogo, ordini, utile 50/50 e pagamenti", Icons.Rounded.SportsVolleyball, p) { onOpen(AppTab.ZENTHA) }
+        if (vm.can(AppPermission.CLIENTS_VIEW)) ModuleCard("Clienti", "Anagrafica, scadenze e storico", Icons.Rounded.People, p) { onOpen(AppTab.CLIENTS) }
+        if (vm.can(AppPermission.ISSUES_VIEW)) ModuleCard("Criticità", "Centro operativo di problemi e ritardi • ${vm.openIssues().size} aperte", Icons.Rounded.ReportProblem, p) { onOpen(AppTab.ISSUES) }
+        if (vm.can(AppPermission.COTTON_VIEW)) ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
+        if (vm.can(AppPermission.TASKS_VIEW)) ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
+        if (vm.can(AppPermission.FINANCE_VIEW)) ModuleCard("Altri ricavi", "Trasferimenti, lavorazioni e materiali fatturati", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
+        if (vm.can(AppPermission.ZENTHA_VIEW)) ModuleCard("ZENTHA", "Catalogo, ordini, utile 50/50 e pagamenti", Icons.Rounded.SportsVolleyball, p) { onOpen(AppTab.ZENTHA) }
     }
 }
 
@@ -321,18 +337,48 @@ private fun ModuleCard(title: String, subtitle: String, icon: androidx.compose.u
 }
 
 @Composable
-private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, onSelect: (AppTab) -> Unit) {
+private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, vm: SpectroViewModel, onSelect: (AppTab) -> Unit) {
     val moreSelected = selected in listOf(AppTab.MORE, AppTab.CLIENTS, AppTab.ISSUES, AppTab.COTTON, AppTab.ZENTHA, AppTab.ECONOMIC, AppTab.ACTIVITIES)
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
         Row(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(36.dp)).background(p.surface).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceAround) {
-            BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
-            BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
-            FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.Black)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
-            BottomIcon(Icons.Rounded.Inventory2, selected == AppTab.INVENTORY, p) { onSelect(AppTab.INVENTORY) }
-            BottomIcon(Icons.Rounded.Apps, moreSelected, p) { onSelect(AppTab.MORE) }
+            if (vm.can(AppPermission.DASHBOARD_VIEW) && vm.can(AppPermission.FINANCE_VIEW)) BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
+            if (vm.can(AppPermission.ORDERS_VIEW)) BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
+            if (vm.can(AppPermission.ORDERS_MANAGE) || vm.can(AppPermission.PRODUCTION_MANAGE)) {
+                FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.Black)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
+            }
+            if (vm.can(AppPermission.INVENTORY_VIEW)) BottomIcon(Icons.Rounded.Inventory2, selected == AppTab.INVENTORY, p) { onSelect(AppTab.INVENTORY) }
+            if (hasMoreModules(vm)) BottomIcon(Icons.Rounded.Apps, moreSelected, p) { onSelect(AppTab.MORE) }
         }
     }
 }
+
+private fun isTabAllowed(tab: AppTab, vm: SpectroViewModel): Boolean = when (tab) {
+    AppTab.DASHBOARD -> vm.can(AppPermission.DASHBOARD_VIEW) && vm.can(AppPermission.FINANCE_VIEW)
+    AppTab.WORK -> vm.can(AppPermission.ORDERS_VIEW)
+    AppTab.CREATE -> vm.can(AppPermission.ORDERS_MANAGE) || vm.can(AppPermission.PRODUCTION_MANAGE)
+    AppTab.INVENTORY -> vm.can(AppPermission.INVENTORY_VIEW)
+    AppTab.CLIENTS -> vm.can(AppPermission.CLIENTS_VIEW)
+    AppTab.ISSUES -> vm.can(AppPermission.ISSUES_VIEW)
+    AppTab.COTTON -> vm.can(AppPermission.COTTON_VIEW)
+    AppTab.ZENTHA -> vm.can(AppPermission.ZENTHA_VIEW)
+    AppTab.ECONOMIC -> vm.can(AppPermission.FINANCE_VIEW)
+    AppTab.ACTIVITIES -> vm.can(AppPermission.TASKS_VIEW)
+    AppTab.MORE -> hasMoreModules(vm)
+}
+
+private fun hasMoreModules(vm: SpectroViewModel): Boolean = listOf(
+    AppPermission.CLIENTS_VIEW, AppPermission.ISSUES_VIEW, AppPermission.COTTON_VIEW,
+    AppPermission.ZENTHA_VIEW, AppPermission.FINANCE_VIEW, AppPermission.TASKS_VIEW
+).any(vm::can)
+
+private fun canSearch(vm: SpectroViewModel): Boolean = listOf(
+    AppPermission.CLIENTS_VIEW, AppPermission.ORDERS_VIEW, AppPermission.PRODUCTION_VIEW,
+    AppPermission.INVENTORY_VIEW, AppPermission.COTTON_VIEW, AppPermission.ZENTHA_VIEW
+).any(vm::can)
+
+private fun firstAvailableTab(vm: SpectroViewModel): AppTab = listOf(
+    AppTab.DASHBOARD, AppTab.WORK, AppTab.INVENTORY, AppTab.MORE, AppTab.CREATE
+).firstOrNull { isTabAllowed(it, vm) } ?: AppTab.MORE
 
 @Composable
 private fun BottomIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, p: SpectroPalette, onClick: () -> Unit) {
@@ -345,6 +391,7 @@ private fun RecordDetailSheet(
     r: ProductionRecord,
     p: SpectroPalette,
     linkedOrder: WorkOrder? = null,
+    showFinance: Boolean = false,
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -366,7 +413,11 @@ private fun RecordDetailSheet(
             SpectroCard(p = p) {
                 if (r.type == RecordType.PRODUCTION) {
                     Metric("Tessuto", r.fabricDisplayName); Spacer(Modifier.height(10.dp)); Row { Metric("Carta", meters(r.printedPaperMeters), modifier = Modifier.weight(1f)); Metric("Tessuto", meters(r.fabricUsedMeters), modifier = Modifier.weight(1f)) }
-                    HorizontalDivider(Modifier.padding(vertical = 14.dp), color = p.border); Row { Metric("Fatturato", euro(r.grossRevenue), p.success, Modifier.weight(1f)); Metric("Materie", euro(r.materialCostTotal), modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(12.dp)); Metric("Utile lordo", euro(r.grossProfit), if (r.grossProfit >= 0) p.success else p.danger)
+                    if (showFinance) {
+                        HorizontalDivider(Modifier.padding(vertical = 14.dp), color = p.border)
+                        Row { Metric("Fatturato", euro(r.grossRevenue), p.success, Modifier.weight(1f)); Metric("Materie", euro(r.materialCostTotal), modifier = Modifier.weight(1f)) }
+                        Spacer(Modifier.height(12.dp)); Metric("Utile lordo", euro(r.grossProfit), if (r.grossProfit >= 0) p.success else p.danger)
+                    }
                 } else { Text(r.technicalNotes, color = p.text); Spacer(Modifier.height(12.dp)); Metric("Perdita totale", euro(r.materialCostTotal), p.danger) }
             }
             if (r.technicalNotes.isNotBlank() && r.type == RecordType.PRODUCTION) { Spacer(Modifier.height(12.dp)); SpectroCard(p = p) { Text("NOTE TECNICHE", fontWeight = FontWeight.Black, color = p.primary); Spacer(Modifier.height(8.dp)); Text(r.technicalNotes) } }

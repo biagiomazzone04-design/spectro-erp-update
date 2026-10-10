@@ -1,0 +1,12 @@
+{
+  "name": "Spectro ERP Cloud",
+  "short_name": "Spectro ERP",
+  "description": "Gestionale Spectro multiutente",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#050507",
+  "theme_color": "#050507",
+  "icons": [
+    { "src": "/spectro-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

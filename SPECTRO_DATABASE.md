@@ -1,7 +1,7 @@
 # SPECTRO_DATABASE.md
 
 ## Database attuale
-File `spectro_native.db`, schema version 6.
+File `spectro_native.db`, schema version 7.
 
 Entità principali: Client, InventoryItem, FabricRoll, StockMovement, RollUsage, ProductionRecord, WorkOrder, OrderTimelineEvent, ClientIssue, IssueUpdate, PaymentDeadline, CottonOrder, EconomicWork, OperationalTask, ZenthaProduct, ZenthaOrder, ZenthaOrderItem, ZenthaExtraCost, ZenthaPayment.
 
@@ -25,3 +25,12 @@ Campi legacy da mostrare quando presenti: date, client, orderRef, designs, fabri
 ## Migrazione
 Il passaggio schema 5 -> 6 è additivo: crea `cloud_sync_state` per device UUID, revisione base, ultima revisione remota osservata, data sync, errore e percorso del backup di recupero. I dati ERP non vengono riscritti.
 Tutte le nuove entità devono entrare nel backup/restore.
+
+### Schema 7 — catalogo e documenti Zentha
+
+Migrazione esclusivamente additiva:
+
+- aggiunge a `zentha_products` la distinta costi (tessuto, costa, fodera/inserti, stampa, accessori, taglio, cucito/confezione, etichetta, imballo e altri costi), il nome listino, la percentuale di ricarico e il riferimento sorgente;
+- aggiunge a `zentha_order_items` gli snapshot di codice e descrizione, variante, colore, ripartizione taglie, personalizzazioni e note produzione;
+- inserisce in modo idempotente i 14 codici del listino `COSTI ZHENTA 13-10-2026`, senza aggiornare o sovrascrivere un codice già presente;
+- porta il backup al formato v8, mantenendo importabili i formati precedenti.

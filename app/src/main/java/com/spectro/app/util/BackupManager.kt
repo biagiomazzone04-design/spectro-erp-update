@@ -161,7 +161,7 @@ object BackupManager {
     )
 
     private fun SpectroSnapshot.toJson() = JSONObject().apply {
-        put("format", "spectro-native-backup"); put("version", 7)
+        put("format", "spectro-native-backup"); put("version", 8)
         put("clients", clients.jsonArray { it.toJson() })
         put("inventory", inventory.jsonArray { it.toJson() })
         put("production", production.jsonArray { it.toJson() })
@@ -199,9 +199,19 @@ object BackupManager {
     private fun IssueUpdate.toJson() = JSONObject().apply { put("id", id); put("issueId", issueId); put("date", date); put("note", note); put("images", JSONArray(images)) }
     private fun PaymentDeadline.toJson() = JSONObject().apply { put("id", id); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderRef", orderRef); put("amount", amount); put("dueDate", dueDate); put("paid", paid); put("paidDate", paidDate); put("method", method.name); put("notes", notes) }
     private fun CottonOrder.toJson() = JSONObject().apply { put("id", id); put("orderCode", orderCode); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderDate", orderDate); put("dueDate", dueDate); put("fabricName", fabricName); put("printType", printType.name); put("orderedMeters", orderedMeters); put("actualProducedMeters", actualProducedMeters); put("deliveredMeters", deliveredMeters); put("defectiveMeters", defectiveMeters); put("sampleMeters", sampleMeters); put("leftoverMeters", leftoverMeters); put("productionCostPerMeter", productionCostPerMeter); put("printPricePerMeter", printPricePerMeter); put("fabricOwnerType", fabricOwnerType.name); put("inventoryId", inventoryId ?: JSONObject.NULL); put("fabricCostPerMeter", fabricCostPerMeter); put("notes", notes); put("status", status.name); put("title", title); put("images", JSONArray(images)) }
-    private fun ZenthaProduct.toJson() = JSONObject().apply { put("id", id); put("name", name); put("sku", sku); put("category", category); put("standardCost", standardCost); put("standardPrice", standardPrice); put("description", description); put("imagePath", imagePath); put("active", active) }
+    private fun ZenthaProduct.toJson() = JSONObject().apply {
+        put("id", id); put("name", name); put("sku", sku); put("category", category); put("standardCost", standardCost); put("standardPrice", standardPrice)
+        put("description", description); put("imagePath", imagePath); put("active", active); put("fabricCost", fabricCost); put("ribCost", ribCost)
+        put("liningCost", liningCost); put("printCost", printCost); put("accessoryCost", accessoryCost); put("cuttingCost", cuttingCost); put("sewingCost", sewingCost)
+        put("labelCost", labelCost); put("packagingCost", packagingCost); put("otherCost", otherCost); put("priceListName", priceListName)
+        put("markupPercent", markupPercent); put("sourceReference", sourceReference)
+    }
     private fun ZenthaOrder.toJson() = JSONObject().apply { put("id", id); put("orderCode", orderCode); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderDate", orderDate); put("dueDate", dueDate); put("status", status.name); put("notes", notes); put("attachments", JSONArray(attachments)); put("splitPercentA", splitPercentA); put("splitPercentB", splitPercentB) }
-    private fun ZenthaOrderItem.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("productId", productId ?: JSONObject.NULL); put("productName", productName); put("quantity", quantity); put("unitPrice", unitPrice); put("unitCost", unitCost) }
+    private fun ZenthaOrderItem.toJson() = JSONObject().apply {
+        put("id", id); put("orderId", orderId); put("productId", productId ?: JSONObject.NULL); put("productName", productName); put("quantity", quantity)
+        put("unitPrice", unitPrice); put("unitCost", unitCost); put("skuSnapshot", skuSnapshot); put("productDescriptionSnapshot", productDescriptionSnapshot)
+        put("variant", variant); put("color", color); put("sizeBreakdown", sizeBreakdown); put("personalization", personalization); put("productionNotes", productionNotes)
+    }
     private fun ZenthaExtraCost.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("label", label); put("amount", amount) }
     private fun ZenthaPayment.toJson() = JSONObject().apply { put("id", id); put("orderId", orderId); put("date", date); put("amount", amount); put("method", method.name); put("notes", notes) }
     private fun EconomicWork.toJson() = JSONObject().apply { put("id", id); put("date", date); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("title", title); put("quantity", quantity); put("unitPrice", unitPrice); put("manualGrossRevenue", manualGrossRevenue); put("materials", JSONArray().apply { materials.forEach { m -> put(JSONObject().apply { put("name", m.name); put("quantity", m.quantity); put("unitCost", m.unitCost) }) } }); put("otherCosts", otherCosts); put("notes", notes); put("images", JSONArray(images)); put("status", status.name) }
@@ -259,9 +269,22 @@ object BackupManager {
     private fun JSONObject.toIssueUpdate() = IssueUpdate(optLong("id"), optLong("issueId"), optString("date"), optString("note"), optJSONArray("images").strings())
     private fun JSONObject.toPayment() = PaymentDeadline(optLong("id"), nullableLong("clientId"), optString("clientName"), optString("orderRef"), optDouble("amount"), optString("dueDate"), optBoolean("paid"), optString("paidDate"), enumOr(optString("method"), PaymentMethod.UNSPECIFIED), optString("notes"))
     private fun JSONObject.toCottonOrder() = CottonOrder(optLong("id"), optString("orderCode"), nullableLong("clientId"), optString("clientName"), optString("orderDate"), optString("dueDate"), optString("fabricName"), enumOr(optString("printType"), CottonPrintType.REACTIVE), optDouble("orderedMeters"), optDouble("actualProducedMeters"), optDouble("deliveredMeters"), optDouble("defectiveMeters"), optDouble("sampleMeters"), optDouble("leftoverMeters"), optDouble("productionCostPerMeter"), optDouble("printPricePerMeter"), enumOr(optString("fabricOwnerType"), OwnerType.CLIENT), nullableLong("inventoryId"), optDouble("fabricCostPerMeter"), optString("notes"), enumOr(optString("status"), WorkStatus.IN_PROCESS), optString("title"), optJSONArray("images").strings())
-    private fun JSONObject.toZenthaProduct() = ZenthaProduct(optLong("id"), optString("name"), optString("sku"), optString("category"), optDouble("standardCost"), optDouble("standardPrice"), optString("description"), optString("imagePath"), optBoolean("active", true))
+    private fun JSONObject.toZenthaProduct() = ZenthaProduct(
+        id = optLong("id"), name = optString("name"), sku = optString("sku"), category = optString("category"),
+        standardCost = optDouble("standardCost"), standardPrice = optDouble("standardPrice"), description = optString("description"),
+        imagePath = optString("imagePath"), active = optBoolean("active", true), fabricCost = optDouble("fabricCost"),
+        ribCost = optDouble("ribCost"), liningCost = optDouble("liningCost"), printCost = optDouble("printCost"),
+        accessoryCost = optDouble("accessoryCost"), cuttingCost = optDouble("cuttingCost"), sewingCost = optDouble("sewingCost"),
+        labelCost = optDouble("labelCost"), packagingCost = optDouble("packagingCost"), otherCost = optDouble("otherCost"),
+        priceListName = optString("priceListName", "Listino standard"), markupPercent = optDouble("markupPercent"), sourceReference = optString("sourceReference")
+    )
     private fun JSONObject.toZenthaOrder() = ZenthaOrder(optLong("id"), optString("orderCode"), nullableLong("clientId"), optString("clientName"), optString("orderDate"), optString("dueDate"), enumOr(optString("status"), ZenthaOrderStatus.CONFIRMED), optString("notes"), optJSONArray("attachments").strings(), optDouble("splitPercentA", 50.0), optDouble("splitPercentB", 50.0))
-    private fun JSONObject.toZenthaItem() = ZenthaOrderItem(optLong("id"), optLong("orderId"), nullableLong("productId"), optString("productName"), optInt("quantity"), optDouble("unitPrice"), optDouble("unitCost"))
+    private fun JSONObject.toZenthaItem() = ZenthaOrderItem(
+        id = optLong("id"), orderId = optLong("orderId"), productId = nullableLong("productId"), productName = optString("productName"),
+        quantity = optInt("quantity"), unitPrice = optDouble("unitPrice"), unitCost = optDouble("unitCost"), skuSnapshot = optString("skuSnapshot"),
+        productDescriptionSnapshot = optString("productDescriptionSnapshot"), variant = optString("variant"), color = optString("color"),
+        sizeBreakdown = optString("sizeBreakdown"), personalization = optString("personalization"), productionNotes = optString("productionNotes")
+    )
     private fun JSONObject.toZenthaExtraCost() = ZenthaExtraCost(optLong("id"), optLong("orderId"), optString("label"), optDouble("amount"))
     private fun JSONObject.toZenthaPayment() = ZenthaPayment(optLong("id"), optLong("orderId"), optString("date"), optDouble("amount"), enumOr(optString("method"), PaymentMethod.UNSPECIFIED), optString("notes"))
     private fun JSONObject.toEconomicWork() = EconomicWork(optLong("id"), optString("date"), nullableLong("clientId"), optString("clientName"), optString("title"), optDouble("quantity"), optDouble("unitPrice"), optDouble("manualGrossRevenue"), optJSONArray("materials").objects().map { m -> EconomicMaterialUsage(m.optString("name"), m.optDouble("quantity"), m.optDouble("unitCost")) }, optDouble("otherCosts"), optString("notes"), optJSONArray("images").strings(), enumOr(optString("status"), EconomicWorkStatus.OPEN))

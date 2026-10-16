@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 6) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 7) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -121,6 +121,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         createV3Tables(db)
         createV5Tables(db)
         createV6Tables(db)
+        createV7Tables(db)
         db.execSQL("""
             CREATE TABLE settings(
                 id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -179,6 +180,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         }
         if (oldVersion < 6) {
             createV6Tables(db)
+        }
+        if (oldVersion < 7) {
+            createV7Tables(db)
         }
         createIndexes(db)
     }
@@ -251,6 +255,48 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 recovery_backup_path
             ) VALUES (1, '', '', 0, 0, '', '', '')
         """.trimIndent())
+    }
+
+    private fun createV7Tables(db: SQLiteDatabase) {
+        listOf(
+            "ALTER TABLE zentha_products ADD COLUMN fabric_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN rib_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN lining_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN print_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN accessory_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN cutting_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN sewing_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN label_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN packaging_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN other_cost REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN price_list_name TEXT NOT NULL DEFAULT 'Listino standard'",
+            "ALTER TABLE zentha_products ADD COLUMN markup_percent REAL NOT NULL DEFAULT 0",
+            "ALTER TABLE zentha_products ADD COLUMN source_reference TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN sku_snapshot TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN product_description_snapshot TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN variant TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN color TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN size_breakdown TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN personalization TEXT NOT NULL DEFAULT ''",
+            "ALTER TABLE zentha_order_items ADD COLUMN production_notes TEXT NOT NULL DEFAULT ''"
+        ).forEach { safeAlter(db, it) }
+        seedZenthaCatalog(db)
+    }
+
+    private fun seedZenthaCatalog(db: SQLiteDatabase) {
+        ZenthaCatalog.products.forEach { product ->
+            val exists = db.query(
+                "zentha_products",
+                arrayOf("id"),
+                "UPPER(TRIM(sku)) = UPPER(TRIM(?))",
+                arrayOf(product.sku),
+                null,
+                null,
+                null,
+                "1"
+            ).use { it.moveToFirst() }
+            if (!exists) db.insertOrThrow("zentha_products", null, product.zenthaProductValues(false))
+        }
     }
 
     private fun createV3Tables(db: SQLiteDatabase) {
@@ -352,7 +398,20 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 standard_price REAL NOT NULL DEFAULT 0,
                 description TEXT NOT NULL DEFAULT '',
                 image_path TEXT NOT NULL DEFAULT '',
-                active INTEGER NOT NULL DEFAULT 1
+                active INTEGER NOT NULL DEFAULT 1,
+                fabric_cost REAL NOT NULL DEFAULT 0,
+                rib_cost REAL NOT NULL DEFAULT 0,
+                lining_cost REAL NOT NULL DEFAULT 0,
+                print_cost REAL NOT NULL DEFAULT 0,
+                accessory_cost REAL NOT NULL DEFAULT 0,
+                cutting_cost REAL NOT NULL DEFAULT 0,
+                sewing_cost REAL NOT NULL DEFAULT 0,
+                label_cost REAL NOT NULL DEFAULT 0,
+                packaging_cost REAL NOT NULL DEFAULT 0,
+                other_cost REAL NOT NULL DEFAULT 0,
+                price_list_name TEXT NOT NULL DEFAULT 'Listino standard',
+                markup_percent REAL NOT NULL DEFAULT 0,
+                source_reference TEXT NOT NULL DEFAULT ''
             )
         """.trimIndent())
         db.execSQL("""
@@ -378,7 +437,14 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 product_name TEXT NOT NULL,
                 quantity INTEGER NOT NULL DEFAULT 0,
                 unit_price REAL NOT NULL DEFAULT 0,
-                unit_cost REAL NOT NULL DEFAULT 0
+                unit_cost REAL NOT NULL DEFAULT 0,
+                sku_snapshot TEXT NOT NULL DEFAULT '',
+                product_description_snapshot TEXT NOT NULL DEFAULT '',
+                variant TEXT NOT NULL DEFAULT '',
+                color TEXT NOT NULL DEFAULT '',
+                size_breakdown TEXT NOT NULL DEFAULT '',
+                personalization TEXT NOT NULL DEFAULT '',
+                production_notes TEXT NOT NULL DEFAULT ''
             )
         """.trimIndent())
         db.execSQL("""
@@ -622,14 +688,15 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    fun clearAll(db: SQLiteDatabase = writableDatabase) {
+    fun clearAll(db: SQLiteDatabase = writableDatabase, restoreDefaultCatalog: Boolean = true) {
         listOf("operational_tasks", "economic_works", "zentha_payments", "zentha_extra_costs", "zentha_order_items", "zentha_orders", "zentha_products", "cotton_orders", "order_timeline", "roll_usages", "stock_movements", "fabric_rolls", "issue_updates", "client_issues", "payments", "production", "work_orders", "inventory", "clients").forEach { db.delete(it, null, null) }
         saveSettings(AppSettings(), db)
+        if (restoreDefaultCatalog) seedZenthaCatalog(db)
     }
 
     fun replaceAll(snapshot: SpectroSnapshot) {
         writableDatabase.runInTransaction {
-            clearAll(this)
+            clearAll(this, restoreDefaultCatalog = false)
             snapshot.clients.forEach { c -> insertOrThrow("clients", null, ContentValues().apply { put("id", c.id); put("name", c.name); put("default_print_price", c.defaultPrintPrice) }) }
             snapshot.inventory.forEach { insertOrThrow("inventory", null, it.inventoryValues(true)) }
             snapshot.production.forEach { insertOrThrow("production", null, it.productionValues(true)) }
@@ -649,6 +716,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             snapshot.zenthaPayments.forEach { insertOrThrow("zentha_payments", null, it.zenthaPaymentValues(true)) }
             snapshot.economicWorks.forEach { insertOrThrow("economic_works", null, it.economicWorkValues(true)) }
             snapshot.operationalTasks.forEach { insertOrThrow("operational_tasks", null, it.operationalTaskValues(true)) }
+            seedZenthaCatalog(this)
             if (snapshot.fabricRolls.isEmpty() && snapshot.inventory.isNotEmpty()) migrateLegacyInventoryToRolls(this)
             populateMissingOrderCodes(this)
             saveSettings(snapshot.settings, this)
@@ -679,9 +747,24 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun Cursor.issueUpdate() = IssueUpdate(long("id"), long("issue_id"), string("date"), string("note"), string("images_json").toStringList())
     private fun Cursor.payment() = PaymentDeadline(long("id"), nullableLong("client_id"), string("client_name"), string("order_ref"), double("amount"), string("due_date"), int("paid") == 1, string("paid_date"), enumValueOrDefault(string("method"), PaymentMethod.UNSPECIFIED), string("notes"))
     private fun Cursor.cottonOrder() = CottonOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), string("fabric_name"), enumValueOrDefault(string("print_type"), CottonPrintType.REACTIVE), double("ordered_m"), double("actual_produced_m"), double("delivered_m"), double("defective_m"), double("sample_m"), double("leftover_m"), double("production_cost_m"), double("print_price_m"), enumValueOrDefault(string("fabric_owner_type"), OwnerType.CLIENT), nullableLong("inventory_id"), double("fabric_cost_m"), string("notes"), enumValueOrDefault(string("status"), WorkStatus.IN_PROCESS), optionalString("title"), optionalString("images_json").toStringList())
-    private fun Cursor.zenthaProduct() = ZenthaProduct(long("id"), string("name"), string("sku"), string("category"), double("standard_cost"), double("standard_price"), string("description"), string("image_path"), int("active") == 1)
+    private fun Cursor.zenthaProduct() = ZenthaProduct(
+        id = long("id"), name = string("name"), sku = string("sku"), category = string("category"),
+        standardCost = double("standard_cost"), standardPrice = double("standard_price"), description = string("description"),
+        imagePath = string("image_path"), active = int("active") == 1, fabricCost = optionalDouble("fabric_cost"),
+        ribCost = optionalDouble("rib_cost"), liningCost = optionalDouble("lining_cost"), printCost = optionalDouble("print_cost"),
+        accessoryCost = optionalDouble("accessory_cost"), cuttingCost = optionalDouble("cutting_cost"), sewingCost = optionalDouble("sewing_cost"),
+        labelCost = optionalDouble("label_cost"), packagingCost = optionalDouble("packaging_cost"), otherCost = optionalDouble("other_cost"),
+        priceListName = optionalString("price_list_name").ifBlank { "Listino standard" }, markupPercent = optionalDouble("markup_percent"),
+        sourceReference = optionalString("source_reference")
+    )
     private fun Cursor.zenthaOrder() = ZenthaOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), enumValueOrDefault(string("status"), ZenthaOrderStatus.CONFIRMED), string("notes"), string("attachments_json").toStringList(), double("split_a"), double("split_b"))
-    private fun Cursor.zenthaItem() = ZenthaOrderItem(long("id"), long("order_id"), nullableLong("product_id"), string("product_name"), int("quantity"), double("unit_price"), double("unit_cost"))
+    private fun Cursor.zenthaItem() = ZenthaOrderItem(
+        id = long("id"), orderId = long("order_id"), productId = nullableLong("product_id"), productName = string("product_name"),
+        quantity = int("quantity"), unitPrice = double("unit_price"), unitCost = double("unit_cost"),
+        skuSnapshot = optionalString("sku_snapshot"), productDescriptionSnapshot = optionalString("product_description_snapshot"),
+        variant = optionalString("variant"), color = optionalString("color"), sizeBreakdown = optionalString("size_breakdown"),
+        personalization = optionalString("personalization"), productionNotes = optionalString("production_notes")
+    )
     private fun Cursor.zenthaExtraCost() = ZenthaExtraCost(long("id"), long("order_id"), string("label"), double("amount"))
     private fun Cursor.zenthaPayment() = ZenthaPayment(long("id"), long("order_id"), string("payment_date"), double("amount"), enumValueOrDefault(string("method"), PaymentMethod.UNSPECIFIED), string("notes"))
     private fun Cursor.economicWork() = EconomicWork(
@@ -714,9 +797,19 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun IssueUpdate.issueUpdateValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("issue_id", issueId); put("date", date); put("note", note); put("images_json", images.toJsonArrayString()) }
     private fun PaymentDeadline.paymentValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("amount", amount); put("due_date", dueDate); put("paid", if (paid) 1 else 0); put("paid_date", paidDate); put("method", method.name); put("notes", notes) }
     private fun CottonOrder.cottonValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("fabric_name", fabricName); put("print_type", printType.name); put("ordered_m", orderedMeters); put("actual_produced_m", actualProducedMeters); put("delivered_m", deliveredMeters); put("defective_m", defectiveMeters); put("sample_m", sampleMeters); put("leftover_m", leftoverMeters); put("production_cost_m", productionCostPerMeter); put("print_price_m", printPricePerMeter); put("fabric_owner_type", fabricOwnerType.name); if (inventoryId == null) putNull("inventory_id") else put("inventory_id", inventoryId); put("fabric_cost_m", fabricCostPerMeter); put("notes", notes); put("status", status.name); put("title", title); put("images_json", images.toJsonArrayString()) }
-    private fun ZenthaProduct.zenthaProductValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("name", name); put("sku", sku); put("category", category); put("standard_cost", standardCost); put("standard_price", standardPrice); put("description", description); put("image_path", imagePath); put("active", if (active) 1 else 0) }
+    private fun ZenthaProduct.zenthaProductValues(includeId: Boolean) = ContentValues().apply {
+        if (includeId) put("id", id); put("name", name); put("sku", sku); put("category", category); put("standard_cost", standardCost); put("standard_price", standardPrice)
+        put("description", description); put("image_path", imagePath); put("active", if (active) 1 else 0); put("fabric_cost", fabricCost); put("rib_cost", ribCost)
+        put("lining_cost", liningCost); put("print_cost", printCost); put("accessory_cost", accessoryCost); put("cutting_cost", cuttingCost); put("sewing_cost", sewingCost)
+        put("label_cost", labelCost); put("packaging_cost", packagingCost); put("other_cost", otherCost); put("price_list_name", priceListName); put("markup_percent", markupPercent); put("source_reference", sourceReference)
+    }
     private fun ZenthaOrder.zenthaOrderValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("status", status.name); put("notes", notes); put("attachments_json", attachments.toJsonArrayString()); put("split_a", splitPercentA); put("split_b", splitPercentB) }
-    private fun ZenthaOrderItem.zenthaItemValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); if (productId == null) putNull("product_id") else put("product_id", productId); put("product_name", productName); put("quantity", quantity); put("unit_price", unitPrice); put("unit_cost", unitCost) }
+    private fun ZenthaOrderItem.zenthaItemValues(includeId: Boolean) = ContentValues().apply {
+        if (includeId) put("id", id); put("order_id", orderId); if (productId == null) putNull("product_id") else put("product_id", productId)
+        put("product_name", productName); put("quantity", quantity); put("unit_price", unitPrice); put("unit_cost", unitCost); put("sku_snapshot", skuSnapshot)
+        put("product_description_snapshot", productDescriptionSnapshot); put("variant", variant); put("color", color); put("size_breakdown", sizeBreakdown)
+        put("personalization", personalization); put("production_notes", productionNotes)
+    }
     private fun ZenthaExtraCost.zenthaExtraCostValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); put("label", label); put("amount", amount) }
     private fun ZenthaPayment.zenthaPaymentValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_id", orderId); put("payment_date", date); put("amount", amount); put("method", method.name); put("notes", notes) }
     private fun EconomicWork.economicWorkValues(includeId: Boolean) = ContentValues().apply {

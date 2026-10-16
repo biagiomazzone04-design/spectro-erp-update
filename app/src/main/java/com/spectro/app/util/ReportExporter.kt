@@ -347,15 +347,157 @@ object ReportExporter {
         d.finish(file); sharePdf(context, file, "Condividi dossier criticità")
     }
 
-    fun shareZenthaOrder(context: Context, order: ZenthaOrder, items: List<ZenthaOrderItem>, extras: List<ZenthaExtraCost>, payments: List<ZenthaPayment>) {
-        val revenue = items.sumOf { it.revenue }; val productCosts = items.sumOf { it.cost }; val extra = extras.sumOf { it.amount }; val profit = revenue - productCosts - extra; val paid = payments.sumOf { it.amount }
-        val file = outFile(context, "Spectro_Zentha_${order.orderDate}_${order.id}.pdf")
-        val d = DarkPdf(context, "Ordine Zentha", "${order.orderCode} • ${order.clientName}")
-        d.metricRow(listOf(Triple("Ricavi", eur(revenue), GREEN), Triple("Costi", eur(productCosts + extra), YELLOW), Triple("Utile", eur(profit), if (profit >= 0) GREEN else RED)))
-        d.barChart("Economia ordine", listOf("Ricavi" to revenue, "Costi prodotti" to productCosts, "Costi extra" to extra, "Utile" to profit), true)
-        d.section("Prodotti"); items.forEach { d.detailCard(it.productName, "${it.quantity} × ${eur(it.unitPrice)} • costo ${eur(it.unitCost)}", eur(it.revenue), GREEN) }
-        d.section("Pagamenti", CYAN); d.infoRow("Incassato", eur(paid), GREEN); d.infoRow("Residuo", eur((revenue - paid).coerceAtLeast(0.0)), if (revenue > paid) YELLOW else GREEN)
-        d.paragraph("Note", order.notes); d.images(order.attachments); d.finish(file); sharePdf(context, file, "Condividi ordine Zentha")
+    fun shareZenthaOrder(
+        context: Context,
+        order: ZenthaOrder,
+        items: List<ZenthaOrderItem>,
+        extras: List<ZenthaExtraCost>,
+        payments: List<ZenthaPayment>,
+        products: List<ZenthaProduct> = emptyList(),
+        profile: ZenthaExportProfile = ZenthaExportProfile.COMPLETE
+    ) {
+        val revenue = items.sumOf { it.revenue }
+        val productCosts = items.sumOf { it.cost }
+        val extra = extras.sumOf { it.amount }
+        val totalCosts = productCosts + extra
+        val profit = revenue - totalCosts
+        val paid = payments.sumOf { it.amount }
+        val quantity = items.sumOf { it.quantity }
+        val profileKey = when (profile) {
+            ZenthaExportProfile.ACCOUNTING -> "CONTABILITA"
+            ZenthaExportProfile.PRODUCTION -> "PRODUZIONE"
+            ZenthaExportProfile.COMPLETE -> "COMPLETO"
+        }
+        val safeCode = order.orderCode.ifBlank { order.id.toString() }.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        val file = outFile(context, "Spectro_Zentha_${safeCode}_$profileKey.pdf")
+        val title = when (profile) {
+            ZenthaExportProfile.ACCOUNTING -> "Ordine Zentha • Contabilità"
+            ZenthaExportProfile.PRODUCTION -> "Ordine Zentha • Produzione"
+            ZenthaExportProfile.COMPLETE -> "Ordine Zentha • Dossier completo"
+        }
+        val d = DarkPdf(context, title, "${order.orderCode} • ${order.clientName}")
+
+        d.section("Identificazione ordine", ORANGE)
+        d.infoRow("Codice ordine", order.orderCode)
+        d.infoRow("Cliente / società", order.clientName)
+        d.infoRow("Data ordine", order.orderDate)
+        d.infoRow("Consegna prevista", order.dueDate.ifBlank { "Da definire" }, if (order.dueDate.isNotBlank()) ORANGE else YELLOW)
+        d.infoRow("Stato", zenthaStatusIt(order.status))
+
+        when (profile) {
+            ZenthaExportProfile.ACCOUNTING -> {
+                d.metricRow(listOf(
+                    Triple("Articoli", items.size.toString(), CYAN),
+                    Triple("Pezzi", quantity.toString(), MAGENTA),
+                    Triple("Totale ordine", eur(revenue), GREEN)
+                ))
+                d.section("Righe per fatturazione", GREEN)
+                items.forEachIndexed { index, item ->
+                    val product = products.firstOrNull { it.id == item.productId }
+                    val code = item.skuSnapshot.ifBlank { product?.sku.orEmpty() }
+                    val description = item.productDescriptionSnapshot.ifBlank { product?.description.orEmpty() }
+                    d.detailCard(
+                        "${index + 1}. ${listOf(code, item.productName).filter { it.isNotBlank() }.joinToString(" • ")}",
+                        "Q.tà ${item.quantity} × ${eur(item.unitPrice)}${item.sizeBreakdown.takeIf { it.isNotBlank() }?.let { " • Taglie $it" }.orEmpty()}",
+                        eur(item.revenue),
+                        GREEN
+                    )
+                    d.paragraph("Descrizione / tessuto", description, CYAN)
+                    val commercialDetails = listOf(
+                        "Variante" to item.variant,
+                        "Colore" to item.color,
+                        "Personalizzazioni" to item.personalization
+                    ).filter { it.second.isNotBlank() }.joinToString(" • ") { "${it.first}: ${it.second}" }
+                    d.paragraph("Dettagli articolo", commercialDetails)
+                }
+                d.section("Totali e incassi", CYAN)
+                d.infoRow("Totale articoli", eur(revenue), GREEN)
+                d.infoRow("Incassato", eur(paid), GREEN)
+                d.infoRow("Da incassare", eur((revenue - paid).coerceAtLeast(0.0)), if (revenue > paid) YELLOW else GREEN)
+                payments.sortedBy { it.date }.forEach { payment ->
+                    d.detailCard(payment.date, "${paymentMethodIt(payment.method)}${payment.notes.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()}", eur(payment.amount), GREEN)
+                }
+                d.paragraph("Note amministrative", order.notes)
+                d.paragraph("Uso del documento", "Riepilogo gestionale di supporto alla fatturazione. Verificare aliquota IVA, dati fiscali e condizioni commerciali prima di emettere la fattura.", ORANGE)
+            }
+
+            ZenthaExportProfile.PRODUCTION -> {
+                d.metricRow(listOf(
+                    Triple("Articoli", items.size.toString(), CYAN),
+                    Triple("Pezzi totali", quantity.toString(), MAGENTA),
+                    Triple("Consegna", order.dueDate.ifBlank { "Da definire" }, ORANGE)
+                ))
+                d.paragraph("Riservatezza", "Scheda operativa priva di prezzi, costi, margini e pagamenti.", GREEN)
+                d.section("Distinta di produzione", MAGENTA)
+                items.forEachIndexed { index, item ->
+                    val product = products.firstOrNull { it.id == item.productId }
+                    val code = item.skuSnapshot.ifBlank { product?.sku.orEmpty() }
+                    val description = item.productDescriptionSnapshot.ifBlank { product?.description.orEmpty() }
+                    d.detailCard(
+                        "${index + 1}. ${listOf(code, item.productName).filter { it.isNotBlank() }.joinToString(" • ")}",
+                        listOf("Variante: ${item.variant}", "Colore: ${item.color}").filterNot { it.endsWith(": ") }.joinToString(" • "),
+                        "Q.TÀ ${item.quantity}",
+                        ORANGE
+                    )
+                    d.paragraph("Tessuto / articolo", description, CYAN)
+                    d.paragraph("Taglie e quantità", item.sizeBreakdown, MAGENTA)
+                    d.paragraph("Nomi, numeri e personalizzazioni", item.personalization, ORANGE)
+                    d.paragraph("Note tecniche di produzione", item.productionNotes, YELLOW)
+                }
+                d.section("Controllo finale", GREEN)
+                d.infoRow("Totale pezzi", quantity.toString(), GREEN)
+                d.infoRow("Allegati disponibili in app", order.attachments.size.toString())
+                d.paragraph("Verifiche", "Controllare quantità, taglie, colori, nomi, numeri, sponsor, loghi, grafica approvata e confezionamento prima di avviare la produzione.", GREEN)
+            }
+
+            ZenthaExportProfile.COMPLETE -> {
+                d.metricRow(listOf(
+                    Triple("Ricavi", eur(revenue), GREEN),
+                    Triple("Costi", eur(totalCosts), YELLOW),
+                    Triple("Utile", eur(profit), if (profit >= 0) GREEN else RED)
+                ))
+                d.barChart("Analisi economica ordine", listOf("Ricavi" to revenue, "Costi prodotti" to productCosts, "Costi extra" to extra, "Utile" to profit), true)
+                d.infoRow("Margine sul venduto", if (revenue > 0) "${"%.1f".format(Locale.ITALY, profit / revenue * 100.0)}%" else "-")
+                d.infoRow("Quota A (${order.splitPercentA}%)", eur(profit * order.splitPercentA / 100.0))
+                d.infoRow("Quota B (${order.splitPercentB}%)", eur(profit * order.splitPercentB / 100.0))
+                d.section("Analisi articoli", MAGENTA)
+                items.forEachIndexed { index, item ->
+                    val product = products.firstOrNull { it.id == item.productId }
+                    val code = item.skuSnapshot.ifBlank { product?.sku.orEmpty() }
+                    val description = item.productDescriptionSnapshot.ifBlank { product?.description.orEmpty() }
+                    d.detailCard(
+                        "${index + 1}. ${listOf(code, item.productName).filter { it.isNotBlank() }.joinToString(" • ")}",
+                        "Q.tà ${item.quantity} • vendita ${eur(item.unitPrice)} • costo ${eur(item.unitCost)} • margine ${eur(item.margin)}",
+                        eur(item.revenue),
+                        if (item.margin >= 0) GREEN else RED
+                    )
+                    d.paragraph("Descrizione / tessuto", description, CYAN)
+                    d.paragraph("Taglie", item.sizeBreakdown, MAGENTA)
+                    d.paragraph("Variante e colore", listOf(item.variant, item.color).filter { it.isNotBlank() }.joinToString(" • "))
+                    d.paragraph("Personalizzazioni", item.personalization, ORANGE)
+                    d.paragraph("Note produzione", item.productionNotes, YELLOW)
+                    if (product?.hasCostBreakdown == true) {
+                        d.section("Costo unitario • ${product.sku}", YELLOW)
+                        product.costComponents().forEach { (label, value) -> d.infoRow(label, eur(value)) }
+                        d.infoRow("Totale costo unitario", eur(product.standardCost), YELLOW)
+                        d.infoRow("Listino", "${product.priceListName} • ${eur(product.standardPrice)}")
+                    }
+                }
+                if (extras.isNotEmpty()) {
+                    d.section("Costi extra", YELLOW)
+                    extras.forEach { d.detailCard(it.label, "Costo interno ordine", eur(it.amount), YELLOW) }
+                }
+                d.section("Incassi", CYAN)
+                d.infoRow("Totale ordine", eur(revenue), GREEN)
+                d.infoRow("Incassato", eur(paid), GREEN)
+                d.infoRow("Residuo", eur((revenue - paid).coerceAtLeast(0.0)), if (revenue > paid) YELLOW else GREEN)
+                payments.sortedBy { it.date }.forEach { payment -> d.detailCard(payment.date, paymentMethodIt(payment.method), eur(payment.amount), GREEN) }
+                d.paragraph("Note ordine", order.notes)
+                d.images(order.attachments)
+            }
+        }
+        d.finish(file)
+        sharePdf(context, file, "Esporta ordine Zentha • ${profileLabel(profile)}")
     }
 
     private fun workStatusIt(v: WorkStatus): String = when (v) {
@@ -365,6 +507,30 @@ object ReportExporter {
     private fun timelineResponsibilityIt(v: TimelineResponsibility) = when (v) { TimelineResponsibility.CLIENT -> "Cliente"; TimelineResponsibility.INTERNAL -> "Interna"; TimelineResponsibility.SUPPLIER -> "Fornitore"; TimelineResponsibility.NONE -> "Nessuna" }
     private fun timelineSeverityIt(v: TimelineSeverity) = when (v) { TimelineSeverity.INFO -> "Informativa"; TimelineSeverity.LOW -> "Bassa"; TimelineSeverity.MEDIUM -> "Media"; TimelineSeverity.HIGH -> "Alta"; TimelineSeverity.BLOCKING -> "Bloccante" }
     private fun economicStatusIt(v: EconomicWorkStatus) = when (v) { EconomicWorkStatus.OPEN -> "Aperto"; EconomicWorkStatus.COMPLETED -> "Completato"; EconomicWorkStatus.PAID -> "Incassato"; EconomicWorkStatus.CANCELLED -> "Annullato" }
+    private fun zenthaStatusIt(v: ZenthaOrderStatus) = when (v) {
+        ZenthaOrderStatus.DRAFT -> "Bozza"
+        ZenthaOrderStatus.CONFIRMED -> "Confermato"
+        ZenthaOrderStatus.GRAPHICS -> "Grafica"
+        ZenthaOrderStatus.WAITING_APPROVAL -> "Attesa approvazione"
+        ZenthaOrderStatus.PRODUCTION -> "In produzione"
+        ZenthaOrderStatus.READY -> "Pronto"
+        ZenthaOrderStatus.DELIVERED -> "Consegnato"
+        ZenthaOrderStatus.CLOSED -> "Chiuso"
+        ZenthaOrderStatus.CANCELLED -> "Annullato"
+    }
+    private fun paymentMethodIt(v: PaymentMethod) = when (v) {
+        PaymentMethod.CASH -> "Contanti"
+        PaymentMethod.BANK_TRANSFER -> "Bonifico"
+        PaymentMethod.CARD -> "Carta"
+        PaymentMethod.CHECK -> "Assegno"
+        PaymentMethod.OTHER -> "Altro"
+        PaymentMethod.UNSPECIFIED -> "Metodo non specificato"
+    }
+    private fun profileLabel(v: ZenthaExportProfile) = when (v) {
+        ZenthaExportProfile.ACCOUNTING -> "Contabilità"
+        ZenthaExportProfile.PRODUCTION -> "Produzione"
+        ZenthaExportProfile.COMPLETE -> "Completo analitico"
+    }
     private fun localizeStatusTokens(text: String): String { var result = text; WorkStatus.entries.sortedByDescending { it.name.length }.forEach { st -> result = result.replace(Regex("\\b${Regex.escape(st.name)}\\b"), workStatusIt(st)) }; return result }
 
     private fun wrap(text: String, width: Int): List<String> {

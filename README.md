@@ -19,7 +19,7 @@ ERP Android nativo per produzione tessile, ordini, magazzino a colli, criticità
 - Magazzino cliente/azienda organizzato per tessuto, lotto/carico e singolo collo.
 - Movimenti e scarico colli collegati alla produzione.
 - Modulo Cotone con preventivo/consuntivo, immagini e costi.
-- Modulo Zentha con catalogo, ordini, pagamenti e PDF.
+- Modulo Zentha con catalogo analitico costi/listini, ordini personalizzati, pagamenti e PDF differenziati per contabilità, produzione e controllo completo.
 - Modulo Altri ricavi per lavorazioni economiche e materiali imputati.
 - Modulo Attività per campioni, ricerche grafiche e lavori operativi.
 - Ricerca globale e profilo cliente operativo.

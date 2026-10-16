@@ -358,7 +358,14 @@ class SpectroRepository(context: Context) {
     fun saveZenthaProduct(item: ZenthaProduct): Long {
         require(item.name.isNotBlank()) { "Inserisci il nome del prodotto." }
         require(item.standardCost >= 0 && item.standardPrice >= 0) { "Costo e prezzo non possono essere negativi." }
-        return if (item.id == 0L) db.insertZenthaProduct(item) else { db.updateZenthaProduct(item); item.id }
+        require(item.costBreakdownIsValid) { "Le componenti di costo non possono essere negative." }
+        if (item.sku.isNotBlank()) {
+            require(db.getZenthaProducts().none { it.id != item.id && it.sku.trim().equals(item.sku.trim(), true) }) {
+                "Esiste già un articolo con codice ${item.sku.trim()}."
+            }
+        }
+        val normalized = if (item.hasCostBreakdown) item.copy(standardCost = ZenthaCatalog.roundMoney(item.costBreakdownTotal)) else item
+        return if (normalized.id == 0L) db.insertZenthaProduct(normalized) else { db.updateZenthaProduct(normalized); normalized.id }
     }
     fun deleteZenthaProduct(id: Long) {
         require(db.getZenthaItems().none { it.productId == id }) { "Prodotto già utilizzato in ordini Zentha. Disattivalo invece di eliminarlo." }
@@ -371,6 +378,7 @@ class SpectroRepository(context: Context) {
         require(order.dueDate.isBlank() || validDate(order.dueDate)) { "Data consegna non valida." }
         require(items.isNotEmpty()) { "Aggiungi almeno un prodotto all'ordine Zentha." }
         require(items.all { it.quantity > 0 && it.unitPrice >= 0 && it.unitCost >= 0 }) { "Controlla quantità, prezzi e costi dei prodotti." }
+        require(items.all { it.productName.isNotBlank() }) { "Ogni riga deve contenere un articolo." }
         require(extraCosts.all { it.amount >= 0 }) { "I costi extra non possono essere negativi." }
         val id = if (order.id == 0L) db.insertZenthaOrder(order.copy(orderCode = ""), sql) else { db.updateZenthaOrder(order, sql); order.id }
         val saved = order.copy(id = id, orderCode = order.orderCode.ifBlank { generateOrderCode("ZEN", order.orderDate, id) })

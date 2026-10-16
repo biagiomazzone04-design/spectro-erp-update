@@ -319,8 +319,41 @@ data class ZenthaProduct(
     val standardPrice: Double,
     val description: String = "",
     val imagePath: String = "",
-    val active: Boolean = true
-)
+    val active: Boolean = true,
+    val fabricCost: Double = 0.0,
+    val ribCost: Double = 0.0,
+    val liningCost: Double = 0.0,
+    val printCost: Double = 0.0,
+    val accessoryCost: Double = 0.0,
+    val cuttingCost: Double = 0.0,
+    val sewingCost: Double = 0.0,
+    val labelCost: Double = 0.0,
+    val packagingCost: Double = 0.0,
+    val otherCost: Double = 0.0,
+    val priceListName: String = "Listino standard",
+    val markupPercent: Double = 0.0,
+    val sourceReference: String = ""
+) {
+    val costBreakdownTotal: Double get() = fabricCost + ribCost + liningCost + printCost + accessoryCost + cuttingCost + sewingCost + labelCost + packagingCost + otherCost
+    val hasCostBreakdown: Boolean get() = costBreakdownTotal > 0.0001
+    val costBreakdownIsValid: Boolean get() = listOf(fabricCost, ribCost, liningCost, printCost, accessoryCost, cuttingCost, sewingCost, labelCost, packagingCost, otherCost).all { it >= 0.0 }
+    val effectiveCost: Double get() = if (hasCostBreakdown) costBreakdownTotal else standardCost
+    val unitMargin: Double get() = standardPrice - standardCost
+    val marginPercent: Double get() = if (standardPrice > 0) unitMargin / standardPrice * 100.0 else 0.0
+
+    fun costComponents(): List<Pair<String, Double>> = listOf(
+        "Tessuto" to fabricCost,
+        "Costa" to ribCost,
+        "Fodera / inserti" to liningCost,
+        "Stampa" to printCost,
+        "Accessori" to accessoryCost,
+        "Taglio" to cuttingCost,
+        "Cucito / confezione" to sewingCost,
+        "Etichetta" to labelCost,
+        "Imballo" to packagingCost,
+        "Altri costi" to otherCost
+    ).filter { it.second > 0.0001 }
+}
 
 data class ZenthaOrder(
     val id: Long = 0,
@@ -343,11 +376,29 @@ data class ZenthaOrderItem(
     val productName: String,
     val quantity: Int,
     val unitPrice: Double,
-    val unitCost: Double
+    val unitCost: Double,
+    val skuSnapshot: String = "",
+    val productDescriptionSnapshot: String = "",
+    val variant: String = "",
+    val color: String = "",
+    val sizeBreakdown: String = "",
+    val personalization: String = "",
+    val productionNotes: String = ""
 ) {
     val revenue: Double get() = quantity * unitPrice
     val cost: Double get() = quantity * unitCost
     val margin: Double get() = revenue - cost
+}
+
+enum class ZenthaExportProfile(
+    val showSalePrices: Boolean,
+    val showInternalCosts: Boolean,
+    val showPayments: Boolean,
+    val showProductionDetails: Boolean
+) {
+    ACCOUNTING(true, false, true, true),
+    PRODUCTION(false, false, false, true),
+    COMPLETE(true, true, true, true)
 }
 
 data class ZenthaExtraCost(

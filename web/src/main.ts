@@ -43,6 +43,15 @@ const escapeHtml = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
   .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
 
+const friendlyAuthMessage = (message: string) => {
+  const normalized = message.toLowerCase()
+  if (normalized.includes('email not confirmed')) return 'Email non ancora confermata. Apri l’ultimo link ricevuto oppure richiedine uno nuovo.'
+  if (normalized.includes('invalid login credentials')) return 'Email o password non corrette. Se non hai ancora confermato l’email, richiedi un nuovo link.'
+  if (normalized.includes('email rate limit exceeded') || normalized.includes('over_email_send_rate_limit')) return 'Hai richiesto troppi link in poco tempo. Attendi alcuni minuti e riprova.'
+  if (normalized.includes('user already registered')) return 'Questo indirizzo è già registrato. Accedi oppure reinvia l’email di conferma.'
+  return message
+}
+
 function renderSetup() {
   app.innerHTML = `<main class="center"><section class="panel auth-panel">
     <div class="brand-mark">S</div><p class="kicker">SPECTRO ERP CLOUD</p>
@@ -70,21 +79,23 @@ function renderLogin(message = '') {
   document.querySelector('#show-signup')?.addEventListener('click', () => renderSignup())
 }
 
-function renderSignup(message = '') {
+function renderSignup(message = '', savedEmail = '') {
   app.innerHTML = `<main class="center auth-bg"><section class="panel auth-panel">
     <button class="back" id="back-login">← Torna all’accesso</button>
     <p class="kicker">NUOVO ACCOUNT</p><h1>Richiedi l’accesso</h1>
     <p class="lead">Dopo la conferma email, un amministratore assegnerà ruolo e moduli.</p>
     <form id="signup-form" class="form-stack">
       <label>Nome e cognome<input name="name" required autocomplete="name"></label>
-      <label>Email<input name="email" type="email" required autocomplete="email"></label>
+      <label>Email<input name="email" type="email" required autocomplete="email" value="${escapeHtml(savedEmail)}"></label>
       <label>Password<input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
       ${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ''}
       <button class="primary" type="submit">Invia richiesta</button>
+      <button class="link" id="resend-confirmation" type="button">Reinvia email di conferma</button>
     </form>
   </section></main>`
   document.querySelector('#back-login')?.addEventListener('click', () => renderLogin())
   document.querySelector('#signup-form')?.addEventListener('submit', onSignup)
+  document.querySelector('#resend-confirmation')?.addEventListener('click', onResendConfirmation)
 }
 
 async function onLogin(event: Event) {
@@ -94,19 +105,35 @@ async function onLogin(event: Event) {
   const { error } = await supabase.auth.signInWithPassword({
     email: String(form.get('email')), password: String(form.get('password'))
   })
-  if (error) renderLogin(error.message)
+  if (error) renderLogin(friendlyAuthMessage(error.message))
 }
 
 async function onSignup(event: Event) {
   event.preventDefault()
   if (!supabase) return
   const form = new FormData(event.currentTarget as HTMLFormElement)
+  const email = String(form.get('email')).trim()
   const { error } = await supabase.auth.signUp({
-    email: String(form.get('email')),
+    email,
     password: String(form.get('password')),
     options: { data: { display_name: String(form.get('name')) } }
   })
-  renderSignup(error?.message || 'Richiesta inviata. Controlla la tua email, poi attendi l’assegnazione del ruolo.')
+  renderSignup(
+    error ? friendlyAuthMessage(error.message) : 'Richiesta inviata. Apri solo l’email più recente, poi attendi l’assegnazione del ruolo.',
+    email
+  )
+}
+
+async function onResendConfirmation() {
+  if (!supabase) return
+  const input = document.querySelector<HTMLInputElement>('#signup-form input[name="email"]')
+  const email = input?.value.trim() || ''
+  if (!email) return renderSignup('Inserisci prima l’indirizzo email usato per registrarti.')
+  const { error } = await supabase.auth.resend({ type: 'signup', email })
+  renderSignup(
+    error ? friendlyAuthMessage(error.message) : 'Nuovo link inviato. Apri solo l’email più recente: i link precedenti diventano obsoleti.',
+    email
+  )
 }
 
 async function loadAccess(user: User): Promise<AccessContext | null> {

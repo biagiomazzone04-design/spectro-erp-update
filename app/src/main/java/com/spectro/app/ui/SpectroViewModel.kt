@@ -103,6 +103,13 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun resendConfirmation(email: String) {
+        viewModelScope.launch {
+            authMessage = runCatching { authRepository.resendSignUpConfirmation(email) }
+                .getOrElse { it.message ?: "Invio del nuovo link non riuscito." }
+        }
+    }
+
     fun retryAccess() {
         viewModelScope.launch {
             authState = AuthState.Loading

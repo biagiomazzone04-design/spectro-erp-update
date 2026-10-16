@@ -87,7 +87,12 @@ private fun LoginCard(vm: SpectroViewModel, p: SpectroPalette) {
                 Icon(Icons.Rounded.Lock, null, tint = p.primary)
                 Spacer(Modifier.width(10.dp))
                 Column {
-                    Text(if (register) "Richiedi un account" else "Accedi al gestionale", fontWeight = FontWeight.Black, fontSize = 20.sp)
+                    Text(
+                        if (register) "Richiedi un account" else "Accedi al gestionale",
+                        color = p.text,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 20.sp
+                    )
                     Text("Stesso account su Android, Windows e Mac", color = p.textMuted, fontSize = 12.sp)
                 }
             }
@@ -120,14 +125,24 @@ private fun LoginCard(vm: SpectroViewModel, p: SpectroPalette) {
             )
             message?.let {
                 Spacer(Modifier.height(12.dp))
-                Text(it, color = if (it.startsWith("Richiesta")) p.success else p.warning, fontSize = 12.sp)
+                val success = it.startsWith("Richiesta") || it.startsWith("Nuovo link")
+                Text(it, color = if (success) p.success else p.warning, fontSize = 12.sp)
             }
             Spacer(Modifier.height(18.dp))
             GradientButton(if (register) "Invia richiesta" else "Accedi", p) {
                 if (register) vm.signUp(email, password, displayName) else vm.signIn(email, password)
             }
+            TextButton(onClick = { vm.resendConfirmation(email) }, Modifier.fillMaxWidth()) {
+                Text(
+                    if (register) "Reinvia email di conferma" else "Email non confermata? Reinvia il link",
+                    color = p.primary
+                )
+            }
             TextButton(onClick = { register = !register; vm.consumeAuthMessage() }, Modifier.fillMaxWidth()) {
-                Text(if (register) "Ho già un account" else "Non hai un account? Richiedi accesso")
+                Text(
+                    if (register) "Ho già un account" else "Non hai un account? Richiedi accesso",
+                    color = p.primary
+                )
             }
         }
     }
@@ -149,7 +164,7 @@ private fun MessageCard(
     SpectroCard(p = p, modifier = Modifier.widthIn(max = 520.dp).fillMaxWidth()) {
         Icon(icon, null, tint = p.primary, modifier = Modifier.size(42.dp))
         Spacer(Modifier.height(16.dp))
-        Text(title, fontWeight = FontWeight.Black, fontSize = 24.sp)
+        Text(title, color = p.text, fontWeight = FontWeight.Black, fontSize = 24.sp)
         Spacer(Modifier.height(8.dp))
         Text(message, color = p.textMuted)
         primaryLabel?.let {

@@ -24,6 +24,15 @@ Questa versione introduce la base cloud comune per Android, Windows e Mac.
 4. Creare il primo account.
 5. Dall’app Android o dal portale web, nella schermata “Ruolo in attesa”, scegliere **Configura prima azienda**. La funzione funziona solo se non esiste ancora alcuna organizzazione e assegna il ruolo Admin al primo utente.
 
+### Se il link di conferma risulta scaduto o obsoleto
+
+1. Tornare alla schermata di accesso o registrazione.
+2. Inserire l’email usata per l’account e scegliere **Reinvia email di conferma**.
+3. Aprire soltanto l’ultimo messaggio ricevuto: un nuovo invio invalida i link precedenti.
+4. Dopo la conferma, tornare nell’app e accedere con email e password.
+
+Supabase può limitare temporaneamente gli invii ripetuti. Se compare il messaggio relativo al limite email, attendere alcuni minuti prima di riprovare. In **Authentication → URL Configuration** mantenere aggiornati il Site URL del portale pubblicato e le Redirect URLs autorizzate.
+
 Non usare mai la chiave `service_role` nei client.
 
 ## Avvio portale Windows/Mac

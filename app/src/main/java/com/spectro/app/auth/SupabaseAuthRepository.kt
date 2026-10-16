@@ -58,7 +58,19 @@ class SupabaseAuthRepository(context: Context) {
                 .put("password", password)
                 .put("data", JSONObject().put("display_name", displayName.trim()))
         )
-        "Richiesta inviata. Conferma l’email, poi un amministratore dovrà assegnarti un ruolo."
+        "Richiesta inviata. Apri solo l’email più recente e conferma l’indirizzo; poi un amministratore dovrà assegnarti un ruolo."
+    }
+
+    suspend fun resendSignUpConfirmation(email: String): String = withContext(Dispatchers.IO) {
+        require(email.isNotBlank() && '@' in email) { "Inserisci prima l’indirizzo email usato per registrarti." }
+        request(
+            path = "/auth/v1/resend",
+            method = "POST",
+            body = JSONObject()
+                .put("type", "signup")
+                .put("email", email.trim())
+        )
+        "Nuovo link inviato. Apri solo l’email più recente: i link precedenti diventano obsoleti."
     }
 
     suspend fun retryAccess(): AuthState = withContext(Dispatchers.IO) {
@@ -231,10 +243,11 @@ class SupabaseAuthRepository(context: Context) {
 
     private fun errorMessage(status: Int, text: String): String {
         val error = runCatching { JSONObject(text) }.getOrNull()
-        return error?.optString("msg")?.ifBlank { null }
+        val raw = error?.optString("msg")?.ifBlank { null }
             ?: error?.optString("message")?.ifBlank { null }
             ?: error?.optString("error_description")?.ifBlank { null }
-            ?: "Servizio cloud non disponibile ($status)."
+            ?: ""
+        return localizedAuthError(raw, status)
     }
 
     private fun JSONObject.toSession(): AuthSession {

@@ -34,6 +34,8 @@ Il portale web v8 corregge il blocco dello scorrimento causato dalla classe dei 
 
 Il portale web v9 ridisegna Attività come bacheca operativa: scadute e odierne, lavorazioni in corso e attività da pianificare vengono mostrate prima dell’archivio, ordinate automaticamente e aperte direttamente nel dossier. Introduce inoltre un motion system coerente per navigazione, KPI, schede e pannelli, con colori semantici e rispetto dell’impostazione di accessibilità `prefers-reduced-motion`.
 
+Il portale web v10 stabilizza le animazioni eliminando lo spostamento laterale del menu, aggiunge calendario settimanale e trascinamento autorizzato delle attività tra pianificazione, lavorazione e completamento. Introduce inoltre centro notifiche, tavolozza comandi `Ctrl/Cmd + K` e un Centro personalizzazione locale per dispositivo con temi, cinque colori indipendenti, font, dimensione testo, densità, raggi, larghezza menu e livello delle animazioni. Le preferenze sono conservate solo nel browser e non vengono sincronizzate tra Android, Windows o Mac.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 

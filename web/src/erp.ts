@@ -163,7 +163,7 @@ function moduleInsights(primary: CloudRecord[]) {
   </section>`
 }
 
-function taskFocusBoard(rows: CloudRecord[]) {
+function taskFocusBoard(rows: CloudRecord[], canManage: boolean) {
   const today = new Date().toISOString().slice(0, 10)
   const active = rows.filter(row => !terminalStatus.test(String(p(row).status || '')))
   const priorityRank = (row: CloudRecord) => /URGENT|CRITICAL/.test(String(p(row).priority || '')) ? 0 : p(row).priority === 'HIGH' ? 1 : 2
@@ -175,13 +175,14 @@ function taskFocusBoard(rows: CloudRecord[]) {
     return aUrgency - bUrgency || priorityRank(a) - priorityRank(b) || (aDue || '9999').localeCompare(bDue || '9999')
   })
   const buckets = [
-    { key: 'urgent', title: 'Scadute e di oggi', subtitle: 'Da gestire per prime', rows: sorted.filter(row => dueOf(row) && dueOf(row) <= today) },
-    { key: 'progress', title: 'In corso', subtitle: 'Lavorazioni già avviate', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && /PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) },
-    { key: 'planned', title: 'Da pianificare', subtitle: 'Prossime attività operative', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && !/PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) }
+    { key: 'urgent', state: '', title: 'Scadute e di oggi', subtitle: 'Da gestire per prime', rows: sorted.filter(row => dueOf(row) && dueOf(row) <= today) },
+    { key: 'progress', state: 'IN_PROGRESS', title: 'In corso', subtitle: 'Lavorazioni già avviate', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && /PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) },
+    { key: 'planned', state: 'OPEN', title: 'Da pianificare', subtitle: 'Prossime attività operative', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && !/PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) },
+    { key: 'completed', state: 'DONE', title: 'Completate', subtitle: 'Ultime attività concluse', rows: rows.filter(row => terminalStatus.test(String(p(row).status || ''))).sort((a,b) => b.updated_at.localeCompare(a.updated_at)) }
   ]
   const card = (row: CloudRecord) => {
     const x = p(row); const due = dueOf(row); const overdue = Boolean(due && due < today)
-    return `<button class="focus-task-card ${overdue ? 'overdue' : ''}" data-task="${esc(row.id)}">
+    return `<button class="focus-task-card ${overdue ? 'overdue' : ''}" data-task="${esc(row.id)}" ${canManage ? 'draggable="true"' : ''}>
       <span class="task-card-top"><b>${esc(label(x.priority || 'NORMAL'))}</b><i>${overdue ? 'Scaduta' : due === today ? 'Oggi' : esc(label(x.status || 'OPEN'))}</i></span>
       <strong>${esc(text(x.title, 'Attività senza titolo'))}</strong>
       <span class="task-client">${esc(text(x.clientName, 'Attività interna'))}</span>
@@ -189,9 +190,11 @@ function taskFocusBoard(rows: CloudRecord[]) {
       <span class="task-card-footer"><b>${due ? date(due) : 'Nessuna scadenza'}</b><i>Apri scheda →</i></span>
     </button>`
   }
+  const calendarDays = Array.from({length:7},(_,index) => { const value = new Date(`${today}T12:00:00`); value.setDate(value.getDate()+index); return value.toISOString().slice(0,10) })
   return `<section class="task-focus-board">
-    <header><div><p class="kicker">PRIORITÀ OPERATIVE</p><h2>Cosa richiede attenzione adesso</h2><p>Le attività aperte sono ordinate automaticamente per scadenza e priorità.</p></div><span><b>${active.length}</b> attività aperte</span></header>
-    <div class="task-focus-columns">${buckets.map(bucket => `<article class="task-focus-column ${bucket.key}"><div class="task-column-heading"><span><i></i><strong>${bucket.title}</strong><small>${bucket.subtitle}</small></span><b>${bucket.rows.length}</b></div><div class="task-card-list">${bucket.rows.slice(0, 6).map(card).join('') || '<div class="task-column-empty">Nessuna attività in questa area</div>'}</div></article>`).join('')}</div>
+    <header><div><p class="kicker">PRIORITÀ OPERATIVE</p><h2>Cosa richiede attenzione adesso</h2><p>Le attività sono ordinate automaticamente. ${canManage ? 'Trascina le schede per aggiornarne lo stato.' : ''}</p></div><span><b>${active.length}</b> attività aperte</span></header>
+    <div class="task-focus-columns">${buckets.map(bucket => `<article class="task-focus-column ${bucket.key}" ${bucket.state ? `data-drop-state="${bucket.state}"` : ''}><div class="task-column-heading"><span><i></i><strong>${bucket.title}</strong><small>${bucket.subtitle}</small></span><b>${bucket.rows.length}</b></div><div class="task-card-list">${bucket.rows.slice(0, 6).map(card).join('') || '<div class="task-column-empty">Nessuna attività in questa area</div>'}</div></article>`).join('')}</div>
+    <div class="task-week"><div class="task-week-heading"><p class="kicker">CALENDARIO RAPIDO</p><h3>Prossimi 7 giorni</h3></div><div class="task-week-grid">${calendarDays.map(day => { const dayRows = active.filter(row => dueOf(row) === day); return `<article class="${day === today ? 'today' : ''}"><span>${new Date(`${day}T12:00:00`).toLocaleDateString('it-IT',{weekday:'short'})}</span><strong>${new Date(`${day}T12:00:00`).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})}</strong><b>${dayRows.length}</b><small>${dayRows.slice(0,2).map(row => esc(titleOf(row))).join(' · ') || 'Nessuna scadenza'}</small></article>` }).join('')}</div></div>
   </section>`
 }
 
@@ -400,10 +403,21 @@ export function renderAnalyticalModule(
     const term = search.value.trim().toLowerCase(); const selected = status?.value || ''
     if (module.key === 'tasks') {
       const focusRows = primary.filter(row => JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || String(p(row).status || 'OPEN') === selected))
-      root.querySelector<HTMLElement>('#task-focus')!.innerHTML = taskFocusBoard(focusRows)
+      root.querySelector<HTMLElement>('#task-focus')!.innerHTML = taskFocusBoard(focusRows, canManage)
       root.querySelectorAll<HTMLButtonElement>('[data-task]').forEach(button => button.addEventListener('click', () => {
         const row = records.find(item => item.id === button.dataset.task); if (row) openRecord(row)
       }))
+      if (canManage && onUpdate) {
+        root.querySelectorAll<HTMLElement>('[data-task]').forEach(card => {
+          card.addEventListener('dragstart', event => { event.dataTransfer?.setData('text/plain', card.dataset.task || ''); card.classList.add('dragging') })
+          card.addEventListener('dragend', () => card.classList.remove('dragging'))
+        })
+        root.querySelectorAll<HTMLElement>('[data-drop-state]').forEach(column => {
+          column.addEventListener('dragover', event => { event.preventDefault(); column.classList.add('drop-target') })
+          column.addEventListener('dragleave', () => column.classList.remove('drop-target'))
+          column.addEventListener('drop', async event => { event.preventDefault(); column.classList.remove('drop-target'); const id = event.dataTransfer?.getData('text/plain'); const row = records.find(item => item.id === id); if (row) await onUpdate(row,{status:column.dataset.dropState}) })
+        })
+      }
     }
     const periodRows = primary.filter(row => { const value = moduleDate(row); return value && value >= rangeStart && value <= rangeEnd })
     root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)

@@ -23,6 +23,34 @@ type AccessContext = {
 
 let adminPreview: { user: User; access: AccessContext } | null = null
 
+type UiPreferences = {
+  preset: string; accent: string; secondary: string; background: string; surface: string; text: string
+  font: string; textScale: number; density: number; radius: number; sidebar: number; motion: string
+}
+
+const defaultUiPreferences: UiPreferences = {
+  preset: 'spectro', accent: '#ff2db2', secondary: '#ff8a00', background: '#050507', surface: '#111115', text: '#f7f7fa',
+  font: 'Inter', textScale: 1, density: 1, radius: 1, sidebar: 248, motion: 'full'
+}
+
+const preferenceKey = (userId: string) => `spectro-ui-device-v1:${userId}`
+const readUiPreferences = (userId: string): UiPreferences => {
+  try { return { ...defaultUiPreferences, ...JSON.parse(localStorage.getItem(preferenceKey(userId)) || '{}') } }
+  catch { return { ...defaultUiPreferences } }
+}
+const applyUiPreferences = (preferences: UiPreferences) => {
+  const root = document.documentElement
+  root.style.setProperty('--pink', preferences.accent); root.style.setProperty('--orange', preferences.secondary)
+  root.style.setProperty('--app-bg', preferences.background); root.style.setProperty('--surface', preferences.surface)
+  root.style.setProperty('--app-text', preferences.text); root.style.setProperty('--text-scale', String(preferences.textScale))
+  root.style.setProperty('--density', String(preferences.density)); root.style.setProperty('--radius-scale', String(preferences.radius))
+  root.style.setProperty('--sidebar-width', `${preferences.sidebar}px`); root.style.setProperty('--ui-font', `${preferences.font}, Inter, system-ui, sans-serif`)
+  root.dataset.theme = preferences.preset; root.dataset.motion = preferences.motion
+}
+const saveUiPreferences = (userId: string, preferences: UiPreferences) => {
+  localStorage.setItem(preferenceKey(userId), JSON.stringify(preferences)); applyUiPreferences(preferences)
+}
+
 type Module = {
   key: string
   eyebrow: string
@@ -57,6 +85,8 @@ function allowedModules(access: AccessContext) {
 
 function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
   document.body.classList.remove('drawer-open')
+  let uiPreferences = readUiPreferences(user.id)
+  applyUiPreferences(uiPreferences)
   const allowed = allowedModules(access)
   const navigation = [
     { key: 'dashboard', title: 'Dashboard', eyebrow: 'Panoramica', permission: 'dashboard.view' },
@@ -72,8 +102,16 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
     </aside>
     <div class="desktop-stage">
       ${access.preview_name ? `<div class="preview-banner"><strong>Anteprima utente: ${escapeHtml(access.preview_name)}</strong><span>Stai vedendo Spectro con i permessi di ${escapeHtml(access.preview_role || 'questo utente')}.</span><button id="exit-preview">Torna ad amministratore</button></div>` : ''}
-      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><label class="global-search">⌕<input id="global-search" type="search" placeholder="Cerca in tutto Spectro…"><kbd>⌘ K</kbd></label><div class="topbar-actions"><button title="Notifiche" aria-label="Notifiche">♢</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
+      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><button class="global-search command-trigger" id="open-command" type="button">⌕<span>Cerca o apri un modulo…</span><kbd>Ctrl K</kbd></button><div class="topbar-actions"><button id="open-notifications" title="Notifiche" aria-label="Notifiche">♢<i id="notification-count" hidden>0</i></button><button id="open-customization" title="Personalizza interfaccia" aria-label="Personalizza interfaccia">◐</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
       <main class="content control-content" id="view-host">${content}</main>
+      <div id="notification-panel" class="ui-panel" hidden><button class="ui-panel-scrim" data-close-panel aria-label="Chiudi"></button><aside><header><div><p class="kicker">CENTRO NOTIFICHE</p><h2>Attenzione richiesta</h2></div><button data-close-panel>×</button></header><div id="notification-list" class="notification-center"><p class="muted">Caricamento notifiche…</p></div></aside></div>
+      <div id="customization-panel" class="ui-panel" hidden><button class="ui-panel-scrim" data-close-panel aria-label="Chiudi"></button><aside class="customization-drawer"><header><div><p class="kicker">SOLO SU QUESTO DISPOSITIVO</p><h2>Personalizza Spectro</h2></div><button data-close-panel>×</button></header><div class="customization-content">
+        <section><h3>Stile rapido</h3><div class="theme-presets"><button data-theme-preset="spectro">Spectro Neon</button><button data-theme-preset="ocean">Ocean</button><button data-theme-preset="emerald">Emerald</button><button data-theme-preset="light">Chiaro</button><button data-theme-preset="contrast">Alto contrasto</button></div></section>
+        <section><h3>Colori completi</h3><div class="customization-grid"><label>Colore principale<input name="accent" type="color" value="${uiPreferences.accent}"></label><label>Colore secondario<input name="secondary" type="color" value="${uiPreferences.secondary}"></label><label>Sfondo<input name="background" type="color" value="${uiPreferences.background}"></label><label>Blocchi e pannelli<input name="surface" type="color" value="${uiPreferences.surface}"></label><label>Testo<input name="text" type="color" value="${uiPreferences.text}"></label></div></section>
+        <section><h3>Testo e struttura</h3><label>Font<select name="font"><option value="Inter">Inter</option><option value="Arial">Arial</option><option value="Verdana">Verdana</option><option value="Georgia">Georgia</option><option value="Trebuchet MS">Trebuchet</option><option value="system-ui">Sistema</option></select></label><label>Grandezza testo <output id="text-scale-output">${Math.round(uiPreferences.textScale * 100)}%</output><input name="textScale" type="range" min="0.85" max="1.35" step="0.05" value="${uiPreferences.textScale}"></label><label>Spaziatura blocchi <output id="density-output">${Math.round(uiPreferences.density * 100)}%</output><input name="density" type="range" min="0.75" max="1.35" step="0.05" value="${uiPreferences.density}"></label><label>Arrotondamento <output id="radius-output">${Math.round(uiPreferences.radius * 100)}%</output><input name="radius" type="range" min="0" max="1.6" step="0.1" value="${uiPreferences.radius}"></label><label>Larghezza menu <output id="sidebar-output">${uiPreferences.sidebar}px</output><input name="sidebar" type="range" min="220" max="340" step="4" value="${uiPreferences.sidebar}"></label><label>Animazioni<select name="motion"><option value="full">Complete</option><option value="reduced">Ridotte</option><option value="none">Disattivate</option></select></label></section>
+        <p class="local-preference-note">Queste impostazioni restano nel browser corrente e non modificano Android, altri PC o altri utenti.</p><button id="reset-customization" class="secondary">Ripristina impostazioni</button>
+      </div></aside></div>
+      <div id="command-panel" class="command-panel" hidden><button class="command-scrim" data-close-command aria-label="Chiudi"></button><section><label>⌕<input id="command-input" type="search" placeholder="Cerca un modulo, un cliente, un ordine…"></label><div id="command-results"><button data-command-action="search" data-command-search="cerca dati cliente ordine tessuto attività"><i>⌕</i><span><strong>Cerca in tutti i dati</strong><small>Scrivi una parola e premi Invio</small></span><b>Invio ↵</b></button>${navigation.map(item => `<button data-command-route="${item.key}" data-command-search="${escapeHtml(`${item.title} ${item.eyebrow}`.toLowerCase())}"><i>${moduleIcons[item.key] || '•'}</i><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.eyebrow)}</small></span><b>Apri →</b></button>`).join('')}<button data-command-action="customize" data-command-search="tema colori font personalizza interfaccia"><i>◐</i><span><strong>Personalizza Spectro</strong><small>Tema, colori, testo e blocchi</small></span><b>Apri →</b></button></div></section></div>
     </div>
   </div>`
   document.querySelector('#logout')?.addEventListener('click', () => supabase?.auth.signOut())
@@ -93,12 +131,40 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       else if (module) void renderModule(user, access, module)
     }
   }))
-  const globalSearch = document.querySelector<HTMLInputElement>('#global-search')
-  globalSearch?.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && globalSearch.value.trim()) void renderGlobalSearch(user, access, globalSearch.value.trim())
-  })
+  const customizationPanel = document.querySelector<HTMLElement>('#customization-panel')!
+  const notificationPanel = document.querySelector<HTMLElement>('#notification-panel')!
+  const commandPanel = document.querySelector<HTMLElement>('#command-panel')!
+  const closeUiPanels = () => { customizationPanel.hidden = true; notificationPanel.hidden = true; commandPanel.hidden = true; document.body.classList.remove('drawer-open') }
+  const openPanel = (panel: HTMLElement) => { closeUiPanels(); panel.hidden = false; document.body.classList.add('drawer-open') }
+  document.querySelector('#open-customization')?.addEventListener('click', () => openPanel(customizationPanel))
+  document.querySelector('#open-notifications')?.addEventListener('click', () => openPanel(notificationPanel))
+  document.querySelectorAll('[data-close-panel],[data-close-command]').forEach(button => button.addEventListener('click', closeUiPanels))
+  const commandInput = document.querySelector<HTMLInputElement>('#command-input')!
+  const openCommand = () => { openPanel(commandPanel); requestAnimationFrame(() => commandInput.focus()) }
+  document.querySelector('#open-command')?.addEventListener('click', openCommand)
+  commandInput.addEventListener('input', () => { const term = commandInput.value.trim().toLowerCase(); document.querySelectorAll<HTMLElement>('[data-command-search]').forEach(item => { item.hidden = Boolean(term && !item.dataset.commandSearch?.includes(term)) }) })
+  const searchAllData = () => { const query = commandInput.value.trim(); if (query) void renderGlobalSearch(user, access, query) }
+  commandInput.addEventListener('keydown', event => { if (event.key === 'Enter') searchAllData() })
+  document.querySelector('[data-command-action="search"]')?.addEventListener('click', searchAllData)
+  document.querySelectorAll<HTMLElement>('[data-command-route]').forEach(element => element.addEventListener('click', () => document.querySelector<HTMLElement>(`[data-route="${element.dataset.commandRoute}"]`)?.click()))
+  document.querySelector('[data-command-action="customize"]')?.addEventListener('click', () => openPanel(customizationPanel))
+  const controls = customizationPanel.querySelectorAll<HTMLInputElement|HTMLSelectElement>('input[name],select[name]')
+  customizationPanel.querySelector<HTMLSelectElement>('select[name="font"]')!.value = uiPreferences.font
+  customizationPanel.querySelector<HTMLSelectElement>('select[name="motion"]')!.value = uiPreferences.motion
+  const refreshPreferences = () => {
+    const read = (name: string) => customizationPanel.querySelector<HTMLInputElement|HTMLSelectElement>(`[name="${name}"]`)!.value
+    uiPreferences = { ...uiPreferences, accent:read('accent'), secondary:read('secondary'), background:read('background'), surface:read('surface'), text:read('text'), font:read('font'), textScale:Number(read('textScale')), density:Number(read('density')), radius:Number(read('radius')), sidebar:Number(read('sidebar')), motion:read('motion') }
+    customizationPanel.querySelector<HTMLOutputElement>('#text-scale-output')!.value = `${Math.round(uiPreferences.textScale * 100)}%`; customizationPanel.querySelector<HTMLOutputElement>('#density-output')!.value = `${Math.round(uiPreferences.density * 100)}%`; customizationPanel.querySelector<HTMLOutputElement>('#radius-output')!.value = `${Math.round(uiPreferences.radius * 100)}%`; customizationPanel.querySelector<HTMLOutputElement>('#sidebar-output')!.value = `${uiPreferences.sidebar}px`
+    saveUiPreferences(user.id, uiPreferences)
+  }
+  controls.forEach(control => control.addEventListener('input', refreshPreferences))
+  const presetValues: Record<string, Partial<UiPreferences>> = { spectro:{accent:'#ff2db2',secondary:'#ff8a00',background:'#050507',surface:'#111115',text:'#f7f7fa'}, ocean:{accent:'#20c7ff',secondary:'#6f78ff',background:'#05080d',surface:'#101722',text:'#f4fbff'}, emerald:{accent:'#35e69a',secondary:'#d5ed52',background:'#050a08',surface:'#101813',text:'#f4fff9'}, light:{accent:'#c0167f',secondary:'#d96b00',background:'#f4f2f5',surface:'#ffffff',text:'#17131a'}, contrast:{accent:'#00e5ff',secondary:'#ffea00',background:'#000000',surface:'#080808',text:'#ffffff'} }
+  const syncPreferenceControls = () => { Object.entries(uiPreferences).forEach(([name,value]) => { const control = customizationPanel.querySelector<HTMLInputElement|HTMLSelectElement>(`[name="${name}"]`); if (control) control.value = String(value) }); refreshPreferences() }
+  customizationPanel.querySelectorAll<HTMLButtonElement>('[data-theme-preset]').forEach(button => button.addEventListener('click', () => { uiPreferences = { ...uiPreferences, preset:button.dataset.themePreset || 'spectro', ...presetValues[button.dataset.themePreset || 'spectro'] }; syncPreferenceControls() }))
+  customizationPanel.querySelector('#reset-customization')?.addEventListener('click', () => { localStorage.removeItem(preferenceKey(user.id)); uiPreferences = { ...defaultUiPreferences }; syncPreferenceControls() })
   document.onkeydown = event => {
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); globalSearch?.focus() }
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); openCommand() }
+    if (event.key === 'Escape') closeUiPanels()
   }
   return document.querySelector<HTMLElement>('#view-host')!
 }
@@ -110,6 +176,20 @@ const escapeHtml = (value: unknown) => String(value ?? '')
 const recordDate = (row: CloudRecord) => String(
   row.payload.date || row.payload.orderDate || row.payload.receivedDate || row.payload.dueDate || row.payload.openedDate || row.updated_at || ''
 ).slice(0, 10)
+
+function updateNotificationCenter(records: CloudRecord[]) {
+  const list = document.querySelector<HTMLElement>('#notification-list'); const badge = document.querySelector<HTMLElement>('#notification-count')
+  if (!list || !badge) return
+  const today = new Date().toISOString().slice(0, 10); const terminal = /COMPLETED|DELIVERED|CLOSED|CANCELLED|DONE|RESOLVED|PAID/
+  const due = (row: CloudRecord) => String(row.payload.dueDate || row.payload.expectedDeliveryDate || '').slice(0, 10)
+  const notices = [
+    ...records.filter(row => row.entity_type === 'operational_task' && due(row) && due(row) < today && !terminal.test(String(row.payload.status))).map(row => ({ tone:'danger', title:String(row.payload.title || 'Attività scaduta'), detail:`Scadenza ${formatItalianDate(due(row))} · ${String(row.payload.clientName || 'Attività interna')}` })),
+    ...records.filter(row => row.entity_type === 'work_order' && due(row) && due(row) < today && !terminal.test(String(row.payload.status))).map(row => ({ tone:'warn', title:String(row.payload.orderCode || row.payload.title || 'Ordine in ritardo'), detail:`Consegna ${formatItalianDate(due(row))} · ${String(row.payload.client || 'Cliente non indicato')}` })),
+    ...records.filter(row => row.entity_type === 'inventory_item' && Number(row.payload.quantityMeters || 0) <= Number(row.payload.minimumQuantityMeters || 0)).map(row => ({ tone:'info', title:String(row.payload.fabricName || 'Scorta sotto soglia'), detail:`Disponibili ${Number(row.payload.quantityMeters || 0).toLocaleString('it-IT')} m` }))
+  ].slice(0, 30)
+  badge.textContent = String(notices.length); badge.hidden = notices.length === 0
+  list.innerHTML = notices.length ? notices.map(notice => `<article class="notification-item ${notice.tone}"><i></i><div><strong>${escapeHtml(notice.title)}</strong><span>${escapeHtml(notice.detail)}</span></div></article>`).join('') : '<div class="notification-empty"><b>✓</b><strong>Tutto sotto controllo</strong><span>Non ci sono notifiche urgenti.</span></div>'
+}
 
 function periodDates(mode: string) {
   const now = new Date()
@@ -262,6 +342,7 @@ async function renderWorkspace(user: User, access: AccessContext) {
     const response = await supabase.rpc('list_erp_records_safe', { p_organization_id: access.organization_id, p_module: null, p_limit: 500 })
     allRecords = recordsForAccess(response.data || [], access)
   }
+  updateNotificationCenter(allRecords)
   const host = document.querySelector<HTMLElement>('#view-host')!
   const terminal = /COMPLETED|DELIVERED|CLOSED|CANCELLED|DONE|RESOLVED|PAID/
   const today = new Date().toISOString().slice(0, 10)
@@ -476,6 +557,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
     p_organization_id: access.organization_id, p_module: key, p_limit: 500
   })))
   const records = recordsForAccess(results.flatMap(result => (result.data || []) as CloudRecord[]), access)
+  updateNotificationCenter(records)
   const error = results.find(result => result.error)?.error
   renderAnalyticalModule(
     host,

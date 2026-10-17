@@ -32,6 +32,8 @@ Il portale web v7 aggiunge l’anteprima globale di qualunque ruolo anche in ass
 
 Il portale web v8 corregge il blocco dello scorrimento causato dalla classe dei pannelli modali rimasta sul `body` durante la navigazione. Introduce inoltre moduli di modifica per i record autorizzati e la migrazione cloud 005: le modifiche web vengono conservate come overlay persistenti, applicate dal lettore sicuro e non possono essere sovrascritte dalle pubblicazioni complete Android. L’integrazione inversa degli overlay dentro il database Android resta una fase successiva.
 
+Il portale web v9 ridisegna Attività come bacheca operativa: scadute e odierne, lavorazioni in corso e attività da pianificare vengono mostrate prima dell’archivio, ordinate automaticamente e aperte direttamente nel dossier. Introduce inoltre un motion system coerente per navigazione, KPI, schede e pannelli, con colori semantici e rispetto dell’impostazione di accessibilità `prefers-reduced-motion`.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 

@@ -163,6 +163,38 @@ function moduleInsights(primary: CloudRecord[]) {
   </section>`
 }
 
+function taskFocusBoard(rows: CloudRecord[]) {
+  const today = new Date().toISOString().slice(0, 10)
+  const active = rows.filter(row => !terminalStatus.test(String(p(row).status || '')))
+  const priorityRank = (row: CloudRecord) => /URGENT|CRITICAL/.test(String(p(row).priority || '')) ? 0 : p(row).priority === 'HIGH' ? 1 : 2
+  const dueOf = (row: CloudRecord) => isoDate(p(row).dueDate)
+  const sorted = [...active].sort((a, b) => {
+    const aDue = dueOf(a); const bDue = dueOf(b)
+    const aUrgency = aDue && aDue <= today ? 0 : /PROGRESS|STARTED|PRODUCTION/.test(String(p(a).status || '')) ? 1 : 2
+    const bUrgency = bDue && bDue <= today ? 0 : /PROGRESS|STARTED|PRODUCTION/.test(String(p(b).status || '')) ? 1 : 2
+    return aUrgency - bUrgency || priorityRank(a) - priorityRank(b) || (aDue || '9999').localeCompare(bDue || '9999')
+  })
+  const buckets = [
+    { key: 'urgent', title: 'Scadute e di oggi', subtitle: 'Da gestire per prime', rows: sorted.filter(row => dueOf(row) && dueOf(row) <= today) },
+    { key: 'progress', title: 'In corso', subtitle: 'Lavorazioni già avviate', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && /PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) },
+    { key: 'planned', title: 'Da pianificare', subtitle: 'Prossime attività operative', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && !/PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) }
+  ]
+  const card = (row: CloudRecord) => {
+    const x = p(row); const due = dueOf(row); const overdue = Boolean(due && due < today)
+    return `<button class="focus-task-card ${overdue ? 'overdue' : ''}" data-task="${esc(row.id)}">
+      <span class="task-card-top"><b>${esc(label(x.priority || 'NORMAL'))}</b><i>${overdue ? 'Scaduta' : due === today ? 'Oggi' : esc(label(x.status || 'OPEN'))}</i></span>
+      <strong>${esc(text(x.title, 'Attività senza titolo'))}</strong>
+      <span class="task-client">${esc(text(x.clientName, 'Attività interna'))}</span>
+      ${x.description ? `<small>${esc(text(x.description))}</small>` : ''}
+      <span class="task-card-footer"><b>${due ? date(due) : 'Nessuna scadenza'}</b><i>Apri scheda →</i></span>
+    </button>`
+  }
+  return `<section class="task-focus-board">
+    <header><div><p class="kicker">PRIORITÀ OPERATIVE</p><h2>Cosa richiede attenzione adesso</h2><p>Le attività aperte sono ordinate automaticamente per scadenza e priorità.</p></div><span><b>${active.length}</b> attività aperte</span></header>
+    <div class="task-focus-columns">${buckets.map(bucket => `<article class="task-focus-column ${bucket.key}"><div class="task-column-heading"><span><i></i><strong>${bucket.title}</strong><small>${bucket.subtitle}</small></span><b>${bucket.rows.length}</b></div><div class="task-card-list">${bucket.rows.slice(0, 6).map(card).join('') || '<div class="task-column-empty">Nessuna attività in questa area</div>'}</div></article>`).join('')}</div>
+  </section>`
+}
+
 function productionAnalytics(rows: CloudRecord[]) {
   const clientMeters = new Map<string, number>()
   const plotters = new Map<string, { count: number; paper: number }>()
@@ -312,12 +344,13 @@ export function renderAnalyticalModule(
   root.innerHTML = `<div class="analytical-page">
     <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
     ${errorMessage ? `<p class="form-message">${esc(errorMessage)}</p>` : ''}
+    ${module.key === 'tasks' ? '<div id="task-focus"></div>' : ''}
     <section class="metric-grid" id="module-metrics">${statistics(module.key, primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd), records, canFinance)}</section>
     <div id="module-insights">${moduleInsights(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>
     ${module.key === 'production' ? `<div id="production-analysis">${productionAnalytics(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>` : ''}
     ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
-    <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">CENTRO OPERATIVO</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
-      <div class="view-tabs" role="tablist"><button class="active" data-view="all">Tutti <b>${primary.length}</b></button><button data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(String(p(row).status || ''))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || p(row).status))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(String(p(row).status || ''))).length}</b></button></div>
+    <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">${module.key === 'tasks' ? 'ARCHIVIO E PIANIFICAZIONE' : 'CENTRO OPERATIVO'}</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
+      <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(String(p(row).status || ''))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || p(row).status))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(String(p(row).status || ''))).length}</b></button></div>
       <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
@@ -336,7 +369,7 @@ export function renderAnalyticalModule(
   const periodTo = root.querySelector<HTMLInputElement>('#period-to')!
   const group = root.querySelector<HTMLSelectElement>('#group-filter')!
   const resultCount = root.querySelector<HTMLElement>('#result-count')!
-  let currentView = 'all'
+  let currentView = module.key === 'tasks' ? 'operative' : 'all'
   let visibleRows: CloudRecord[] = []
   let editingRow: CloudRecord | null = null
   const editOverlay = root.querySelector<HTMLElement>('#edit-overlay')!
@@ -353,8 +386,25 @@ export function renderAnalyticalModule(
     const message = root.querySelector<HTMLElement>('#edit-message')!; message.hidden = true; message.textContent = ''
     editOverlay.hidden = false; document.body.classList.add('drawer-open')
   }
+  const openRecord = (row: CloudRecord) => {
+    root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
+    root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
+    const actions = root.querySelector<HTMLElement>('#detail-actions')!
+    actions.innerHTML = `${canManage && onUpdate ? '<button id="edit-record">Modifica dati</button>' : ''}${module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : ''}`
+    actions.querySelector('#edit-record')?.addEventListener('click', () => openEdit(row))
+    actions.querySelectorAll<HTMLButtonElement>('[data-export-profile]').forEach(button => button.addEventListener('click', () => printZenthaOrder(row, records, button.dataset.exportProfile as 'production'|'accounting'|'complete')))
+    root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false
+    document.body.classList.add('drawer-open')
+  }
   const draw = () => {
     const term = search.value.trim().toLowerCase(); const selected = status?.value || ''
+    if (module.key === 'tasks') {
+      const focusRows = primary.filter(row => JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || String(p(row).status || 'OPEN') === selected))
+      root.querySelector<HTMLElement>('#task-focus')!.innerHTML = taskFocusBoard(focusRows)
+      root.querySelectorAll<HTMLButtonElement>('[data-task]').forEach(button => button.addEventListener('click', () => {
+        const row = records.find(item => item.id === button.dataset.task); if (row) openRecord(row)
+      }))
+    }
     const periodRows = primary.filter(row => { const value = moduleDate(row); return value && value >= rangeStart && value <= rangeEnd })
     root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)
     root.querySelector<HTMLElement>('#module-insights')!.innerHTML = moduleInsights(periodRows)
@@ -381,14 +431,7 @@ export function renderAnalyticalModule(
     body.querySelectorAll<HTMLTableRowElement>('tr').forEach(element => element.addEventListener('click', () => {
       if (!element.dataset.record) return
       const row = records.find(item => item.id === element.dataset.record); if (!row) return
-      root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
-      root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
-      const actions = root.querySelector<HTMLElement>('#detail-actions')!
-      actions.innerHTML = `${canManage && onUpdate ? '<button id="edit-record">Modifica dati</button>' : ''}${module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : ''}`
-      actions.querySelector('#edit-record')?.addEventListener('click', () => openEdit(row))
-      actions.querySelectorAll<HTMLButtonElement>('[data-export-profile]').forEach(button => button.addEventListener('click', () => printZenthaOrder(row, records, button.dataset.exportProfile as 'production'|'accounting'|'complete')))
-      root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false
-      document.body.classList.add('drawer-open')
+      openRecord(row)
     }))
   }
   const setPreset = () => {

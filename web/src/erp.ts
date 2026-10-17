@@ -268,6 +268,23 @@ function printProductionReport(rows: CloudRecord[], from: string, to: string, pr
   page.document.close()
 }
 
+type EditableField = { key: string; label: string; kind?: 'text'|'number'|'date'|'textarea' }
+function editableFields(module: string, row: CloudRecord): EditableField[] {
+  if (row.entity_type === 'zentha_product') return [{key:'sku',label:'Codice articolo'},{key:'name',label:'Nome prodotto'},{key:'category',label:'Categoria'},{key:'description',label:'Descrizione',kind:'textarea'},{key:'standardCost',label:'Costo standard',kind:'number'},{key:'standardPrice',label:'Prezzo listino',kind:'number'},{key:'priceListName',label:'Nome listino'}]
+  const fields: Record<string, EditableField[]> = {
+    orders:[{key:'orderCode',label:'Codice ordine'},{key:'client',label:'Cliente'},{key:'title',label:'Titolo'},{key:'status',label:'Stato'},{key:'priority',label:'Priorità'},{key:'receivedDate',label:'Ricezione',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'designCode',label:'Codice disegno'},{key:'notes',label:'Note',kind:'textarea'}],
+    production:[{key:'date',label:'Data',kind:'date'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Riferimento ordine'},{key:'plotter',label:'Plotter'},{key:'printedPaperMeters',label:'Carta stampata (m)',kind:'number'},{key:'protectionPaperMeters',label:'Carta protezione (m)',kind:'number'},{key:'fabricUsedMeters',label:'Tessuto usato (m)',kind:'number'},{key:'fabricDisplayName',label:'Tessuto'},{key:'technicalNotes',label:'Note tecniche',kind:'textarea'}],
+    inventory:[{key:'fabricName',label:'Tessuto'},{key:'ownerName',label:'Proprietario'},{key:'quantityMeters',label:'Disponibilità (m)',kind:'number'},{key:'minimumQuantityMeters',label:'Soglia minima (m)',kind:'number'},{key:'supplierName',label:'Fornitore'},{key:'composition',label:'Composizione'},{key:'variant',label:'Variante'},{key:'lotCode',label:'Lotto'}],
+    clients:[{key:'name',label:'Ragione sociale / nome'},{key:'email',label:'Email'},{key:'phone',label:'Telefono'},{key:'address',label:'Indirizzo'},{key:'notes',label:'Note',kind:'textarea'}],
+    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}],
+    zentha:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'orderDate',label:'Data ordine',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}],
+    tasks:[{key:'title',label:'Attività'},{key:'clientName',label:'Cliente'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'priority',label:'Priorità'},{key:'status',label:'Stato'},{key:'description',label:'Descrizione',kind:'textarea'}],
+    issues:[{key:'title',label:'Titolo'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Ordine'},{key:'status',label:'Stato'},{key:'severity',label:'Gravità'},{key:'description',label:'Descrizione',kind:'textarea'}],
+    finance:[{key:'title',label:'Voce'},{key:'clientName',label:'Cliente'},{key:'date',label:'Data',kind:'date'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'amount',label:'Importo',kind:'number'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}]
+  }
+  return fields[module] || []
+}
+
 export function renderAnalyticalModule(
   root: HTMLElement,
   module: ModuleView,
@@ -276,7 +293,8 @@ export function renderAnalyticalModule(
   onBack: () => void,
   errorMessage = '',
   canManage = false,
-  canExport = false
+  canExport = false,
+  onUpdate?: (row: CloudRecord, patch: Record<string, unknown>) => Promise<string | null>
 ) {
   const types = primaryTypes[module.key] || []
   const primary = records.filter(row => types.includes(row.entity_type))
@@ -307,6 +325,7 @@ export function renderAnalyticalModule(
     </section>
     <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><nav class="dossier-tabs"><button class="active">Riepilogo</button><button>Collegamenti</button><button>Timeline</button><button>Allegati</button>${canFinance ? '<button>Economia</button>' : ''}</nav><div id="detail-actions" class="detail-actions"></div><div id="detail-content"></div></aside></div>
     <div id="export-overlay" class="export-overlay" hidden><button class="export-scrim" aria-label="Chiudi"></button><section class="export-center"><header><div><p class="kicker">CENTRO ESPORTAZIONI</p><h2>Prepara il documento</h2><p>Il report userà il periodo e i filtri attualmente selezionati.</p></div><button id="export-close" aria-label="Chiudi">×</button></header>${module.key === 'production' ? `<div class="export-options"><label class="export-choice"><input type="radio" name="report-profile" value="executive" checked><span><b>Report direzionale</b><small>KPI, metri per cliente, dati economici autorizzati e dettaglio produzioni.</small></span></label><label class="export-choice"><input type="radio" name="report-profile" value="operations"><span><b>Report operativo</b><small>Produzioni, ordini, disegni, carta, tessuto e note senza prezzi.</small></span></label><label class="export-choice"><input type="radio" name="report-profile" value="complete"><span><b>Analisi completa</b><small>Documento analitico con indicatori economici per amministrazione.</small></span></label></div>` : `<div class="export-options"><div class="export-choice static"><span><b>Elenco filtrato ${esc(module.title)}</b><small>${primary.length} elementi disponibili prima dei filtri.</small></span></div></div>`}<div class="export-summary"><span>Periodo</span><strong id="export-period-label">${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}</strong><span>Elementi</span><strong id="export-count-label">0</strong></div><footer><button id="export-csv" class="secondary">Scarica Excel / CSV</button><button id="generate-report" class="primary">${module.key === 'production' ? 'Apri PDF professionale' : 'Stampa elenco filtrato'}</button></footer></section></div>
+    <div id="edit-overlay" class="export-overlay" hidden><button class="edit-scrim export-scrim" aria-label="Chiudi"></button><form id="edit-form" class="export-center edit-center"><header><div><p class="kicker">MODIFICA RECORD</p><h2 id="edit-title">Aggiorna dati</h2><p>La modifica viene salvata nel cloud come livello protetto.</p></div><button id="edit-close" type="button" aria-label="Chiudi">×</button></header><div id="edit-fields" class="edit-fields"></div><p id="edit-message" class="form-message" hidden></p><footer><button id="edit-cancel" type="button" class="secondary">Annulla</button><button id="edit-save" type="submit" class="primary">Salva modifiche</button></footer></form></div>
   </div>`
   const body = root.querySelector<HTMLTableSectionElement>('#record-body')!
   const empty = root.querySelector<HTMLElement>('#record-empty')!
@@ -319,6 +338,21 @@ export function renderAnalyticalModule(
   const resultCount = root.querySelector<HTMLElement>('#result-count')!
   let currentView = 'all'
   let visibleRows: CloudRecord[] = []
+  let editingRow: CloudRecord | null = null
+  const editOverlay = root.querySelector<HTMLElement>('#edit-overlay')!
+  const closeEdit = () => { editOverlay.hidden = true; editingRow = null; document.body.classList.remove('drawer-open') }
+  const openEdit = (row: CloudRecord) => {
+    const fields = editableFields(module.key, row)
+    if (!fields.length || !onUpdate) return
+    editingRow = row
+    root.querySelector<HTMLElement>('#edit-title')!.textContent = `Modifica ${titleOf(row)}`
+    root.querySelector<HTMLElement>('#edit-fields')!.innerHTML = fields.map(field => {
+      const value = p(row)[field.key] ?? ''
+      return field.kind === 'textarea' ? `<label>${esc(field.label)}<textarea name="${esc(field.key)}">${esc(value)}</textarea></label>` : `<label>${esc(field.label)}<input name="${esc(field.key)}" type="${field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}" ${field.kind === 'number' ? 'step="0.01"' : ''} value="${esc(value)}"></label>`
+    }).join('')
+    const message = root.querySelector<HTMLElement>('#edit-message')!; message.hidden = true; message.textContent = ''
+    editOverlay.hidden = false; document.body.classList.add('drawer-open')
+  }
   const draw = () => {
     const term = search.value.trim().toLowerCase(); const selected = status?.value || ''
     const periodRows = primary.filter(row => { const value = moduleDate(row); return value && value >= rangeStart && value <= rangeEnd })
@@ -350,7 +384,8 @@ export function renderAnalyticalModule(
       root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
       root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
       const actions = root.querySelector<HTMLElement>('#detail-actions')!
-      actions.innerHTML = module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : canManage ? '<span>Modifica web disponibile con la prossima sincronizzazione bidirezionale.</span>' : ''
+      actions.innerHTML = `${canManage && onUpdate ? '<button id="edit-record">Modifica dati</button>' : ''}${module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : ''}`
+      actions.querySelector('#edit-record')?.addEventListener('click', () => openEdit(row))
       actions.querySelectorAll<HTMLButtonElement>('[data-export-profile]').forEach(button => button.addEventListener('click', () => printZenthaOrder(row, records, button.dataset.exportProfile as 'production'|'accounting'|'complete')))
       root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false
       document.body.classList.add('drawer-open')
@@ -388,12 +423,24 @@ export function renderAnalyticalModule(
   root.querySelectorAll<HTMLButtonElement>('[data-product]').forEach(button => button.addEventListener('click', () => {
     const row = products.find(item => item.id === button.dataset.product); if (!row) return
     root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
-    root.querySelector<HTMLElement>('#detail-actions')!.innerHTML = canManage ? '<span>La modifica dei listini sarà attiva con la sincronizzazione bidirezionale.</span>' : ''
+    root.querySelector<HTMLElement>('#detail-actions')!.innerHTML = canManage && onUpdate ? '<button id="edit-product">Modifica prodotto</button>' : ''
+    root.querySelector('#edit-product')?.addEventListener('click', () => openEdit(row))
     root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
     root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false; document.body.classList.add('drawer-open')
   }))
   const close = () => { root.querySelector<HTMLElement>('#detail-overlay')!.hidden = true; document.body.classList.remove('drawer-open') }
   root.querySelector('#detail-close')?.addEventListener('click', close)
   root.querySelector('.detail-scrim')?.addEventListener('click', close)
+  root.querySelector('#edit-close')?.addEventListener('click', closeEdit)
+  root.querySelector('#edit-cancel')?.addEventListener('click', closeEdit)
+  root.querySelector('.edit-scrim')?.addEventListener('click', closeEdit)
+  root.querySelector<HTMLFormElement>('#edit-form')?.addEventListener('submit', async event => {
+    event.preventDefault(); if (!editingRow || !onUpdate) return
+    const button = root.querySelector<HTMLButtonElement>('#edit-save')!; button.disabled = true; button.textContent = 'Salvataggio…'
+    const form = new FormData(event.currentTarget as HTMLFormElement); const patch: Record<string, unknown> = {}
+    editableFields(module.key, editingRow).forEach(field => { const raw = String(form.get(field.key) ?? ''); patch[field.key] = field.kind === 'number' ? Number(raw || 0) : raw })
+    const error = await onUpdate(editingRow, patch)
+    if (error) { const message = root.querySelector<HTMLElement>('#edit-message')!; message.textContent = error; message.hidden = false; button.disabled = false; button.textContent = 'Salva modifiche' }
+  })
   root.querySelector('#home')?.addEventListener('click', onBack)
 }

@@ -56,6 +56,7 @@ function allowedModules(access: AccessContext) {
 }
 
 function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
+  document.body.classList.remove('drawer-open')
   const allowed = allowedModules(access)
   const navigation = [
     { key: 'dashboard', title: 'Dashboard', eyebrow: 'Panoramica', permission: 'dashboard.view' },
@@ -82,6 +83,7 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
     if (original) void renderWorkspace(original.user, original.access)
   })
   document.querySelectorAll<HTMLElement>('[data-route]').forEach(element => element.addEventListener('click', () => {
+    document.body.classList.remove('drawer-open')
     const key = element.dataset.route
     if (key === 'dashboard') void renderWorkspace(user, access)
     else {
@@ -483,7 +485,21 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
     () => { void renderWorkspace(user, access) },
     error?.message || '',
     access.permissions.includes(`${module.key}.manage`),
-    access.permissions.includes('reports.export')
+    access.permissions.includes('reports.export'),
+    async (row, patch) => {
+      if (!access.organization_id) return 'Organizzazione non disponibile.'
+      const { error: updateError } = await supabase.rpc('web_update_record', {
+        p_organization_id: access.organization_id,
+        p_record_id: row.id,
+        p_patch: patch
+      })
+      if (updateError) {
+        if (updateError.message.toLowerCase().includes('web_update_record')) return 'Aggiornamento cloud 005 non ancora installato su Supabase. Esegui la migrazione SQL fornita con questa versione.'
+        return updateError.message
+      }
+      await renderModule(user, access, module)
+      return null
+    }
   )
 }
 

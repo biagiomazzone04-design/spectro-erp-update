@@ -30,6 +30,8 @@ Il portale web v6 aumenta la leggibilità dell’intera interfaccia, imposta le 
 
 Il portale web v7 aggiunge l’anteprima globale di qualunque ruolo anche in assenza di un account registrato, rende centrali i KPI in metri di carta e tessuto e introduce l’analisi Produzione per cliente e plotter. Il Centro esportazioni permette di scegliere report direzionale, operativo senza prezzi o analisi completa e genera un documento A4 impaginato con KPI, barre comparative e dettaglio delle produzioni filtrate.
 
+Il portale web v8 corregge il blocco dello scorrimento causato dalla classe dei pannelli modali rimasta sul `body` durante la navigazione. Introduce inoltre moduli di modifica per i record autorizzati e la migrazione cloud 005: le modifiche web vengono conservate come overlay persistenti, applicate dal lettore sicuro e non possono essere sovrascritte dalle pubblicazioni complete Android. L’integrazione inversa degli overlay dentro il database Android resta una fase successiva.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 

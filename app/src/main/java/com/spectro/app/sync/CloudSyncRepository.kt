@@ -117,6 +117,17 @@ class CloudSyncRepository(
             uploadedPaths += manifestPath
             auth.uploadStorageObject(BUCKET, manifestPath, manifest)
 
+            val cloudAttachments = linkedMapOf<String, String>()
+            BackupManager.attachmentPaths(snapshot).forEachIndexed { index, localPath ->
+                val source = File(localPath)
+                if (!source.isFile) return@forEachIndexed
+                val safeName = source.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val remotePath = "${access.organizationId}/attachments/$transferId/${index.toString().padStart(4, '0')}_$safeName"
+                auth.uploadStorageObject(BUCKET, remotePath, source)
+                uploadedPaths += remotePath
+                cloudAttachments[localPath] = remotePath
+            }
+
             val response = try {
                 auth.authenticatedRpc(
                     "publish_workspace_snapshot_v2",
@@ -131,7 +142,7 @@ class CloudSyncRepository(
                         .put("p_chunk_paths", JSONArray(chunkPaths))
                         .put("p_record_count", snapshot.recordCount)
                         .put("p_device_id", local.deviceId)
-                        .put("p_records", BackupManager.toCloudRecords(snapshot))
+                        .put("p_records", BackupManager.toCloudRecords(snapshot, cloudAttachments))
                 )
             } catch (t: Throwable) {
                 if (t.message.orEmpty().contains("SYNC_CONFLICT")) {

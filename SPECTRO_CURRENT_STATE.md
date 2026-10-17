@@ -1,9 +1,9 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.1.5 Beta 7**.
-- versionCode 24
-- versionName `3.1.5-beta7`
+Base: **Spectro ERP 3.1.6 Beta 8**.
+- versionCode 25
+- versionName `3.1.6-beta8`
 - applicationId `com.spectro.app`
 - SQLite schema 9
 - backup formato v8
@@ -37,6 +37,8 @@ Il portale web v9 ridisegna Attività come bacheca operativa: scadute e odierne,
 Il portale web v10 stabilizza le animazioni eliminando lo spostamento laterale del menu, aggiunge calendario settimanale e trascinamento autorizzato delle attività tra pianificazione, lavorazione e completamento. Introduce inoltre centro notifiche, tavolozza comandi `Ctrl/Cmd + K` e un Centro personalizzazione locale per dispositivo con temi, cinque colori indipendenti, font, dimensione testo, densità, raggi, larghezza menu e livello delle animazioni. Le preferenze sono conservate solo nel browser e non vengono sincronizzate tra Android, Windows o Mac.
 
 Il portale web v11 concentra le attività aperte in un grande primo piano cromatico “Attività da lavorare”, eliminando la colonna “In corso”. Riordina Produzione in Cliente, Data, Carta/Tessuto, Plotter e Disegni con codifica cromatica, rinomina il KPI economico in Fatturato e ricorda localmente l’ultima sezione visitata. Aggiunge transizioni native tra viste, illuminazione reattiva al puntatore, feedback a onda sui pulsanti e animazioni progressive per grafici e tabelle.
+
+Il portale web v13 rende deterministico l’ordinamento cronologico in tutti i moduli, corregge il ripristino involontario della vista al ritorno sulla scheda e conserva anche la posizione di scorrimento per sezione. Il dossier produttivo dispone di scheda tecnica, annotazioni, galleria immagini privata e valutazione post-produzione con voto, criticità, problemi e nota finale, aggregate anche nelle statistiche mensili. Android Beta 8 pubblica gli allegati come oggetti cloud privati separati e inserisce nel mirror soltanto i relativi percorsi protetti; le anteprime web usano URL firmati temporanei.
 
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.

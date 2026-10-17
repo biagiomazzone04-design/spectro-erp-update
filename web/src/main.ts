@@ -22,6 +22,13 @@ type AccessContext = {
 }
 
 let adminPreview: { user: User; access: AccessContext } | null = null
+let activeUserId: string | null = null
+let activeScrollKey = ''
+
+const saveCurrentScroll = () => { if (activeScrollKey) sessionStorage.setItem(activeScrollKey, String(window.scrollY)) }
+const activateScrollMemory = (userId: string, route: string) => { saveCurrentScroll(); activeScrollKey = `spectro-scroll:${userId}:${route}` }
+const restoreRouteScroll = () => { const position = Number(sessionStorage.getItem(activeScrollKey) || 0); requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({top:position,behavior:'auto'}))) }
+window.addEventListener('scroll', saveCurrentScroll, { passive:true })
 
 type UiPreferences = {
   preset: string; accent: string; secondary: string; background: string; surface: string; text: string
@@ -99,6 +106,7 @@ function allowedModules(access: AccessContext) {
 
 function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
   document.body.classList.remove('drawer-open')
+  activateScrollMemory(user.id, activeKey)
   localStorage.setItem(`spectro-last-route:${user.id}`, activeKey)
   let uiPreferences = readUiPreferences(user.id)
   applyUiPreferences(uiPreferences)
@@ -201,6 +209,15 @@ function updateNotificationCenter(records: CloudRecord[]) {
   ].slice(0, 30)
   badge.textContent = String(notices.length); badge.hidden = notices.length === 0
   list.innerHTML = notices.length ? notices.map(notice => `<article class="notification-item ${notice.tone}"><i></i><div><strong>${escapeHtml(notice.title)}</strong><span>${escapeHtml(notice.detail)}</span></div></article>`).join('') : '<div class="notification-empty"><b>✓</b><strong>Tutto sotto controllo</strong><span>Non ci sono notifiche urgenti.</span></div>'
+}
+
+async function hydrateAttachmentUrls(records: CloudRecord[]) {
+  if (!supabase) return
+  const paths = [...new Set(records.flatMap(row => Array.isArray(row.payload.attachmentPaths) ? row.payload.attachmentPaths.map(String) : []))]
+  if (!paths.length) return
+  const { data } = await supabase.storage.from('spectro-attachments').createSignedUrls(paths, 3600)
+  const urls = new Map((data || []).filter(item => item.signedUrl).map(item => [item.path,item.signedUrl]))
+  records.forEach(row => { const rowPaths = Array.isArray(row.payload.attachmentPaths) ? row.payload.attachmentPaths.map(String) : []; row.payload._attachmentUrls = rowPaths.map(path => urls.get(path)).filter(Boolean) })
 }
 
 function periodDates(mode: string) {
@@ -393,6 +410,7 @@ async function renderWorkspace(user: User, access: AccessContext) {
     host.querySelectorAll<HTMLElement>('[data-open-module]').forEach(element => element.addEventListener('click', () => { const module = modules.find(item => item.key === element.dataset.openModule); if (module?.key === 'users') void renderAccessManagement(user, access); else if (module?.key === 'sync') void renderCloudStatus(user, access); else if (module) void renderModule(user, access, module) }))
   }
   drawDashboard()
+  restoreRouteScroll()
 }
 
 async function renderGlobalSearch(user: User, access: AccessContext, query: string) {
@@ -569,6 +587,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
     p_organization_id: access.organization_id, p_module: key, p_limit: 500
   })))
   const records = recordsForAccess(results.flatMap(result => (result.data || []) as CloudRecord[]), access)
+  await hydrateAttachmentUrls(records)
   updateNotificationCenter(records)
   const error = results.find(result => result.error)?.error
   renderAnalyticalModule(
@@ -595,9 +614,11 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
       return null
     }
   )
+  restoreRouteScroll()
 }
 
 async function renderForUser(user: User) {
+  activeUserId = user.id
   app.innerHTML = '<main class="center"><div class="loader"></div></main>'
   try {
     const access = await loadAccess(user)
@@ -619,11 +640,11 @@ async function start() {
   installInteractiveMotion()
   if (!supabase) return renderSetup()
   const { data } = await supabase.auth.getSession()
-  if (data.session?.user) await renderForUser(data.session.user)
+  if (data.session?.user) { activeUserId = data.session.user.id; await renderForUser(data.session.user) }
   else renderLogin()
   supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT') renderLogin()
-    if (event === 'SIGNED_IN' && session?.user) void renderForUser(session.user)
+    if (event === 'SIGNED_OUT') { activeUserId = null; renderLogin() }
+    if (event === 'SIGNED_IN' && session?.user && session.user.id !== activeUserId) { activeUserId = session.user.id; void renderForUser(session.user) }
   })
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
 }

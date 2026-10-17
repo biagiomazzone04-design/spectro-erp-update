@@ -38,20 +38,7 @@ object BackupManager {
     fun writePortableBackup(context: Context, snapshot: SpectroSnapshot, file: File): File {
         file.parentFile?.mkdirs()
         val replacements = linkedMapOf<String, String>()
-        val allAttachments = buildList {
-            snapshot.inventory.forEach { addAll(it.images) }
-            snapshot.fabricRolls.forEach { addAll(it.images) }
-            snapshot.production.forEach { addAll(it.images) }
-            snapshot.workOrders.forEach { addAll(it.images) }
-            snapshot.clientIssues.forEach { addAll(it.evidenceImages) }
-            snapshot.issueUpdates.forEach { addAll(it.images) }
-            snapshot.timelineEvents.forEach { addAll(it.images) }
-            snapshot.cottonOrders.forEach { addAll(it.images) }
-            snapshot.zenthaProducts.forEach { if (it.imagePath.isNotBlank()) add(it.imagePath) }
-            snapshot.zenthaOrders.forEach { addAll(it.attachments) }
-            snapshot.economicWorks.forEach { addAll(it.images) }
-            snapshot.operationalTasks.forEach { addAll(it.images) }
-        }.distinct()
+        val allAttachments = attachmentPaths(snapshot)
 
         ZipOutputStream(FileOutputStream(file)).use { zip ->
             allAttachments.forEachIndexed { index, path ->
@@ -68,6 +55,21 @@ object BackupManager {
         return file
     }
 
+    fun attachmentPaths(snapshot: SpectroSnapshot): List<String> = buildList {
+            snapshot.inventory.forEach { addAll(it.images) }
+            snapshot.fabricRolls.forEach { addAll(it.images) }
+            snapshot.production.forEach { addAll(it.images) }
+            snapshot.workOrders.forEach { addAll(it.images) }
+            snapshot.clientIssues.forEach { addAll(it.evidenceImages) }
+            snapshot.issueUpdates.forEach { addAll(it.images) }
+            snapshot.timelineEvents.forEach { addAll(it.images) }
+            snapshot.cottonOrders.forEach { addAll(it.images) }
+            snapshot.zenthaProducts.forEach { if (it.imagePath.isNotBlank()) add(it.imagePath) }
+            snapshot.zenthaOrders.forEach { addAll(it.attachments) }
+            snapshot.economicWorks.forEach { addAll(it.images) }
+            snapshot.operationalTasks.forEach { addAll(it.images) }
+        }.distinct()
+
     fun readBackup(context: Context, uri: android.net.Uri): SpectroSnapshot {
         val temp = File(context.cacheDir, "spectro_restore_${System.currentTimeMillis()}.tmp")
         context.contentResolver.openInputStream(uri).use { input -> requireNotNull(input) { "Impossibile leggere il backup." }; temp.outputStream().use { input.copyTo(it) } }
@@ -82,20 +84,25 @@ object BackupManager {
 
     /**
      * Builds the permission-filterable web mirror. Device file paths are never
-     * copied to database rows; the complete attachments remain in the private
-     * versioned workspace archive.
+     * copied to database rows. When available, only private Storage object paths
+     * are added so the web client can request short-lived signed previews.
      */
-    fun toCloudRecords(snapshot: SpectroSnapshot): JSONArray = JSONArray().apply {
+    fun toCloudRecords(snapshot: SpectroSnapshot, cloudAttachments: Map<String, String> = emptyMap()): JSONArray = JSONArray().apply {
         fun add(module: String, entityType: String, legacyId: Long, raw: JSONObject) {
             val attachmentKeys = listOf("images", "evidenceImages", "attachments")
             var attachmentCount = 0
+            val remotePaths = JSONArray()
             attachmentKeys.forEach { key ->
-                attachmentCount += raw.optJSONArray(key)?.length() ?: 0
+                val values = raw.optJSONArray(key)
+                attachmentCount += values?.length() ?: 0
+                if (values != null) for (index in 0 until values.length()) cloudAttachments[values.optString(index)]?.let { remotePaths.put(it) }
                 raw.remove(key)
             }
-            if (raw.optString("imagePath").isNotBlank()) attachmentCount += 1
+            val imagePath = raw.optString("imagePath")
+            if (imagePath.isNotBlank()) { attachmentCount += 1; cloudAttachments[imagePath]?.let { remotePaths.put(it) } }
             raw.remove("imagePath")
             if (attachmentCount > 0) raw.put("attachmentCount", attachmentCount)
+            if (remotePaths.length() > 0) raw.put("attachmentPaths", remotePaths)
             put(JSONObject()
                 .put("module", module)
                 .put("entity_type", entityType)

@@ -24,6 +24,8 @@ Campi legacy da mostrare quando presenti: date, client, orderRef, designs, fabri
 
 ## Migrazione
 Il passaggio schema 5 -> 6 è additivo: crea `cloud_sync_state` per device UUID, revisione base, ultima revisione remota osservata, data sync, errore e percorso del backup di recupero. I dati ERP non vengono riscritti.
+
+Il passaggio schema 7 -> 8 ripete in modo idempotente la sola creazione di `cloud_sync_state`. Serve a correggere le installazioni che erano già marcate schema 7 quando la sincronizzazione cloud è stata aggiunta; nessuna tabella operativa viene cancellata o ricreata.
 Tutte le nuove entità devono entrare nel backup/restore.
 
 ### Schema 7 — catalogo e documenti Zentha

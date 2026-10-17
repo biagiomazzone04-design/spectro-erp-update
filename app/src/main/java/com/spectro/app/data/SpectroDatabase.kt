@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 7) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 8) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -183,6 +183,12 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         }
         if (oldVersion < 7) {
             createV7Tables(db)
+        }
+        if (oldVersion < 8) {
+            // Some installations were already marked schema 7 before cloud
+            // synchronization was introduced. Re-run the idempotent creator so
+            // their existing ERP data stays untouched and only sync metadata is added.
+            createV6Tables(db)
         }
         createIndexes(db)
     }
@@ -661,8 +667,10 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     }
     fun saveSettings(settings: AppSettings, db: SQLiteDatabase = writableDatabase) { db.update("settings", ContentValues().apply { put("daily_fixed_cost", settings.dailyFixedCost); put("plotter_x1_cost", settings.plotterX1Cost); put("plotter_x2_cost", settings.plotterX2Cost); put("protection_cost", settings.protectionPaperCost); put("theme_key", settings.themeKey); put("zentha_split_a", settings.zenthaSplitA); put("zentha_split_b", settings.zenthaSplitB) }, "id=1", null) }
 
-    fun getLocalSyncState(db: SQLiteDatabase = readableDatabase): LocalSyncState =
-        db.query("cloud_sync_state", null, "id=1", null, null, null, null).use { c ->
+    fun getLocalSyncState(db: SQLiteDatabase = readableDatabase): LocalSyncState {
+        // Defensive self-heal for databases produced by the affected schema-7 build.
+        createV6Tables(db)
+        return db.query("cloud_sync_state", null, "id=1", null, null, null, null).use { c ->
             if (!c.moveToFirst()) return LocalSyncState()
             LocalSyncState(
                 organizationId = c.string("organization_id"),
@@ -674,8 +682,10 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 recoveryBackupPath = c.string("recovery_backup_path")
             )
         }
+    }
 
     fun saveLocalSyncState(state: LocalSyncState, db: SQLiteDatabase = writableDatabase) {
+        createV6Tables(db)
         db.insertWithOnConflict("cloud_sync_state", null, ContentValues().apply {
             put("id", 1)
             put("organization_id", state.organizationId)

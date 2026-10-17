@@ -195,6 +195,7 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
   if (module === 'orders') fields = field('Codice ordine', x.orderCode) + field('Cliente', x.client) + field('Stato', x.status) + field('Priorità', x.priority) + field('Ricezione', x.receivedDate, 'date') + field('Consegna', x.dueDate, 'date') + field('Metri ordinati', x.orderedMeters, 'number') + field('Disegno', x.designCode) + (has(row, 'printPricePerMeter') ? field('Prezzo stampa / m', x.printPricePerMeter, 'money') : '')
   else if (module === 'production') fields = field('Data', x.date, 'date') + field('Cliente', x.clientName) + field('Ordine', x.orderRef) + field('Plotter', x.plotter) + field('Carta stampata', x.printedPaperMeters, 'number') + field('Carta protezione', x.protectionPaperMeters, 'number') + field('Tessuto usato', x.fabricUsedMeters, 'number') + field('Tessuto', x.fabricDisplayName) + (has(row, 'grossRevenue') ? field('Ricavo', x.grossRevenue, 'money') + field('Margine', x.grossProfit, 'money') : '')
   else if (module === 'inventory') fields = field('Tessuto', x.fabricName) + field('Proprietario', x.ownerName) + field('Disponibilità metri', x.quantityMeters, 'number') + field('Soglia minima', x.minimumQuantityMeters, 'number') + field('Fornitore', x.supplierName) + field('Composizione', x.composition) + field('Peso', x.weightGsm) + field('Variante', x.variant) + field('Lotto', x.lotCode)
+  else if (module === 'zentha' && row.entity_type === 'zentha_product') fields = field('Codice articolo', x.sku) + field('Prodotto', x.name) + field('Categoria', x.category) + field('Descrizione', x.description) + field('Listino', x.priceListName) + (has(row, 'standardPrice') ? field('Prezzo', x.standardPrice, 'money') + field('Costo', x.standardCost, 'money') + field('Ricarico %', x.markupPercent, 'number') : '') + field('Stato', x.active === false ? 'Non attivo' : 'Attivo')
   else if (module === 'zentha') fields = field('Ordine', x.orderCode) + field('Cliente', x.clientName) + field('Stato', x.status) + field('Data ordine', x.orderDate, 'date') + field('Consegna', x.dueDate, 'date')
   else fields = Object.entries(x).filter(([key, value]) => !key.startsWith('_') && !['id', 'attachmentCount', 'materials'].includes(key) && typeof value !== 'object').slice(0, 14).map(([key, value]) => field(label(key), value)).join('')
 
@@ -205,7 +206,7 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
     relatedHtml = `<section class="detail-section"><h3>Produzioni collegate <span>${productions.length}</span></h3>${productions.map(item => `<div class="linked-row"><b>${date(p(item).date)}</b><span>${esc(text(p(item).clientName))} · ${num(p(item).printedPaperMeters)} m carta · ${num(p(item).fabricUsedMeters)} m tessuto</span></div>`).join('') || '<p class="muted">Nessuna produzione collegata.</p>'}</section>
       <section class="detail-section"><h3>Timeline ordine <span>${timeline.length}</span></h3>${timeline.map(item => `<div class="linked-row"><b>${date(p(item).date)} · ${esc(text(p(item).title))}</b><span>${esc(text(p(item).description, 'Nessuna descrizione'))}</span></div>`).join('') || '<p class="muted">Nessun evento visibile per il tuo ruolo.</p>'}</section>`
   }
-  if (module === 'zentha') {
+  if (module === 'zentha' && row.entity_type === 'zentha_order') {
     const items = related(records, 'zentha_order_item', 'orderId', x.id)
     relatedHtml = `<section class="detail-section"><h3>Articoli ordinati <span>${items.length}</span></h3><div class="detail-lines">${items.map(item => { const y = p(item); return `<div class="order-line"><div><b>${esc(text(y.productName))}</b><small>${esc(text(y.skuSnapshot))} · ${esc(text(y.variant))} · ${esc(text(y.color))}</small></div><strong>${num(y.quantity, 0)} pz</strong><p>Taglie: ${esc(text(y.sizeBreakdown))}<br>Personalizzazione: ${esc(text(y.personalization))}<br>Note: ${esc(text(y.productionNotes))}</p></div>` }).join('') || '<p class="muted">Nessuna riga articolo.</p>'}</div></section>`
   }
@@ -215,6 +216,23 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
   }
   const notes = x.description || x.technicalNotes || x.notes
   return `<div class="detail-grid">${fields}</div>${notes ? `<section class="detail-section"><h3>Note</h3><p>${esc(notes)}</p></section>` : ''}${relatedHtml}`
+}
+
+function zenthaCatalog(products: CloudRecord[], canFinance: boolean) {
+  const lists = new Map<string, number>()
+  products.forEach(row => { const name = text(p(row).priceListName, 'Listino standard'); lists.set(name, (lists.get(name) || 0) + 1) })
+  return `<section class="zentha-catalog"><div class="catalog-heading"><div><p class="kicker">CATALOGO ZENTHA</p><h2>Prodotti e listini</h2><p>${products.length} articoli sincronizzati · ${lists.size || 1} listini rilevati</p></div><div class="price-list-pills">${[...lists.entries()].map(([name, count]) => `<span><b>${esc(name)}</b>${count} prodotti</span>`).join('') || '<span><b>Listino standard</b>In attesa di prodotti</span>'}</div></div><div class="product-grid">${products.map(row => { const x = p(row); return `<button class="product-card" data-product="${esc(row.id)}"><span class="product-sku">${esc(text(x.sku, 'S/C'))}</span><h3>${esc(text(x.name, 'Prodotto Zentha'))}</h3><p>${esc(text(x.category, 'Senza categoria'))}</p><div><span>${esc(text(x.priceListName, 'Listino standard'))}</span>${canFinance && has(row, 'standardPrice') ? `<strong>${euro(x.standardPrice)}</strong>` : '<strong>Prezzo riservato</strong>'}</div></button>` }).join('') || '<div class="empty-state"><h3>Catalogo non ancora sincronizzato</h3><p>Pubblica una revisione Android aggiornata per trasferire i prodotti Zentha nel cloud.</p></div>'}</div></section>`
+}
+
+function printZenthaOrder(order: CloudRecord, records: CloudRecord[], profile: 'production'|'accounting'|'complete') {
+  const x = p(order); const items = related(records, 'zentha_order_item', 'orderId', x.id)
+  const showPrices = profile !== 'production'; const showCosts = profile === 'complete'
+  const title = profile === 'production' ? 'Scheda di produzione' : profile === 'accounting' ? 'Riepilogo contabilità' : 'Dossier completo'
+  const total = items.reduce((sum, item) => sum + Number(p(item).quantity || 0) * Number(p(item).unitPrice || 0), 0)
+  const page = window.open('', '_blank')
+  if (!page) return
+  page.document.write(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>${esc(title)} · ${esc(text(x.orderCode))}</title><style>body{font-family:Arial,sans-serif;color:#17171b;margin:32px;font-size:14px}header{display:flex;justify-content:space-between;border-bottom:4px solid #ff2db2;padding-bottom:18px}h1{font-size:28px;margin:5px 0}.brand{font-weight:900;letter-spacing:.12em}.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:22px 0}.meta div{border:1px solid #ddd;padding:12px}.meta small{display:block;color:#666;margin-bottom:5px}table{width:100%;border-collapse:collapse}th{background:#17171b;color:white;text-align:left;padding:10px}td{padding:12px 10px;border-bottom:1px solid #ddd;vertical-align:top}.qty{font-size:18px;font-weight:800}.notes{margin-top:22px;padding:15px;background:#f5f5f7}.total{text-align:right;font-size:22px;font-weight:900;margin-top:18px}@media print{body{margin:15mm}@page{size:A4;margin:12mm}}</style></head><body><header><div><div class="brand">SPECTRO · ZENTHA</div><h1>${esc(title)}</h1><div>Documento operativo</div></div><div><b>${esc(text(x.orderCode, 'Ordine Zentha'))}</b><br>${formatItalianDate(new Date().toISOString())}</div></header><section class="meta"><div><small>Cliente</small><b>${esc(text(x.clientName))}</b></div><div><small>Data ordine</small><b>${date(x.orderDate)}</b></div><div><small>Consegna</small><b>${date(x.dueDate)}</b></div><div><small>Stato</small><b>${esc(label(x.status))}</b></div></section><table><thead><tr><th>Articolo</th><th>Dettagli produzione</th><th>Quantità</th>${showPrices ? '<th>Prezzo</th><th>Totale</th>' : ''}${showCosts ? '<th>Costo</th>' : ''}</tr></thead><tbody>${items.map(item => { const y = p(item); const lineTotal = Number(y.quantity || 0) * Number(y.unitPrice || 0); return `<tr><td><b>${esc(text(y.productName))}</b><br><small>${esc(text(y.skuSnapshot))} · ${esc(text(y.variant))} · ${esc(text(y.color))}</small></td><td><b>Taglie:</b> ${esc(text(y.sizeBreakdown))}<br><b>Personalizzazione:</b> ${esc(text(y.personalization))}<br><b>Note:</b> ${esc(text(y.productionNotes))}</td><td class="qty">${num(y.quantity, 0)} pz</td>${showPrices ? `<td>${euro(y.unitPrice)}</td><td>${euro(lineTotal)}</td>` : ''}${showCosts ? `<td>${euro(y.unitCost)}</td>` : ''}</tr>` }).join('')}</tbody></table>${showPrices ? `<div class="total">Totale articoli: ${euro(total)}</div>` : ''}<div class="notes"><b>Note ordine</b><br>${esc(text(x.notes, 'Nessuna nota aggiuntiva.'))}</div><script>window.onload=()=>window.print()<\/script></body></html>`)
+  page.document.close()
 }
 
 export function renderAnalyticalModule(
@@ -229,6 +247,10 @@ export function renderAnalyticalModule(
 ) {
   const types = primaryTypes[module.key] || []
   const primary = records.filter(row => types.includes(row.entity_type))
+  const products = module.key === 'zentha' ? records.filter(row => row.entity_type === 'zentha_product') : []
+  const today = new Date().toISOString().slice(0, 10)
+  let rangeStart = `${today.slice(0, 7)}-01`
+  let rangeEnd = today
   const statuses = [...new Set(primary.map(row => String(p(row).status || (p(row).paid === true ? 'PAID' : p(row).paid === false ? 'OPEN' : ''))).filter(Boolean))].sort()
   const searchPlaceholder: Record<string, string> = {
     orders: 'Cerca ordine, cliente o disegno…', production: 'Cerca cliente, ordine, plotter o tessuto…',
@@ -239,35 +261,40 @@ export function renderAnalyticalModule(
   root.innerHTML = `<div class="analytical-page">
     <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
     ${errorMessage ? `<p class="form-message">${esc(errorMessage)}</p>` : ''}
-    <section class="metric-grid">${statistics(module.key, primary, records, canFinance)}</section>
-    ${moduleInsights(primary)}
+    <section class="metric-grid" id="module-metrics">${statistics(module.key, primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd), records, canFinance)}</section>
+    <div id="module-insights">${moduleInsights(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>
+    ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
     <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">CENTRO OPERATIVO</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="export-csv" class="secondary compact-action">Esporta CSV</button>' : ''}<button id="print-view" class="secondary compact-action">Stampa</button></div></div>
       <div class="view-tabs" role="tablist"><button class="active" data-view="all">Tutti <b>${primary.length}</b></button><button data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(String(p(row).status || ''))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || p(row).status))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(String(p(row).status || ''))).length}</b></button></div>
-      <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Filtra per periodo"><option value="all">Tutto il periodo</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="365">Ultimo anno</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
+      <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
       <footer class="table-footer"><span id="result-count"></span><small>Seleziona una riga per aprire il dossier completo</small></footer>
     </section>
-    <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><nav class="dossier-tabs"><button class="active">Riepilogo</button><button>Collegamenti</button><button>Timeline</button><button>Allegati</button>${canFinance ? '<button>Economia</button>' : ''}</nav><div id="detail-content"></div></aside></div>
+    <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><nav class="dossier-tabs"><button class="active">Riepilogo</button><button>Collegamenti</button><button>Timeline</button><button>Allegati</button>${canFinance ? '<button>Economia</button>' : ''}</nav><div id="detail-actions" class="detail-actions"></div><div id="detail-content"></div></aside></div>
   </div>`
   const body = root.querySelector<HTMLTableSectionElement>('#record-body')!
   const empty = root.querySelector<HTMLElement>('#record-empty')!
   const search = root.querySelector<HTMLInputElement>('#record-search')!
   const status = root.querySelector<HTMLSelectElement>('#status-filter')
   const period = root.querySelector<HTMLSelectElement>('#period-filter')!
+  const periodFrom = root.querySelector<HTMLInputElement>('#period-from')!
+  const periodTo = root.querySelector<HTMLInputElement>('#period-to')!
   const group = root.querySelector<HTMLSelectElement>('#group-filter')!
   const resultCount = root.querySelector<HTMLElement>('#result-count')!
   let currentView = 'all'
   let visibleRows: CloudRecord[] = []
   const draw = () => {
     const term = search.value.trim().toLowerCase(); const selected = status?.value || ''
-    const cutoff = period.value === 'all' ? '' : new Date(Date.now() - Number(period.value) * 86400000).toISOString().slice(0, 10)
-    visibleRows = primary.filter(row => {
+    const periodRows = primary.filter(row => { const value = moduleDate(row); return value && value >= rangeStart && value <= rangeEnd })
+    root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)
+    root.querySelector<HTMLElement>('#module-insights')!.innerHTML = moduleInsights(periodRows)
+    visibleRows = periodRows.filter(row => {
       const rowStatus = String(p(row).status || (p(row).paid ? 'PAID' : 'OPEN'))
       const viewMatch = currentView === 'all' || (currentView === 'operative' && !terminalStatus.test(rowStatus)) ||
         (currentView === 'archive' && terminalStatus.test(rowStatus)) ||
         (currentView === 'attention' && (isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus))))
-      return viewMatch && JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || rowStatus === selected) && (!cutoff || moduleDate(row) >= cutoff)
+      return viewMatch && JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || rowStatus === selected)
     })
     const groupValue = (row: CloudRecord) => group.value === 'date' ? moduleDate(row).slice(0, 7) || 'Senza data' : group.value === 'status' ? translateCode(p(row).status || 'SENZA_STATO') : group.value === 'client' ? text(p(row).clientName || p(row).client || p(row).ownerName, 'Senza cliente') : ''
     let previousGroup = ''
@@ -278,17 +305,30 @@ export function renderAnalyticalModule(
       return `${heading}<tr data-record="${esc(row.id)}">${cells(module.key, row, records).map(value => `<td>${value}</td>`).join('')}</tr>`
     }).join('')
     empty.hidden = visibleRows.length > 0
-    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${primary.length}`
+    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${periodRows.length} nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
     body.querySelectorAll<HTMLTableRowElement>('tr').forEach(element => element.addEventListener('click', () => {
       if (!element.dataset.record) return
       const row = records.find(item => item.id === element.dataset.record); if (!row) return
       root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
       root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
+      const actions = root.querySelector<HTMLElement>('#detail-actions')!
+      actions.innerHTML = module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : canManage ? '<span>Modifica web disponibile con la prossima sincronizzazione bidirezionale.</span>' : ''
+      actions.querySelectorAll<HTMLButtonElement>('[data-export-profile]').forEach(button => button.addEventListener('click', () => printZenthaOrder(row, records, button.dataset.exportProfile as 'production'|'accounting'|'complete')))
       root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false
       document.body.classList.add('drawer-open')
     }))
   }
-  draw(); search.addEventListener('input', draw); status?.addEventListener('change', draw); period.addEventListener('change', draw); group.addEventListener('change', draw)
+  const setPreset = () => {
+    const mode = period.value
+    const now = new Date(); const end = now.toISOString().slice(0, 10)
+    if (mode === 'custom') return
+    if (mode === 'current_month') rangeStart = `${end.slice(0, 7)}-01`
+    else if (mode === 'previous_month') { rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10); rangeEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10); periodFrom.value = rangeStart; periodTo.value = rangeEnd; draw(); return }
+    else { const start = new Date(now); start.setDate(start.getDate() - Number(mode) + 1); rangeStart = start.toISOString().slice(0, 10) }
+    rangeEnd = end; periodFrom.value = rangeStart; periodTo.value = rangeEnd; draw()
+  }
+  const setCustom = () => { if (periodFrom.value && periodTo.value && periodFrom.value <= periodTo.value) { period.value = 'custom'; rangeStart = periodFrom.value; rangeEnd = periodTo.value; draw() } }
+  draw(); search.addEventListener('input', draw); status?.addEventListener('change', draw); period.addEventListener('change', setPreset); periodFrom.addEventListener('change', setCustom); periodTo.addEventListener('change', setCustom); group.addEventListener('change', draw)
   root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => button.addEventListener('click', () => {
     currentView = button.dataset.view || 'all'
     root.querySelectorAll('[data-view]').forEach(item => item.classList.toggle('active', item === button))
@@ -296,6 +336,13 @@ export function renderAnalyticalModule(
   }))
   root.querySelector('#export-csv')?.addEventListener('click', () => downloadCsv(module, visibleRows))
   root.querySelector('#print-view')?.addEventListener('click', () => window.print())
+  root.querySelectorAll<HTMLButtonElement>('[data-product]').forEach(button => button.addEventListener('click', () => {
+    const row = products.find(item => item.id === button.dataset.product); if (!row) return
+    root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
+    root.querySelector<HTMLElement>('#detail-actions')!.innerHTML = canManage ? '<span>La modifica dei listini sarà attiva con la sincronizzazione bidirezionale.</span>' : ''
+    root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
+    root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false; document.body.classList.add('drawer-open')
+  }))
   const close = () => { root.querySelector<HTMLElement>('#detail-overlay')!.hidden = true; document.body.classList.remove('drawer-open') }
   root.querySelector('#detail-close')?.addEventListener('click', close)
   root.querySelector('.detail-scrim')?.addEventListener('click', close)

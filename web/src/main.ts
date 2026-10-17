@@ -17,7 +17,11 @@ type AccessContext = {
   organization_name: string | null
   role_name: string | null
   permissions: string[]
+  preview_name?: string
+  preview_role?: string
 }
+
+let adminPreview: { user: User; access: AccessContext } | null = null
 
 type Module = {
   key: string
@@ -66,11 +70,17 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">
+      ${access.preview_name ? `<div class="preview-banner"><strong>Anteprima utente: ${escapeHtml(access.preview_name)}</strong><span>Stai vedendo Spectro con i permessi di ${escapeHtml(access.preview_role || 'questo utente')}.</span><button id="exit-preview">Torna ad amministratore</button></div>` : ''}
       <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><label class="global-search">⌕<input id="global-search" type="search" placeholder="Cerca in tutto Spectro…"><kbd>⌘ K</kbd></label><div class="topbar-actions"><button title="Notifiche" aria-label="Notifiche">♢</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
       <main class="content control-content" id="view-host">${content}</main>
     </div>
   </div>`
   document.querySelector('#logout')?.addEventListener('click', () => supabase?.auth.signOut())
+  document.querySelector('#exit-preview')?.addEventListener('click', () => {
+    const original = adminPreview
+    adminPreview = null
+    if (original) void renderWorkspace(original.user, original.access)
+  })
   document.querySelectorAll<HTMLElement>('[data-route]').forEach(element => element.addEventListener('click', () => {
     const key = element.dataset.route
     if (key === 'dashboard') void renderWorkspace(user, access)
@@ -94,6 +104,34 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
 const escapeHtml = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
   .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
+
+const recordDate = (row: CloudRecord) => String(
+  row.payload.date || row.payload.orderDate || row.payload.receivedDate || row.payload.dueDate || row.payload.openedDate || row.updated_at || ''
+).slice(0, 10)
+
+function periodDates(mode: string) {
+  const now = new Date()
+  const end = now.toISOString().slice(0, 10)
+  if (mode === 'current_month') return { start: `${end.slice(0, 7)}-01`, end }
+  if (mode === 'previous_month') {
+    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const last = new Date(now.getFullYear(), now.getMonth(), 0)
+    return { start: first.toISOString().slice(0, 10), end: last.toISOString().slice(0, 10) }
+  }
+  const days = Number(mode || 30)
+  const start = new Date(now); start.setDate(start.getDate() - Math.max(days - 1, 0))
+  return { start: start.toISOString().slice(0, 10), end }
+}
+
+const financeFields = new Set(['amount','dailyFixedCost','defaultPrintPrice','fabricCost','fabricCostPerMeter','fabricLossCost','fabricSalePricePerMeter','grossProfit','grossRevenue','labelCost','liningCost','manualGrossRevenue','markupPercent','materialCostTotal','otherCost','otherCosts','packagingCost','paperPrintCost','priceListName','printCost','printPricePerMeter','productionCostPerMeter','protectionPaperCost','purchasePricePerMeter','refundCost','ribCost','sewingCost','splitPercentA','splitPercentB','standardCost','standardPrice','unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost'])
+
+function recordsForAccess(records: CloudRecord[], access: AccessContext) {
+  const visibleModules = new Set(allowedModules(access).map(module => module.key))
+  return records.filter(row => visibleModules.has(row.module)).map(row => {
+    if (access.permissions.includes('finance.view')) return row
+    return { ...row, payload: Object.fromEntries(Object.entries(row.payload).filter(([key]) => !financeFields.has(key))) }
+  })
+}
 
 const friendlyAuthMessage = (message: string) => {
   const normalized = message.toLowerCase()
@@ -120,7 +158,7 @@ function renderLogin(message = '') {
     <p class="lead">Un solo accesso per Android, Windows e Mac. Ogni persona vede esclusivamente ciò che serve.</p>
     <form id="login-form" class="form-stack">
       <label>Email<input name="email" type="email" autocomplete="email" required placeholder="nome@azienda.it"></label>
-      <label>Password<input name="password" type="password" autocomplete="current-password" minlength="8" required placeholder="••••••••"></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" minlength="6" required placeholder="••••••••"></label>
       ${message ? `<p class="form-message">${escapeHtml(message)}</p>` : ''}
       <button class="primary" type="submit">Accedi</button>
     </form>
@@ -219,54 +257,45 @@ async function renderWorkspace(user: User, access: AccessContext) {
   mountShell(user, access, 'dashboard', '<div class="loader-shell"><div class="loader"></div></div>')
   let allRecords: CloudRecord[] = []
   if (supabase) {
-    const response = await supabase.rpc('list_erp_records_safe', {
-      p_organization_id: access.organization_id, p_module: null, p_limit: 500
-    })
-    allRecords = response.data || []
+    const response = await supabase.rpc('list_erp_records_safe', { p_organization_id: access.organization_id, p_module: null, p_limit: 500 })
+    allRecords = recordsForAccess(response.data || [], access)
   }
-  const recent = allRecords.slice(0, 8)
-  const count = (type: string) => allRecords.filter(row => row.entity_type === type).length
-  const activeOrders = allRecords.filter(row => row.entity_type === 'work_order' && !['COMPLETED','DELIVERED','CLOSED','CANCELLED'].includes(String(row.payload.status))).length
-  const openTasks = allRecords.filter(row => row.entity_type === 'operational_task' && !['DONE','CANCELLED'].includes(String(row.payload.status))).length
-  const stockMeters = allRecords.filter(row => row.entity_type === 'inventory_item').reduce((sum, row) => sum + Number(row.payload.quantityMeters || 0), 0)
-  const today = new Date().toISOString().slice(0, 10)
-  const dueDate = (row: CloudRecord) => String(row.payload.dueDate || row.payload.expectedDeliveryDate || '')
-  const terminal = /COMPLETED|DELIVERED|CLOSED|CANCELLED|DONE|RESOLVED|PAID/
-  const overdueOrders = allRecords.filter(row => row.entity_type === 'work_order' && dueDate(row) && dueDate(row) < today && !terminal.test(String(row.payload.status))).length
-  const overdueTasks = allRecords.filter(row => row.entity_type === 'operational_task' && dueDate(row) && dueDate(row) < today && !terminal.test(String(row.payload.status))).length
-  const lowStock = allRecords.filter(row => row.entity_type === 'inventory_item' && Number(row.payload.quantityMeters || 0) <= Number(row.payload.minimumQuantityMeters || 0))
-  const openIssues = allRecords.filter(row => ['client_issue','order_timeline_event'].includes(row.entity_type) && !terminal.test(String(row.payload.status)))
-  const production = allRecords.filter(row => row.entity_type === 'production_record')
-  const days = Array.from({ length: 7 }, (_, index) => { const day = new Date(); day.setDate(day.getDate() - (6 - index)); return day.toISOString().slice(0, 10) })
-  const productionTotals = days.map(day => production.filter(row => row.payload.date === day).reduce((sum, row) => sum + Number(row.payload.printedPaperMeters || 0), 0))
-  const maximumProduction = Math.max(...productionTotals, 1)
-  const revenue = allRecords.filter(row => row.entity_type === 'economic_work').reduce((sum, row) => sum + Number(row.payload.manualGrossRevenue || Number(row.payload.quantity || 0) * Number(row.payload.unitPrice || 0)), 0) + production.reduce((sum, row) => sum + Number(row.payload.grossRevenue || 0), 0)
   const host = document.querySelector<HTMLElement>('#view-host')!
-  host.innerHTML = `<section class="dashboard-heading"><div><p class="kicker">CENTRO DI CONTROLLO</p><h1>Buon lavoro, ${escapeHtml((access.display_name || 'Biagio').split(' ')[0])}.</h1><p>Situazione operativa aggiornata su ordini, produzione, scadenze e magazzino.</p></div><div class="dashboard-period"><span>Origine indicatori</span><strong>Archivio sincronizzato</strong></div></section>
-    <section class="executive-metrics">
-      <article><div><span>Ordini operativi</span><strong>${activeOrders}</strong></div><b class="trend ${overdueOrders ? 'negative' : 'positive'}">${overdueOrders ? `${overdueOrders} in ritardo` : 'In linea'}</b><small>${count('work_order')} ordini complessivi</small></article>
-      <article><div><span>Produzioni</span><strong>${count('production_record')}</strong></div><b class="trend positive">${productionTotals.reduce((sum, value) => sum + value, 0).toLocaleString('it-IT')} m / 7 gg</b><small>registrazioni sincronizzate</small></article>
-      <article><div><span>Magazzino</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 0 })} m</strong></div><b class="trend ${lowStock.length ? 'negative' : 'positive'}">${lowStock.length} sotto soglia</b><small>disponibilità complessiva</small></article>
-      <article><div><span>Attività aperte</span><strong>${openTasks}</strong></div><b class="trend ${overdueTasks ? 'negative' : 'positive'}">${overdueTasks} scadute</b><small>${count('operational_task')} attività totali</small></article>
-      ${access.permissions.includes('finance.view') ? `<article><div><span>Volume economico</span><strong>${revenue.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</strong></div><b class="trend neutral">Periodo disponibile</b><small>produzioni e altri ricavi</small></article>` : ''}
-    </section>
-    <section class="dashboard-grid">
-      <article class="dashboard-card production-chart"><div class="card-heading"><div><p class="kicker">PRODUZIONE</p><h2>Carta stampata</h2></div><button data-open-module="production">Apri reparto →</button></div><div class="large-bars">${productionTotals.map((value, index) => `<div><b>${value ? Math.round(value) : ''}</b><i style="height:${Math.max(4, value / maximumProduction * 100)}%"></i><span>${new Date(`${days[index]}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short' })}</span></div>`).join('')}</div></article>
-      <article class="dashboard-card attention-card"><div class="card-heading"><div><p class="kicker">ATTENZIONE RICHIESTA</p><h2>Priorità operative</h2></div><span>${overdueOrders + overdueTasks + lowStock.length + openIssues.length}</span></div><div class="attention-list">
-        <button data-open-module="orders"><i class="danger"></i><div><strong>Ordini in ritardo</strong><small>Consegna superata e ordine ancora aperto</small></div><b>${overdueOrders}</b></button>
-        <button data-open-module="tasks"><i class="warn"></i><div><strong>Attività scadute</strong><small>Richiedono una verifica operativa</small></div><b>${overdueTasks}</b></button>
-        <button data-open-module="inventory"><i class="danger"></i><div><strong>Tessuti sotto soglia</strong><small>Disponibilità inferiore al minimo</small></div><b>${lowStock.length}</b></button>
-        <button data-open-module="issues"><i class="info"></i><div><strong>Criticità aperte</strong><small>Timeline ed eventi non risolti</small></div><b>${openIssues.length}</b></button>
-      </div></article>
-    </section>
-    <section class="dashboard-lower"><article><div class="section-head"><div><p class="kicker">AREE DI LAVORO</p><h2>Moduli autorizzati</h2></div><span>${allowed.length} disponibili</span></div><div class="compact-module-grid">${allowed.map(module => `<button data-open-module="${module.key}"><i>${moduleIcons[module.key] || '•'}</i><span><strong>${module.title}</strong><small>${module.description}</small></span><b>→</b></button>`).join('')}</div></article>
-      <article><div class="section-head"><div><p class="kicker">ULTIMI MOVIMENTI</p><h2>Attività recenti</h2></div></div><div class="recent-list">${recent.length ? recent.map(row => `<div class="recent-row"><span class="dot ${row.module}"></span><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || translateCode(row.entity_type)))}</strong><small>${escapeHtml(moduleLabel(row.module))} · ${formatItalianDate(row.updated_at, true)}</small></div></div>`).join('') : '<p class="empty">Le attività condivise appariranno qui.</p>'}</div></article></section>`
-  host.querySelectorAll<HTMLElement>('[data-open-module]').forEach(element => element.addEventListener('click', () => {
-    const module = modules.find(item => item.key === element.dataset.openModule)
-    if (module?.key === 'users') void renderAccessManagement(user, access)
-    else if (module?.key === 'sync') void renderCloudStatus(user, access)
-    else if (module) void renderModule(user, access, module)
-  }))
+  const terminal = /COMPLETED|DELIVERED|CLOSED|CANCELLED|DONE|RESOLVED|PAID/
+  const today = new Date().toISOString().slice(0, 10)
+  const stock = allRecords.filter(row => row.entity_type === 'inventory_item')
+  const stockMeters = stock.reduce((sum, row) => sum + Number(row.payload.quantityMeters || 0), 0)
+  const lowStock = stock.filter(row => Number(row.payload.quantityMeters || 0) <= Number(row.payload.minimumQuantityMeters || 0))
+  let periodMode = 'current_month'
+  let range = periodDates(periodMode)
+
+  const drawDashboard = () => {
+    const periodRecords = allRecords.filter(row => { const value = recordDate(row); return value && value >= range.start && value <= range.end })
+    const recent = periodRecords.slice(0, 8)
+    const byType = (type: string) => periodRecords.filter(row => row.entity_type === type)
+    const dueDate = (row: CloudRecord) => String(row.payload.dueDate || row.payload.expectedDeliveryDate || '')
+    const orders = byType('work_order'); const production = byType('production_record'); const tasks = byType('operational_task')
+    const activeOrders = orders.filter(row => !terminal.test(String(row.payload.status))).length
+    const openTasks = tasks.filter(row => !terminal.test(String(row.payload.status))).length
+    const overdueOrders = orders.filter(row => dueDate(row) && dueDate(row) < today && !terminal.test(String(row.payload.status))).length
+    const overdueTasks = tasks.filter(row => dueDate(row) && dueDate(row) < today && !terminal.test(String(row.payload.status))).length
+    const openIssues = periodRecords.filter(row => ['client_issue','order_timeline_event'].includes(row.entity_type) && !terminal.test(String(row.payload.status)))
+    const dayCount = Math.max(1, Math.min(31, Math.round((new Date(range.end).getTime() - new Date(range.start).getTime()) / 86400000) + 1))
+    const chartDays = Array.from({ length: dayCount }, (_, index) => { const day = new Date(`${range.start}T12:00:00`); day.setDate(day.getDate() + index); return day.toISOString().slice(0, 10) })
+    const productionTotals = chartDays.map(day => production.filter(row => String(row.payload.date).slice(0, 10) === day).reduce((sum, row) => sum + Number(row.payload.printedPaperMeters || 0), 0))
+    const maximumProduction = Math.max(...productionTotals, 1)
+    const revenue = byType('economic_work').reduce((sum, row) => sum + Number(row.payload.manualGrossRevenue || Number(row.payload.quantity || 0) * Number(row.payload.unitPrice || 0)), 0) + production.reduce((sum, row) => sum + Number(row.payload.grossRevenue || 0), 0)
+    const periodLabel = `${formatItalianDate(range.start)} – ${formatItalianDate(range.end)}`
+    host.innerHTML = `<section class="dashboard-heading"><div><p class="kicker">CENTRO DI CONTROLLO</p><h1>Buon lavoro, ${escapeHtml((access.display_name || 'Biagio').split(' ')[0])}.</h1><p>Indicatori calcolati esclusivamente nel periodo selezionato.</p></div><div class="period-controller"><label>Periodo<select id="dashboard-period"><option value="current_month" ${periodMode === 'current_month' ? 'selected' : ''}>Mese corrente</option><option value="previous_month" ${periodMode === 'previous_month' ? 'selected' : ''}>Mese precedente</option><option value="7" ${periodMode === '7' ? 'selected' : ''}>Ultimi 7 giorni</option><option value="30" ${periodMode === '30' ? 'selected' : ''}>Ultimi 30 giorni</option><option value="90" ${periodMode === '90' ? 'selected' : ''}>Ultimi 90 giorni</option><option value="custom" ${periodMode === 'custom' ? 'selected' : ''}>Intervallo personalizzato</option></select></label><label>Dal<input id="dashboard-from" type="date" value="${range.start}"></label><label>Al<input id="dashboard-to" type="date" value="${range.end}"></label><strong>${periodLabel}</strong></div></section>
+      <section class="executive-metrics"><article><div><span>Ordini del periodo</span><strong>${orders.length}</strong></div><b class="trend ${overdueOrders ? 'negative' : 'positive'}">${activeOrders} operativi · ${overdueOrders} in ritardo</b><small>${periodLabel}</small></article><article><div><span>Produzioni del periodo</span><strong>${production.length}</strong></div><b class="trend positive">${productionTotals.reduce((sum, value) => sum + value, 0).toLocaleString('it-IT')} m</b><small>carta stampata nel periodo</small></article><article><div><span>Magazzino attuale</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 0 })} m</strong></div><b class="trend ${lowStock.length ? 'negative' : 'positive'}">${lowStock.length} sotto soglia</b><small>dato corrente, non storico</small></article><article><div><span>Attività del periodo</span><strong>${tasks.length}</strong></div><b class="trend ${overdueTasks ? 'negative' : 'positive'}">${openTasks} aperte · ${overdueTasks} scadute</b><small>${periodLabel}</small></article>${access.permissions.includes('finance.view') ? `<article><div><span>Volume economico</span><strong>${revenue.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</strong></div><b class="trend neutral">Periodo selezionato</b><small>produzioni e altri ricavi</small></article>` : ''}</section>
+      <section class="dashboard-grid"><article class="dashboard-card production-chart"><div class="card-heading"><div><p class="kicker">PRODUZIONE</p><h2>Carta stampata · ${periodLabel}</h2></div><button data-open-module="production">Apri reparto →</button></div><div class="large-bars ${chartDays.length > 14 ? 'dense' : ''}">${productionTotals.map((value, index) => `<div title="${formatItalianDate(chartDays[index])}: ${Math.round(value)} m"><b>${value ? Math.round(value) : ''}</b><i style="height:${Math.max(4, value / maximumProduction * 100)}%"></i><span>${new Date(`${chartDays[index]}T12:00:00`).toLocaleDateString('it-IT', { day:'2-digit', month:'2-digit' })}</span></div>`).join('')}</div></article><article class="dashboard-card attention-card"><div class="card-heading"><div><p class="kicker">ATTENZIONE RICHIESTA</p><h2>Priorità nel periodo</h2></div><span>${overdueOrders + overdueTasks + lowStock.length + openIssues.length}</span></div><div class="attention-list"><button data-open-module="orders"><i class="danger"></i><div><strong>Ordini in ritardo</strong><small>Nel periodo selezionato</small></div><b>${overdueOrders}</b></button><button data-open-module="tasks"><i class="warn"></i><div><strong>Attività scadute</strong><small>Nel periodo selezionato</small></div><b>${overdueTasks}</b></button><button data-open-module="inventory"><i class="danger"></i><div><strong>Tessuti sotto soglia</strong><small>Situazione attuale</small></div><b>${lowStock.length}</b></button><button data-open-module="issues"><i class="info"></i><div><strong>Criticità aperte</strong><small>Nel periodo selezionato</small></div><b>${openIssues.length}</b></button></div></article></section>
+      <section class="dashboard-lower"><article><div class="section-head"><div><p class="kicker">AREE DI LAVORO</p><h2>Moduli autorizzati</h2></div><span>${allowed.length} disponibili</span></div><div class="compact-module-grid">${allowed.map(module => `<button data-open-module="${module.key}"><i>${moduleIcons[module.key] || '•'}</i><span><strong>${module.title}</strong><small>${module.description}</small></span><b>→</b></button>`).join('')}</div></article><article><div class="section-head"><div><p class="kicker">MOVIMENTI NEL PERIODO</p><h2>Attività recenti</h2></div></div><div class="recent-list">${recent.length ? recent.map(row => `<div class="recent-row"><span class="dot ${row.module}"></span><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || translateCode(row.entity_type)))}</strong><small>${escapeHtml(moduleLabel(row.module))} · ${formatItalianDate(row.updated_at, true)}</small></div></div>`).join('') : '<p class="empty">Nessun movimento nel periodo selezionato.</p>'}</div></article></section>`
+    host.querySelector<HTMLSelectElement>('#dashboard-period')?.addEventListener('change', event => { periodMode = (event.currentTarget as HTMLSelectElement).value; if (periodMode !== 'custom') range = periodDates(periodMode); drawDashboard() })
+    const setCustomRange = () => { periodMode = 'custom'; range = { start: host.querySelector<HTMLInputElement>('#dashboard-from')!.value, end: host.querySelector<HTMLInputElement>('#dashboard-to')!.value }; if (range.start && range.end && range.start <= range.end) drawDashboard() }
+    host.querySelector('#dashboard-from')?.addEventListener('change', setCustomRange); host.querySelector('#dashboard-to')?.addEventListener('change', setCustomRange)
+    host.querySelectorAll<HTMLElement>('[data-open-module]').forEach(element => element.addEventListener('click', () => { const module = modules.find(item => item.key === element.dataset.openModule); if (module?.key === 'users') void renderAccessManagement(user, access); else if (module?.key === 'sync') void renderCloudStatus(user, access); else if (module) void renderModule(user, access, module) }))
+  }
+  drawDashboard()
 }
 
 async function renderGlobalSearch(user: User, access: AccessContext, query: string) {
@@ -346,7 +375,7 @@ async function renderAccessManagement(user: User, access: AccessContext, message
     </section>
     <div class="permission-help"><div><strong>Matrice permessi</strong><span>Il ruolo definisce la base; le eccezioni valgono soltanto per il singolo utente.</span></div><label class="permission-search">⌕<input id="permission-search" type="search" placeholder="Cerca utente o permesso…"></label></div>
     <section class="member-list">${members.map(member => `<article class="member-card" data-user="${member.user_id}">
-      <div class="member-summary"><span class="avatar">${escapeHtml((member.display_name || member.email).slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(member.display_name || member.email)}</h3><p>${escapeHtml(member.email)} · ${escapeHtml(translateCode(member.status))}</p></div><label>Ruolo<select class="role-select" data-original="${member.role_id}">${roleOptions(member.role_id)}</select></label><span class="effective-count">${rolePermissionMap.get(member.role_id)?.size || 0} permessi base</span></div>
+      <div class="member-summary"><span class="avatar">${escapeHtml((member.display_name || member.email).slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(member.display_name || member.email)}</h3><p>${escapeHtml(member.email)} · ${escapeHtml(translateCode(member.status))}</p></div><button class="preview-user" type="button">Anteprima utente</button><label>Ruolo<select class="role-select" data-original="${member.role_id}">${roleOptions(member.role_id)}</select></label><span class="effective-count">${rolePermissionMap.get(member.role_id)?.size || 0} permessi base</span></div>
       <details><summary><span>Configura accesso</span><b>${Object.keys(member.permission_overrides || {}).length} personalizzazioni</b></summary>
         <div class="permission-tools"><button data-bulk="default">Ripristina ruolo</button><button data-bulk="view">Solo visualizzazione</button><button data-bulk="allow">Consenti tutto</button><button data-bulk="deny">Nega tutto</button></div>
         <div class="permission-matrix">${Object.entries(permissionGroups).map(([moduleName, modulePermissions]) => `<section><header><div><i>${moduleIcons[moduleName] || '•'}</i><strong>${escapeHtml(moduleLabel(moduleName))}</strong></div><span>${modulePermissions.length} funzioni</span></header>${modulePermissions.map(permission => {
@@ -380,6 +409,14 @@ async function renderAccessManagement(user: User, access: AccessContext, message
   }
   host.querySelectorAll<HTMLElement>('.member-card').forEach(card => {
     const userId = card.dataset.user!
+    const member = members.find(item => item.user_id === userId)
+    card.querySelector<HTMLButtonElement>('.preview-user')?.addEventListener('click', () => {
+      if (!member) return
+      const effective = new Set(rolePermissionMap.get(member.role_id) || [])
+      Object.entries(member.permission_overrides || {}).forEach(([key, allowed]) => allowed ? effective.add(key) : effective.delete(key))
+      adminPreview = { user, access }
+      void renderWorkspace(user, { ...access, display_name: member.display_name || member.email, role_name: member.role_name, permissions: [...effective], preview_name: member.display_name || member.email, preview_role: member.role_name })
+    })
     card.querySelector<HTMLSelectElement>('.role-select')?.addEventListener('change', () => markDirty(card))
     card.querySelectorAll<HTMLSelectElement>('.override-select').forEach(select => select.addEventListener('change', () => markDirty(card)))
     card.querySelectorAll<HTMLButtonElement>('[data-bulk]').forEach(button => button.addEventListener('click', () => {
@@ -427,7 +464,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
   const results = await Promise.all(permitted.map(key => supabase.rpc('list_erp_records_safe', {
     p_organization_id: access.organization_id, p_module: key, p_limit: 500
   })))
-  const records = results.flatMap(result => (result.data || []) as CloudRecord[])
+  const records = recordsForAccess(results.flatMap(result => (result.data || []) as CloudRecord[]), access)
   const error = results.find(result => result.error)?.error
   renderAnalyticalModule(
     host,

@@ -26,6 +26,8 @@ La Beta 7 rende persistente la sincronizzazione automatica: ogni modifica autori
 
 Il portale web v5 introduce la Control Tower desktop: navigazione laterale persistente, ricerca globale, indicatori direzionali, statistiche e grafici operativi, viste per stato e periodo, raggruppamenti analitici, dossier stampabili ed esportazione CSV. Le etichette applicative sono centralizzate in italiano. La gestione accessi usa una matrice per modulo con ricerca, modifiche temporanee e un unico salvataggio per utente, oltre ai preset sola lettura/consenti tutto/nega tutto. Le scritture dirette sui record ERP restano disabilitate finché la sincronizzazione Android non passa dal workspace completo a record versionati: abilitarle prima esporrebbe i dati a conflitti e sovrascritture.
 
+Il portale web v6 aumenta la leggibilità dell’intera interfaccia, imposta le statistiche sul mese corrente e aggiunge intervalli predefiniti o personalizzati dal/al. Zentha mostra anche catalogo prodotti e listini rilevati e genera documenti dedicati per produzione, contabilità e dossier completo. L’amministratore può aprire un’anteprima effettiva dei permessi di un utente; i dati economici vengono rimossi anche localmente durante l’anteprima. Il login accetta le password esistenti da almeno 6 caratteri, mentre la registrazione continua a richiederne almeno 8.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 

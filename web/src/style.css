@@ -123,3 +123,41 @@ input:focus { border-color:var(--pink); box-shadow:0 0 0 3px #ff2db21c; }
 @media (max-width:1180px) { .topbar { grid-template-columns:1fr minmax(250px,400px); }.topbar-actions { display:none; }.executive-metrics { grid-template-columns:repeat(2,1fr); }.dashboard-grid,.dashboard-lower,.module-insights { grid-template-columns:1fr; }.advanced-filters { grid-template-columns:1fr 1fr; }.permission-matrix { grid-template-columns:1fr; } }
 @media (max-width:760px) { .control-tower { display:block; }.control-tower .sidebar { position:relative; height:auto; }.workspace-label,.sidebar-status { display:none; }.topbar { position:relative; height:auto; padding:12px 16px; grid-template-columns:1fr; }.topbar>div:first-child { display:none; }.global-search { min-width:0; }.control-content { padding:20px 14px 60px; }.dashboard-heading,.permission-help { align-items:stretch; flex-direction:column; }.dashboard-period,.permission-search { width:100%; }.executive-metrics,.access-overview,.compact-module-grid,.analytical-page .metric-grid { grid-template-columns:1fr 1fr; }.advanced-filters { grid-template-columns:1fr; }.header-actions { align-items:flex-start; flex-wrap:wrap; }.view-tabs { padding:0 8px; }.permission-savebar { grid-template-columns:1fr 1fr; }.permission-savebar>div { grid-column:1/-1; } }
 @media print { .sidebar,.topbar,.view-tabs,.advanced-filters,.toolbar-actions,.back { display:none!important; }.workspace { display:block; }.control-content { padding:0; }.data-panel,.chart-card,.metric-grid article { box-shadow:none; break-inside:avoid; } body { background:white; color:black; } }
+
+/* Leggibilità desktop e controlli temporali v6 */
+body { font-size:16px; }
+.kicker { font-size:13px; }
+.control-tower .nav-item { font-size:14px; padding:12px; }
+.workspace-label span,.dashboard-period span,.breadcrumb,.topbar>div>span { font-size:11px; }
+.workspace-label strong,.control-tower .brand-lockup strong { font-size:14px; }
+.sidebar-status strong { font-size:12px; }.sidebar-status small { font-size:11px; }
+.user-card strong { font-size:14px; }.user-card small { font-size:12px; }
+.global-search input { font-size:14px; }.role-badge,.permission-chip,.live { font-size:12px!important; }
+.dashboard-heading>div>p:last-child { font-size:14px; line-height:1.55; }
+.executive-metrics span,.metric-grid span { font-size:14px; }.executive-metrics small,.metric-grid small { font-size:12px; line-height:1.45; }.trend { font-size:12px; }
+.card-heading button,.section-head>span { font-size:12px; }.attention-list strong { font-size:14px; }.attention-list small { font-size:12px; line-height:1.4; }
+.compact-module-grid strong { font-size:14px; }.compact-module-grid small { font-size:12px; }
+.recent-row strong { font-size:14px; }.recent-row small { font-size:12px; }
+.chart-heading h3 { font-size:20px; }.chart-heading>span,.status-distribution span,.status-distribution strong { font-size:12px; }.chart-axis { font-size:10px; }
+.view-tabs button { font-size:13px; padding:15px 14px; }.view-tabs button b { font-size:11px; }
+.advanced-filters select,.advanced-filters input,.compact-action { font-size:13px; }
+th { font-size:12px; padding:15px 18px; }td strong { font-size:16px; }td small { font-size:12px; line-height:1.4; }td { font-size:14px; }
+.status { font-size:12px; }.table-footer { font-size:12px; }.group-row td { font-size:12px; }
+.detail-field span { font-size:12px; }.detail-field strong { font-size:16px; }.detail-section,.detail-section p,.linked-row span,.order-line small,.order-line p { font-size:14px; line-height:1.55; }
+.member-summary h3 { font-size:17px; }.member-summary p,.member-card summary,.permission-help span,.permission-row strong { font-size:13px; }.permission-row small,.permission-row em,.effective-count { font-size:11px; }
+.permission-tools button,.permission-savebar button,.permission-search input { font-size:12px; }
+.preview-user { border:1px solid #ff2db24d; border-radius:10px; background:#ff2db210; color:#ff9bdc; padding:9px 11px; font-size:12px; font-weight:800; }
+.preview-banner { min-height:48px; padding:9px 32px; display:flex; align-items:center; gap:14px; background:linear-gradient(90deg,#68204f,#9a5310); border-bottom:1px solid #ffb05a; color:white; }
+.preview-banner strong { font-size:14px; }.preview-banner span { flex:1; font-size:12px; }.preview-banner button { border:1px solid #ffffff66; border-radius:9px; padding:8px 11px; background:#0004; color:white; font-weight:800; }
+.period-controller { display:grid; grid-template-columns:1.3fr 1fr 1fr; align-items:end; gap:8px; min-width:520px; padding:13px; background:#111116; border:1px solid #303038; border-radius:15px; }
+.period-controller label,.date-filter { font-size:12px; color:#aaaab4; }.period-controller select,.period-controller input,.date-filter input { min-height:42px; padding:9px 10px; border:1px solid #393941; border-radius:9px; background:#09090c; color:white; }
+.period-controller>strong { grid-column:1/-1; color:#ff9edc; font-size:12px; }
+.advanced-filters { grid-template-columns:minmax(260px,1fr) repeat(5,max-content); align-items:end; }
+.large-bars.dense { gap:3px; overflow:hidden; }.large-bars.dense span { font-size:8px; transform:rotate(-45deg); height:30px; }.large-bars.dense b { display:none; }
+.zentha-catalog { margin:0 0 16px; padding:22px; border:1px solid #392d37; border-radius:20px; background:linear-gradient(135deg,#171118,#101014); }
+.catalog-heading { display:flex; justify-content:space-between; align-items:end; gap:20px; }.catalog-heading h2 { margin:0; font-size:25px; }.catalog-heading p { margin:7px 0 0; color:#92929d; font-size:14px; }
+.price-list-pills { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }.price-list-pills span { padding:9px 11px; border:1px solid #3b333a; border-radius:10px; color:#9999a3; font-size:11px; }.price-list-pills b { display:block; color:white; font-size:13px; margin-bottom:3px; }
+.product-grid { margin-top:18px; display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }.product-card { min-height:155px; padding:17px; text-align:left; border:1px solid #303038; border-radius:15px; background:#111116; color:white; }.product-card:hover { border-color:#ff2db275; transform:translateY(-2px); }.product-card h3 { margin:12px 0 5px; font-size:18px; }.product-card p { color:#92929d; font-size:13px; }.product-card>div { margin-top:17px; display:flex; justify-content:space-between; gap:10px; color:#aaaab4; font-size:12px; }.product-card>div strong { color:#ff9bdd; font-size:15px; }.product-sku { color:#ff9bdd; font-size:12px; font-weight:900; letter-spacing:.08em; }
+.detail-actions { display:flex; gap:8px; flex-wrap:wrap; padding:14px 22px; border-bottom:1px solid #292930; }.detail-actions button { padding:10px 12px; border:1px solid #ff2db24d; border-radius:10px; background:#ff2db211; color:#ff9bdc; font-weight:800; }.detail-actions span { color:#c0a5b7; font-size:13px; }
+@media (max-width:1180px) { .period-controller { min-width:0; width:100%; }.dashboard-heading { align-items:stretch; flex-direction:column; }.advanced-filters { grid-template-columns:1fr 1fr; }.product-grid { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:760px) { .preview-banner { padding:10px 14px; flex-wrap:wrap; }.period-controller { grid-template-columns:1fr; }.period-controller>strong { grid-column:auto; }.product-grid { grid-template-columns:1fr; }.catalog-heading { align-items:stretch; flex-direction:column; }.price-list-pills { justify-content:flex-start; } }

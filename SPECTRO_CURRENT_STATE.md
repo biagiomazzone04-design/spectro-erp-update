@@ -24,6 +24,8 @@ La Beta 6 cloud elimina il limite pratico di 50 MB per l’intero workspace: arc
 
 La Beta 7 rende persistente la sincronizzazione automatica: ogni modifica autorizzata marca il workspace come pendente, viene pubblicata una sola volta dopo un breve raggruppamento delle operazioni e, in assenza di rete, resta salvata sul dispositivo e viene ritentata. Il portale web v3 aggiunge KPI, filtri, tabelle analitiche, righe cliccabili e dossier record, mantenendo la rimozione server-side dei dati economici per i ruoli senza `finance.view`.
 
+Il portale web v5 introduce la Control Tower desktop: navigazione laterale persistente, ricerca globale, indicatori direzionali, statistiche e grafici operativi, viste per stato e periodo, raggruppamenti analitici, dossier stampabili ed esportazione CSV. Le etichette applicative sono centralizzate in italiano. La gestione accessi usa una matrice per modulo con ricerca, modifiche temporanee e un unico salvataggio per utente, oltre ai preset sola lettura/consenti tutto/nega tutto. Le scritture dirette sui record ERP restano disabilitate finché la sincronizzazione Android non passa dal workspace completo a record versionati: abilitarle prima esporrebbe i dati a conflitti e sovrascritture.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 

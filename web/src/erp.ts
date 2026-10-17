@@ -1,3 +1,5 @@
+import { formatItalianDate, isoDate, translateCode } from './i18n'
+
 export type CloudRecord = {
   id: string
   module: string
@@ -14,14 +16,9 @@ const esc = (value: unknown) => String(value ?? '')
   .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
 const num = (value: unknown, digits = 1) => new Intl.NumberFormat('it-IT', { maximumFractionDigits: digits }).format(Number(value || 0))
 const euro = (value: unknown) => new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' }).format(Number(value || 0))
-const date = (value: unknown) => {
-  const raw = String(value || '')
-  if (!raw) return '—'
-  const parsed = new Date(raw.length === 10 ? `${raw}T12:00:00` : raw)
-  return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString('it-IT')
-}
+const date = (value: unknown) => formatItalianDate(value)
 const text = (value: unknown, fallback = '—') => String(value || '').trim() || fallback
-const label = (value: unknown) => text(value).replaceAll('_', ' ').toLowerCase().replace(/^./, c => c.toUpperCase())
+const label = (value: unknown) => translateCode(value)
 const statusClass = (value: unknown) => {
   const status = String(value || '').toLowerCase()
   if (/(done|closed|delivered|completed|paid|ready|resolved)/.test(status)) return 'ok'
@@ -32,6 +29,16 @@ const statusClass = (value: unknown) => {
 const badge = (value: unknown) => `<span class="status ${statusClass(value)}">${esc(label(value))}</span>`
 const p = (row: CloudRecord) => row.payload
 const has = (row: CloudRecord, key: string) => Object.prototype.hasOwnProperty.call(row.payload, key)
+const terminalStatus = /(CLOSED|DELIVERED|COMPLETED|DONE|CANCELLED|PAID|RESOLVED|ARCHIVED)/
+
+const moduleDate = (row: CloudRecord) => isoDate(
+  p(row).date || p(row).dueDate || p(row).orderDate || p(row).receivedDate || p(row).createdDate || p(row).openedDate || row.updated_at
+)
+
+const isOverdue = (row: CloudRecord) => {
+  const due = isoDate(p(row).dueDate || p(row).expectedDeliveryDate || p(row).revisedDeliveryDate)
+  return Boolean(due && due < new Date().toISOString().slice(0, 10) && !terminalStatus.test(String(p(row).status || '')))
+}
 
 const primaryTypes: Record<string, string[]> = {
   orders: ['work_order'], production: ['production_record'], inventory: ['inventory_item'], clients: ['client'],
@@ -132,6 +139,50 @@ function statistics(module: string, primary: CloudRecord[], records: CloudRecord
   return (configs[module] || [['Record', String(primary.length), 'Totale']]).map(([k, v, s]) => `<article><span>${esc(k)}</span><strong>${esc(v)}</strong><small>${esc(s)}</small></article>`).join('')
 }
 
+function moduleInsights(primary: CloudRecord[]) {
+  const today = new Date()
+  const days = Array.from({ length: 14 }, (_, index) => {
+    const current = new Date(today)
+    current.setDate(today.getDate() - (13 - index))
+    return current.toISOString().slice(0, 10)
+  })
+  const counts = days.map(day => primary.filter(row => moduleDate(row) === day).length)
+  const maximum = Math.max(...counts, 1)
+  const bars = counts.map((count, index) => `<i title="${formatItalianDate(days[index])}: ${count}" style="height:${Math.max(7, count / maximum * 100)}%"><b>${count || ''}</b></i>`).join('')
+
+  const groups = new Map<string, number>()
+  primary.forEach(row => {
+    const status = String(p(row).status || (p(row).paid === true ? 'PAID' : p(row).paid === false ? 'OPEN' : 'SENZA_STATO'))
+    groups.set(status, (groups.get(status) || 0) + 1)
+  })
+  const statusRows = [...groups.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5)
+  const total = Math.max(primary.length, 1)
+  return `<section class="module-insights">
+    <article class="chart-card"><div class="chart-heading"><div><p class="kicker">ANDAMENTO</p><h3>Ultimi 14 giorni</h3></div><span>${counts.reduce((sum, value) => sum + value, 0)} movimenti</span></div><div class="bar-chart">${bars}</div><div class="chart-axis"><span>${formatItalianDate(days[0])}</span><span>Oggi</span></div></article>
+    <article class="chart-card"><div class="chart-heading"><div><p class="kicker">DISTRIBUZIONE</p><h3>Stati operativi</h3></div><span>${primary.length} totali</span></div><div class="status-distribution">${statusRows.map(([status, count]) => `<div><span>${esc(translateCode(status))}</span><div><i class="${statusClass(status)}" style="width:${Math.max(3, count / total * 100)}%"></i></div><strong>${count}</strong></div>`).join('') || '<p class="muted">Nessuno stato disponibile.</p>'}</div></article>
+  </section>`
+}
+
+function csvValue(value: unknown) {
+  const normalized = Array.isArray(value) ? value.join(', ') : typeof value === 'object' && value ? JSON.stringify(value) : String(value ?? '')
+  return `"${normalized.replaceAll('"', '""')}"`
+}
+
+function downloadCsv(module: ModuleView, rows: CloudRecord[]) {
+  const headers = ['Tipo', 'Titolo', 'Stato', 'Cliente', 'Data', 'Ultimo aggiornamento']
+  const lines = rows.map(row => {
+    const value = p(row)
+    return [translateCode(row.entity_type), titleOf(row), translateCode(value.status), value.clientName || value.client || value.ownerName, moduleDate(row), formatItalianDate(row.updated_at, true)].map(csvValue).join(';')
+  })
+  const blob = new Blob([`\uFEFF${headers.map(csvValue).join(';')}\n${lines.join('\n')}`], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `Spectro_${module.title.replaceAll(' ', '_')}_${new Date().toISOString().slice(0, 10)}.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 function field(labelText: string, value: unknown, kind: 'text'|'date'|'number'|'money' = 'text') {
   if (value === undefined || value === null || value === '') return ''
   const formatted = kind === 'date' ? date(value) : kind === 'number' ? num(value) : kind === 'money' ? euro(value) : label(value)
@@ -166,30 +217,70 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
   return `<div class="detail-grid">${fields}</div>${notes ? `<section class="detail-section"><h3>Note</h3><p>${esc(notes)}</p></section>` : ''}${relatedHtml}`
 }
 
-export function renderAnalyticalModule(root: HTMLElement, module: ModuleView, records: CloudRecord[], canFinance: boolean, onBack: () => void, errorMessage = '') {
+export function renderAnalyticalModule(
+  root: HTMLElement,
+  module: ModuleView,
+  records: CloudRecord[],
+  canFinance: boolean,
+  onBack: () => void,
+  errorMessage = '',
+  canManage = false,
+  canExport = false
+) {
   const types = primaryTypes[module.key] || []
   const primary = records.filter(row => types.includes(row.entity_type))
   const statuses = [...new Set(primary.map(row => String(p(row).status || (p(row).paid === true ? 'PAID' : p(row).paid === false ? 'OPEN' : ''))).filter(Boolean))].sort()
-  root.innerHTML = `<main class="module-page analytical-page">
-    <header class="module-header"><button id="home" class="back">← Dashboard</button><div><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="live"><i></i>${primary.length} elementi</div></header>
+  const searchPlaceholder: Record<string, string> = {
+    orders: 'Cerca ordine, cliente o disegno…', production: 'Cerca cliente, ordine, plotter o tessuto…',
+    inventory: 'Cerca tessuto, lotto, collo o proprietario…', clients: 'Cerca cliente…', cotton: 'Cerca ordine, cliente o tessuto…',
+    zentha: 'Cerca ordine, cliente, articolo o codice…', finance: 'Cerca cliente, scadenza o lavorazione…',
+    tasks: 'Cerca attività, cliente o descrizione…', issues: 'Cerca criticità, cliente o ordine…'
+  }
+  root.innerHTML = `<div class="analytical-page">
+    <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
     ${errorMessage ? `<p class="form-message">${esc(errorMessage)}</p>` : ''}
     <section class="metric-grid">${statistics(module.key, primary, records, canFinance)}</section>
-    <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">ARCHIVIO OPERATIVO</p><h2>${esc(module.title)}</h2></div><div class="filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="Cerca cliente, ordine, tessuto…"></label>${statuses.length ? `<select id="status-filter"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}</div></div>
+    ${moduleInsights(primary)}
+    <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">CENTRO OPERATIVO</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="export-csv" class="secondary compact-action">Esporta CSV</button>' : ''}<button id="print-view" class="secondary compact-action">Stampa</button></div></div>
+      <div class="view-tabs" role="tablist"><button class="active" data-view="all">Tutti <b>${primary.length}</b></button><button data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(String(p(row).status || ''))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || p(row).status))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(String(p(row).status || ''))).length}</b></button></div>
+      <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Filtra per periodo"><option value="all">Tutto il periodo</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="365">Ultimo anno</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
+      <footer class="table-footer"><span id="result-count"></span><small>Seleziona una riga per aprire il dossier completo</small></footer>
     </section>
-    <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><div id="detail-content"></div></aside></div>
-  </main>`
+    <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><nav class="dossier-tabs"><button class="active">Riepilogo</button><button>Collegamenti</button><button>Timeline</button><button>Allegati</button>${canFinance ? '<button>Economia</button>' : ''}</nav><div id="detail-content"></div></aside></div>
+  </div>`
   const body = root.querySelector<HTMLTableSectionElement>('#record-body')!
   const empty = root.querySelector<HTMLElement>('#record-empty')!
   const search = root.querySelector<HTMLInputElement>('#record-search')!
   const status = root.querySelector<HTMLSelectElement>('#status-filter')
+  const period = root.querySelector<HTMLSelectElement>('#period-filter')!
+  const group = root.querySelector<HTMLSelectElement>('#group-filter')!
+  const resultCount = root.querySelector<HTMLElement>('#result-count')!
+  let currentView = 'all'
+  let visibleRows: CloudRecord[] = []
   const draw = () => {
     const term = search.value.trim().toLowerCase(); const selected = status?.value || ''
-    const filtered = primary.filter(row => JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || String(p(row).status || (p(row).paid ? 'PAID' : 'OPEN')) === selected))
-    body.innerHTML = filtered.map(row => `<tr data-record="${esc(row.id)}">${cells(module.key, row, records).map(value => `<td>${value}</td>`).join('')}</tr>`).join('')
-    empty.hidden = filtered.length > 0
+    const cutoff = period.value === 'all' ? '' : new Date(Date.now() - Number(period.value) * 86400000).toISOString().slice(0, 10)
+    visibleRows = primary.filter(row => {
+      const rowStatus = String(p(row).status || (p(row).paid ? 'PAID' : 'OPEN'))
+      const viewMatch = currentView === 'all' || (currentView === 'operative' && !terminalStatus.test(rowStatus)) ||
+        (currentView === 'archive' && terminalStatus.test(rowStatus)) ||
+        (currentView === 'attention' && (isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus))))
+      return viewMatch && JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || rowStatus === selected) && (!cutoff || moduleDate(row) >= cutoff)
+    })
+    const groupValue = (row: CloudRecord) => group.value === 'date' ? moduleDate(row).slice(0, 7) || 'Senza data' : group.value === 'status' ? translateCode(p(row).status || 'SENZA_STATO') : group.value === 'client' ? text(p(row).clientName || p(row).client || p(row).ownerName, 'Senza cliente') : ''
+    let previousGroup = ''
+    body.innerHTML = visibleRows.map(row => {
+      const currentGroup = groupValue(row)
+      const heading = currentGroup && currentGroup !== previousGroup ? `<tr class="group-row"><td colspan="${(columns[module.key] || ['Record']).length}">${esc(group.value === 'date' && /^\d{4}-\d{2}$/.test(currentGroup) ? new Date(`${currentGroup}-01T12:00:00`).toLocaleDateString('it-IT', { month: 'long', year: 'numeric' }) : currentGroup)}</td></tr>` : ''
+      previousGroup = currentGroup
+      return `${heading}<tr data-record="${esc(row.id)}">${cells(module.key, row, records).map(value => `<td>${value}</td>`).join('')}</tr>`
+    }).join('')
+    empty.hidden = visibleRows.length > 0
+    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${primary.length}`
     body.querySelectorAll<HTMLTableRowElement>('tr').forEach(element => element.addEventListener('click', () => {
+      if (!element.dataset.record) return
       const row = records.find(item => item.id === element.dataset.record); if (!row) return
       root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
       root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
@@ -197,7 +288,14 @@ export function renderAnalyticalModule(root: HTMLElement, module: ModuleView, re
       document.body.classList.add('drawer-open')
     }))
   }
-  draw(); search.addEventListener('input', draw); status?.addEventListener('change', draw)
+  draw(); search.addEventListener('input', draw); status?.addEventListener('change', draw); period.addEventListener('change', draw); group.addEventListener('change', draw)
+  root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => button.addEventListener('click', () => {
+    currentView = button.dataset.view || 'all'
+    root.querySelectorAll('[data-view]').forEach(item => item.classList.toggle('active', item === button))
+    draw()
+  }))
+  root.querySelector('#export-csv')?.addEventListener('click', () => downloadCsv(module, visibleRows))
+  root.querySelector('#print-view')?.addEventListener('click', () => window.print())
   const close = () => { root.querySelector<HTMLElement>('#detail-overlay')!.hidden = true; document.body.classList.remove('drawer-open') }
   root.querySelector('#detail-close')?.addEventListener('click', close)
   root.querySelector('.detail-scrim')?.addEventListener('click', close)

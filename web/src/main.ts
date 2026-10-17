@@ -1,6 +1,7 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import './style.css'
 import { renderAnalyticalModule, type CloudRecord } from './erp'
+import { formatItalianDate, moduleLabel, translateCode } from './i18n'
 
 const projectUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fbfxtyowcxgagseqdlyz.supabase.co'
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU'
@@ -40,6 +41,55 @@ const modules: Module[] = [
   { key: 'sync', eyebrow: 'Sicurezza dati', title: 'Workspace cloud', description: 'Revisioni, integrità e stato dell’ultima pubblicazione.', permission: 'sync.use', accent: 'orange' },
   { key: 'users', eyebrow: 'Amministrazione', title: 'Utenti e accessi', description: 'Ruoli e permessi personalizzati.', permission: 'users.manage', accent: 'pink' }
 ]
+
+const moduleIcons: Record<string, string> = {
+  dashboard: '⌂', orders: '▤', production: '◫', inventory: '▦', clients: '◉', issues: '!', cotton: '◌',
+  zentha: '◆', finance: '€', tasks: '✓', sync: '☁', users: '⚙'
+}
+
+function allowedModules(access: AccessContext) {
+  return modules.filter(module => access.permissions.includes(module.permission))
+}
+
+function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
+  const allowed = allowedModules(access)
+  const navigation = [
+    { key: 'dashboard', title: 'Dashboard', eyebrow: 'Panoramica', permission: 'dashboard.view' },
+    ...allowed
+  ].filter((item, index, list) => index === list.findIndex(candidate => candidate.key === item.key))
+  app.innerHTML = `<div class="workspace control-tower">
+    <aside class="sidebar">
+      <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
+      <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
+      <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
+      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Dati protetti e sincronizzati</small></div></div>
+      <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
+    </aside>
+    <div class="desktop-stage">
+      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><label class="global-search">⌕<input id="global-search" type="search" placeholder="Cerca in tutto Spectro…"><kbd>⌘ K</kbd></label><div class="topbar-actions"><button title="Notifiche" aria-label="Notifiche">♢</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
+      <main class="content control-content" id="view-host">${content}</main>
+    </div>
+  </div>`
+  document.querySelector('#logout')?.addEventListener('click', () => supabase?.auth.signOut())
+  document.querySelectorAll<HTMLElement>('[data-route]').forEach(element => element.addEventListener('click', () => {
+    const key = element.dataset.route
+    if (key === 'dashboard') void renderWorkspace(user, access)
+    else {
+      const module = modules.find(item => item.key === key)
+      if (module?.key === 'users') void renderAccessManagement(user, access)
+      else if (module?.key === 'sync') void renderCloudStatus(user, access)
+      else if (module) void renderModule(user, access, module)
+    }
+  }))
+  const globalSearch = document.querySelector<HTMLInputElement>('#global-search')
+  globalSearch?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && globalSearch.value.trim()) void renderGlobalSearch(user, access, globalSearch.value.trim())
+  })
+  document.onkeydown = event => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); globalSearch?.focus() }
+  }
+  return document.querySelector<HTMLElement>('#view-host')!
+}
 
 const escapeHtml = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -165,7 +215,8 @@ function renderPending(user: User, access: AccessContext | null, message = '') {
 }
 
 async function renderWorkspace(user: User, access: AccessContext) {
-  const allowed = modules.filter(module => access.permissions.includes(module.permission))
+  const allowed = allowedModules(access)
+  mountShell(user, access, 'dashboard', '<div class="loader-shell"><div class="loader"></div></div>')
   let allRecords: CloudRecord[] = []
   if (supabase) {
     const response = await supabase.rpc('list_erp_records_safe', {
@@ -178,53 +229,75 @@ async function renderWorkspace(user: User, access: AccessContext) {
   const activeOrders = allRecords.filter(row => row.entity_type === 'work_order' && !['COMPLETED','DELIVERED','CLOSED','CANCELLED'].includes(String(row.payload.status))).length
   const openTasks = allRecords.filter(row => row.entity_type === 'operational_task' && !['DONE','CANCELLED'].includes(String(row.payload.status))).length
   const stockMeters = allRecords.filter(row => row.entity_type === 'inventory_item').reduce((sum, row) => sum + Number(row.payload.quantityMeters || 0), 0)
-  app.innerHTML = `<div class="workspace">
-    <aside class="sidebar">
-      <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>ERP CLOUD</strong></div></div>
-      <nav>${allowed.map((module, index) => `<button class="nav-item ${index === 0 ? 'active' : ''}" data-module="${module.key}"><span>${module.title}</span><b>↗</b></button>`).join('')}</nav>
-      <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name)}</small></div><button id="logout" title="Disconnetti">⏻</button></div>
-    </aside>
-    <main class="content">
-      <header><div><p class="kicker">${escapeHtml(access.organization_name)}</p><h1>Buon lavoro, ${escapeHtml((access.display_name || '').split(' ')[0])}.</h1></div><div class="live"><i></i> Cloud attivo</div></header>
-      <section class="hero"><div><span class="pill">MULTIUTENTE</span><h2>Ogni reparto allineato.<br><em>Con accessi controllati.</em></h2><p>Ruoli, dati e attività nello stesso spazio protetto e versionato.</p></div><div class="hero-stat"><strong>${allowed.length}</strong><span>moduli disponibili</span></div></section>
-      <section class="dashboard-metrics">
-        <article><span>Ordini operativi</span><strong>${activeOrders}</strong><small>${count('work_order')} ordini complessivi</small></article>
-        <article><span>Produzioni</span><strong>${count('production_record')}</strong><small>registrazioni sincronizzate</small></article>
-        <article><span>Magazzino</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 1 })} m</strong><small>disponibilità totale</small></article>
-        <article><span>Attività aperte</span><strong>${openTasks}</strong><small>scadenze operative</small></article>
-      </section>
-      <section><div class="section-head"><div><p class="kicker">IL TUO SPAZIO</p><h2>Moduli autorizzati</h2></div><span>${escapeHtml(access.role_name)}</span></div>
-        <div class="module-grid">${allowed.map(module => `<article class="module-card ${module.accent}" data-module="${module.key}"><p>${module.eyebrow}</p><h3>${module.title}</h3><span>${module.description}</span><button>Apri modulo <b>→</b></button></article>`).join('') || '<p class="empty">Nessun modulo assegnato a questo ruolo.</p>'}</div>
-      </section>
-      <section class="recent"><div class="section-head"><div><p class="kicker">AGGIORNAMENTI</p><h2>Attività recenti</h2></div></div>
-        <div class="recent-list">${recent.length ? recent.map(row => `<div class="recent-row"><span class="dot ${row.module}"></span><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || row.entity_type))}</strong><small>${escapeHtml(row.module)} · ${new Date(row.updated_at).toLocaleString('it-IT')}</small></div></div>`).join('') : '<p class="empty">Lo spazio cloud è pronto. Le prime attività condivise appariranno qui.</p>'}</div>
-      </section>
-    </main>
-  </div>`
-  document.querySelector('#logout')?.addEventListener('click', () => supabase?.auth.signOut())
-  document.querySelectorAll<HTMLElement>('[data-module]').forEach(element => element.addEventListener('click', () => {
-    const module = modules.find(item => item.key === element.dataset.module)
+  const today = new Date().toISOString().slice(0, 10)
+  const dueDate = (row: CloudRecord) => String(row.payload.dueDate || row.payload.expectedDeliveryDate || '')
+  const terminal = /COMPLETED|DELIVERED|CLOSED|CANCELLED|DONE|RESOLVED|PAID/
+  const overdueOrders = allRecords.filter(row => row.entity_type === 'work_order' && dueDate(row) && dueDate(row) < today && !terminal.test(String(row.payload.status))).length
+  const overdueTasks = allRecords.filter(row => row.entity_type === 'operational_task' && dueDate(row) && dueDate(row) < today && !terminal.test(String(row.payload.status))).length
+  const lowStock = allRecords.filter(row => row.entity_type === 'inventory_item' && Number(row.payload.quantityMeters || 0) <= Number(row.payload.minimumQuantityMeters || 0))
+  const openIssues = allRecords.filter(row => ['client_issue','order_timeline_event'].includes(row.entity_type) && !terminal.test(String(row.payload.status)))
+  const production = allRecords.filter(row => row.entity_type === 'production_record')
+  const days = Array.from({ length: 7 }, (_, index) => { const day = new Date(); day.setDate(day.getDate() - (6 - index)); return day.toISOString().slice(0, 10) })
+  const productionTotals = days.map(day => production.filter(row => row.payload.date === day).reduce((sum, row) => sum + Number(row.payload.printedPaperMeters || 0), 0))
+  const maximumProduction = Math.max(...productionTotals, 1)
+  const revenue = allRecords.filter(row => row.entity_type === 'economic_work').reduce((sum, row) => sum + Number(row.payload.manualGrossRevenue || Number(row.payload.quantity || 0) * Number(row.payload.unitPrice || 0)), 0) + production.reduce((sum, row) => sum + Number(row.payload.grossRevenue || 0), 0)
+  const host = document.querySelector<HTMLElement>('#view-host')!
+  host.innerHTML = `<section class="dashboard-heading"><div><p class="kicker">CENTRO DI CONTROLLO</p><h1>Buon lavoro, ${escapeHtml((access.display_name || 'Biagio').split(' ')[0])}.</h1><p>Situazione operativa aggiornata su ordini, produzione, scadenze e magazzino.</p></div><div class="dashboard-period"><span>Origine indicatori</span><strong>Archivio sincronizzato</strong></div></section>
+    <section class="executive-metrics">
+      <article><div><span>Ordini operativi</span><strong>${activeOrders}</strong></div><b class="trend ${overdueOrders ? 'negative' : 'positive'}">${overdueOrders ? `${overdueOrders} in ritardo` : 'In linea'}</b><small>${count('work_order')} ordini complessivi</small></article>
+      <article><div><span>Produzioni</span><strong>${count('production_record')}</strong></div><b class="trend positive">${productionTotals.reduce((sum, value) => sum + value, 0).toLocaleString('it-IT')} m / 7 gg</b><small>registrazioni sincronizzate</small></article>
+      <article><div><span>Magazzino</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 0 })} m</strong></div><b class="trend ${lowStock.length ? 'negative' : 'positive'}">${lowStock.length} sotto soglia</b><small>disponibilità complessiva</small></article>
+      <article><div><span>Attività aperte</span><strong>${openTasks}</strong></div><b class="trend ${overdueTasks ? 'negative' : 'positive'}">${overdueTasks} scadute</b><small>${count('operational_task')} attività totali</small></article>
+      ${access.permissions.includes('finance.view') ? `<article><div><span>Volume economico</span><strong>${revenue.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</strong></div><b class="trend neutral">Periodo disponibile</b><small>produzioni e altri ricavi</small></article>` : ''}
+    </section>
+    <section class="dashboard-grid">
+      <article class="dashboard-card production-chart"><div class="card-heading"><div><p class="kicker">PRODUZIONE</p><h2>Carta stampata</h2></div><button data-open-module="production">Apri reparto →</button></div><div class="large-bars">${productionTotals.map((value, index) => `<div><b>${value ? Math.round(value) : ''}</b><i style="height:${Math.max(4, value / maximumProduction * 100)}%"></i><span>${new Date(`${days[index]}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short' })}</span></div>`).join('')}</div></article>
+      <article class="dashboard-card attention-card"><div class="card-heading"><div><p class="kicker">ATTENZIONE RICHIESTA</p><h2>Priorità operative</h2></div><span>${overdueOrders + overdueTasks + lowStock.length + openIssues.length}</span></div><div class="attention-list">
+        <button data-open-module="orders"><i class="danger"></i><div><strong>Ordini in ritardo</strong><small>Consegna superata e ordine ancora aperto</small></div><b>${overdueOrders}</b></button>
+        <button data-open-module="tasks"><i class="warn"></i><div><strong>Attività scadute</strong><small>Richiedono una verifica operativa</small></div><b>${overdueTasks}</b></button>
+        <button data-open-module="inventory"><i class="danger"></i><div><strong>Tessuti sotto soglia</strong><small>Disponibilità inferiore al minimo</small></div><b>${lowStock.length}</b></button>
+        <button data-open-module="issues"><i class="info"></i><div><strong>Criticità aperte</strong><small>Timeline ed eventi non risolti</small></div><b>${openIssues.length}</b></button>
+      </div></article>
+    </section>
+    <section class="dashboard-lower"><article><div class="section-head"><div><p class="kicker">AREE DI LAVORO</p><h2>Moduli autorizzati</h2></div><span>${allowed.length} disponibili</span></div><div class="compact-module-grid">${allowed.map(module => `<button data-open-module="${module.key}"><i>${moduleIcons[module.key] || '•'}</i><span><strong>${module.title}</strong><small>${module.description}</small></span><b>→</b></button>`).join('')}</div></article>
+      <article><div class="section-head"><div><p class="kicker">ULTIMI MOVIMENTI</p><h2>Attività recenti</h2></div></div><div class="recent-list">${recent.length ? recent.map(row => `<div class="recent-row"><span class="dot ${row.module}"></span><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || translateCode(row.entity_type)))}</strong><small>${escapeHtml(moduleLabel(row.module))} · ${formatItalianDate(row.updated_at, true)}</small></div></div>`).join('') : '<p class="empty">Le attività condivise appariranno qui.</p>'}</div></article></section>`
+  host.querySelectorAll<HTMLElement>('[data-open-module]').forEach(element => element.addEventListener('click', () => {
+    const module = modules.find(item => item.key === element.dataset.openModule)
     if (module?.key === 'users') void renderAccessManagement(user, access)
     else if (module?.key === 'sync') void renderCloudStatus(user, access)
     else if (module) void renderModule(user, access, module)
   }))
 }
 
+async function renderGlobalSearch(user: User, access: AccessContext, query: string) {
+  if (!supabase || !access.organization_id) return
+  const host = mountShell(user, access, 'dashboard', '<div class="loader-shell"><div class="loader"></div></div>')
+  const { data, error } = await supabase.rpc('list_erp_records_safe', { p_organization_id: access.organization_id, p_module: null, p_limit: 500 })
+  const term = query.toLocaleLowerCase('it-IT')
+  const results = ((data || []) as CloudRecord[]).filter(row => JSON.stringify(row.payload).toLocaleLowerCase('it-IT').includes(term)).slice(0, 100)
+  host.innerHTML = `<section class="search-results-page"><button id="search-back" class="back">← Dashboard</button><p class="kicker">RICERCA GLOBALE</p><h1>Risultati per “${escapeHtml(query)}”</h1><p>${results.length} elementi trovati nei moduli autorizzati.</p>${error ? `<p class="form-message">${escapeHtml(error.message)}</p>` : ''}<div class="global-results">${results.map(row => `<button data-result-module="${escapeHtml(row.module)}"><i>${moduleIcons[row.module] || '•'}</i><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || row.payload.clientName || translateCode(row.entity_type)))}</strong><span>${escapeHtml(moduleLabel(row.module))} · ${escapeHtml(translateCode(row.entity_type))}</span></div><small>${formatItalianDate(row.updated_at, true)}</small><b>→</b></button>`).join('') || '<div class="empty-state"><h2>Nessun risultato</h2><p>Prova con cliente, codice ordine, tessuto o attività.</p></div>'}</div></section>`
+  host.querySelector('#search-back')?.addEventListener('click', () => renderWorkspace(user, access))
+  host.querySelectorAll<HTMLElement>('[data-result-module]').forEach(element => element.addEventListener('click', () => {
+    const module = modules.find(item => item.key === element.dataset.resultModule)
+    if (module) void renderModule(user, access, module)
+  }))
+}
+
 async function renderCloudStatus(user: User, access: AccessContext) {
   if (!supabase || !access.organization_id) return
-  app.innerHTML = '<main class="center"><div class="loader"></div></main>'
+  const host = mountShell(user, access, 'sync', '<div class="loader-shell"><div class="loader"></div></div>')
   const { data, error } = await supabase.rpc('get_workspace_sync_state', { p_organization_id: access.organization_id })
   const workspace = data as { exists?: boolean; revision?: number; record_count?: number; size_bytes?: number; updated_at?: string; updated_by?: string } | null
   const size = workspace?.size_bytes || 0
   const sizeLabel = size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${(size / 1024).toFixed(1)} KB`
-  app.innerHTML = `<main class="module-page">
-    <header class="module-header"><button id="home" class="back">← Dashboard</button><div><p class="kicker">SICUREZZA DATI</p><h1>Workspace cloud</h1><p>Stato della copia Android completa e del mirror consultabile dal portale.</p></div><div class="live"><i></i>${workspace?.exists ? `Rev. ${workspace.revision}` : 'In attesa'}</div></header>
+  host.innerHTML = `<div class="analytical-page cloud-page">
+    <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">SICUREZZA DATI</p><h1>Workspace cloud</h1><p>Stato della copia Android completa e del mirror consultabile dal portale.</p></div><div class="live"><i></i>${workspace?.exists ? `Rev. ${workspace.revision}` : 'In attesa'}</div></header>
     ${error ? `<p class="form-message">${escapeHtml(error.message)}</p>` : ''}
     <section class="hero"><div><span class="pill">SHA-256 + REVISIONI</span><h2>${workspace?.exists ? `Revisione ${workspace.revision} protetta.` : 'Nessun workspace pubblicato.'}</h2><p>${workspace?.exists ? `${workspace.record_count || 0} record · ${sizeLabel} · pubblicata da ${escapeHtml(workspace.updated_by || 'utente Spectro')}` : 'Apri l’app Android con un account autorizzato per creare la prima revisione.'}</p>${workspace?.updated_at ? `<p class="security-note">Ultimo aggiornamento: ${new Date(workspace.updated_at).toLocaleString('it-IT')}</p>` : ''}</div><div class="hero-stat"><strong>${workspace?.record_count || 0}</strong><span>record verificati</span></div></section>
     <section class="empty-state"><h2>Protezione conflitti attiva</h2><p>Una postazione può pubblicare soltanto se parte dalla stessa revisione presente nel cloud. In caso contrario l’operazione viene fermata senza sovrascritture.</p><button id="refresh-sync" class="primary">Aggiorna stato</button></section>
-  </main>`
-  document.querySelector('#home')?.addEventListener('click', () => renderWorkspace(user, access))
-  document.querySelector('#refresh-sync')?.addEventListener('click', () => renderCloudStatus(user, access))
+  </div>`
+  host.querySelector('#home')?.addEventListener('click', () => renderWorkspace(user, access))
+  host.querySelector('#refresh-sync')?.addEventListener('click', () => renderCloudStatus(user, access))
 }
 
 type MemberRow = {
@@ -241,40 +314,53 @@ type RoleRow = { id: string; name: string; description: string }
 type PermissionRow = { key: string; module: string; label: string; description: string }
 async function renderAccessManagement(user: User, access: AccessContext, message = '') {
   if (!supabase || !access.organization_id) return
-  app.innerHTML = '<main class="center"><div class="loader"></div></main>'
-  const [membersResult, rolesResult, permissionsResult] = await Promise.all([
+  const host = mountShell(user, access, 'users', '<div class="loader-shell"><div class="loader"></div></div>')
+  const [membersResult, rolesResult, permissionsResult, rolePermissionsResult] = await Promise.all([
     supabase.rpc('admin_list_members', { p_organization_id: access.organization_id }),
     supabase.from('roles').select('id,name,description').eq('organization_id', access.organization_id).order('name'),
-    supabase.from('permissions').select('key,module,label,description').order('module').order('key')
+    supabase.from('permissions').select('key,module,label,description').order('module').order('key'),
+    supabase.from('role_permissions').select('role_id,permission_key')
   ])
-  const error = membersResult.error || rolesResult.error || permissionsResult.error
+  const error = membersResult.error || rolesResult.error || permissionsResult.error || rolePermissionsResult.error
   const members = (membersResult.data || []) as MemberRow[]
   const roles = (rolesResult.data || []) as RoleRow[]
   const permissions = (permissionsResult.data || []) as PermissionRow[]
+  const rolePermissionMap = new Map<string, Set<string>>()
+  ;((rolePermissionsResult.data || []) as Array<{ role_id: string; permission_key: string }>).forEach(row => {
+    const values = rolePermissionMap.get(row.role_id) || new Set<string>()
+    values.add(row.permission_key)
+    rolePermissionMap.set(row.role_id, values)
+  })
+  const permissionGroups = permissions.reduce<Record<string, PermissionRow[]>>((groups, permission) => {
+    ;(groups[permission.module] ||= []).push(permission)
+    return groups
+  }, {})
   const roleOptions = (selected: string) => roles.map(role => `<option value="${role.id}" ${role.id === selected ? 'selected' : ''}>${escapeHtml(role.name)}</option>`).join('')
 
-  app.innerHTML = `<main class="module-page access-page">
-    <header class="module-header"><button id="home" class="back">← Dashboard</button><div><p class="kicker">AMMINISTRAZIONE</p><h1>Utenti e accessi</h1><p>Assegna un ruolo o personalizza singoli permessi.</p></div><div class="live"><i></i>${members.length} utenti</div></header>
+  host.innerHTML = `<div class="analytical-page access-page">
+    <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">AMMINISTRAZIONE</p><h1>Utenti e accessi</h1><p>Ruoli e personalizzazioni vengono preparati in bozza e salvati insieme.</p></div><div class="live"><i></i>${members.length} utenti</div></header>
     ${message || error ? `<p class="form-message">${escapeHtml(message || error?.message)}</p>` : ''}
+    <section class="access-overview"><article><span>Utenti attivi</span><strong>${members.filter(member => member.status === 'active').length}</strong><small>su ${members.length} associati</small></article><article><span>Ruoli disponibili</span><strong>${roles.length}</strong><small>preset aziendali</small></article><article><span>Permessi gestiti</span><strong>${permissions.length}</strong><small>raggruppati per modulo</small></article><article><span>Modalità</span><strong>Bozza</strong><small>un solo salvataggio finale</small></article></section>
     <section class="invite-panel"><div><p class="kicker">AGGIUNGI PERSONA</p><h2>Associa un account registrato</h2><p>L’utente deve essersi già registrato e aver confermato l’email.</p></div>
       <form id="add-member"><input name="email" type="email" required placeholder="nome@azienda.it"><select name="role" required>${roleOptions(roles[0]?.id || '')}</select><button class="primary" type="submit">Assegna accesso</button></form>
     </section>
+    <div class="permission-help"><div><strong>Matrice permessi</strong><span>Il ruolo definisce la base; le eccezioni valgono soltanto per il singolo utente.</span></div><label class="permission-search">⌕<input id="permission-search" type="search" placeholder="Cerca utente o permesso…"></label></div>
     <section class="member-list">${members.map(member => `<article class="member-card" data-user="${member.user_id}">
-      <div class="member-summary"><span class="avatar">${escapeHtml((member.display_name || member.email).slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(member.display_name || member.email)}</h3><p>${escapeHtml(member.email)} · ${escapeHtml(member.status)}</p></div><label>Ruolo<select class="role-select">${roleOptions(member.role_id)}</select></label></div>
-      <details><summary>Personalizza permessi <span>${Object.keys(member.permission_overrides || {}).length} override</span></summary>
-        <div class="permission-grid">${permissions.map(permission => {
+      <div class="member-summary"><span class="avatar">${escapeHtml((member.display_name || member.email).slice(0, 1).toUpperCase())}</span><div><h3>${escapeHtml(member.display_name || member.email)}</h3><p>${escapeHtml(member.email)} · ${escapeHtml(translateCode(member.status))}</p></div><label>Ruolo<select class="role-select" data-original="${member.role_id}">${roleOptions(member.role_id)}</select></label><span class="effective-count">${rolePermissionMap.get(member.role_id)?.size || 0} permessi base</span></div>
+      <details><summary><span>Configura accesso</span><b>${Object.keys(member.permission_overrides || {}).length} personalizzazioni</b></summary>
+        <div class="permission-tools"><button data-bulk="default">Ripristina ruolo</button><button data-bulk="view">Solo visualizzazione</button><button data-bulk="allow">Consenti tutto</button><button data-bulk="deny">Nega tutto</button></div>
+        <div class="permission-matrix">${Object.entries(permissionGroups).map(([moduleName, modulePermissions]) => `<section><header><div><i>${moduleIcons[moduleName] || '•'}</i><strong>${escapeHtml(moduleLabel(moduleName))}</strong></div><span>${modulePermissions.length} funzioni</span></header>${modulePermissions.map(permission => {
           const override = member.permission_overrides?.[permission.key]
-          return `<label class="permission-row"><div><strong>${escapeHtml(permission.label)}</strong><small>${escapeHtml(permission.description)}</small></div><select class="override-select" data-permission="${permission.key}">
-            <option value="default" ${override === undefined ? 'selected' : ''}>Dal ruolo</option>
-            <option value="allow" ${override === true ? 'selected' : ''}>Consenti</option>
-            <option value="deny" ${override === false ? 'selected' : ''}>Nega</option>
-          </select></label>`
-        }).join('')}</div>
+          const selected = override === undefined ? 'default' : override ? 'allow' : 'deny'
+          const baseAllowed = rolePermissionMap.get(member.role_id)?.has(permission.key) || false
+          return `<label class="permission-row" data-search="${escapeHtml(`${member.display_name} ${member.email} ${permission.label} ${permission.description}`.toLowerCase())}"><div><strong>${escapeHtml(permission.label)}</strong><small>${escapeHtml(permission.description)}</small><em>Ruolo: ${baseAllowed ? 'consentito' : 'non consentito'}</em></div><select class="override-select" data-permission="${permission.key}" data-original="${selected}"><option value="default" ${selected === 'default' ? 'selected' : ''}>Dal ruolo</option><option value="allow" ${selected === 'allow' ? 'selected' : ''}>Consenti</option><option value="deny" ${selected === 'deny' ? 'selected' : ''}>Nega</option></select></label>`
+        }).join('')}</section>`).join('')}</div>
+        <footer class="permission-savebar"><div><strong>Nessuna modifica da salvare</strong><span>Le selezioni restano in bozza finché non confermi.</span></div><button class="secondary reset-member" disabled>Annulla</button><button class="primary save-member" disabled>Salva permessi</button></footer>
       </details>
     </article>`).join('') || '<p class="empty">Nessun utente associato.</p>'}</section>
-  </main>`
-  document.querySelector('#home')?.addEventListener('click', () => renderWorkspace(user, access))
-  document.querySelector<HTMLFormElement>('#add-member')?.addEventListener('submit', async event => {
+  </div>`
+  host.querySelector('#home')?.addEventListener('click', () => renderWorkspace(user, access))
+  host.querySelector<HTMLFormElement>('#add-member')?.addEventListener('submit', async event => {
     event.preventDefault()
     const form = new FormData(event.currentTarget as HTMLFormElement)
     const { error: assignError } = await supabase.rpc('admin_assign_member_by_email', {
@@ -284,30 +370,51 @@ async function renderAccessManagement(user: User, access: AccessContext, message
     })
     await renderAccessManagement(user, access, assignError?.message || 'Accesso assegnato correttamente.')
   })
-  document.querySelectorAll<HTMLElement>('.member-card').forEach(card => {
+  const markDirty = (card: HTMLElement) => {
+    const role = card.querySelector<HTMLSelectElement>('.role-select')!
+    const changed = role.value !== role.dataset.original || [...card.querySelectorAll<HTMLSelectElement>('.override-select')].some(select => select.value !== select.dataset.original)
+    card.classList.toggle('dirty', changed)
+    card.querySelector<HTMLButtonElement>('.save-member')!.disabled = !changed
+    card.querySelector<HTMLButtonElement>('.reset-member')!.disabled = !changed
+    card.querySelector<HTMLElement>('.permission-savebar strong')!.textContent = changed ? 'Modifiche pronte da salvare' : 'Nessuna modifica da salvare'
+  }
+  host.querySelectorAll<HTMLElement>('.member-card').forEach(card => {
     const userId = card.dataset.user!
-    card.querySelector<HTMLSelectElement>('.role-select')?.addEventListener('change', async event => {
-      const roleId = (event.currentTarget as HTMLSelectElement).value
-      const { error: roleError } = await supabase.rpc('assign_member_role', {
-        p_organization_id: access.organization_id, p_user_id: userId, p_role_id: roleId
-      })
-      await renderAccessManagement(user, access, roleError?.message || 'Ruolo aggiornato.')
-    })
-    card.querySelectorAll<HTMLSelectElement>('.override-select').forEach(select => select.addEventListener('change', async event => {
-      const control = event.currentTarget as HTMLSelectElement
-      const permission = control.dataset.permission!
-      const params = { p_organization_id: access.organization_id, p_user_id: userId, p_permission_key: permission }
-      const result = control.value === 'default'
-        ? await supabase.rpc('admin_clear_permission_override', params)
-        : await supabase.rpc('admin_set_permission_override', { ...params, p_allowed: control.value === 'allow' })
-      await renderAccessManagement(user, access, result.error?.message || 'Permesso aggiornato.')
+    card.querySelector<HTMLSelectElement>('.role-select')?.addEventListener('change', () => markDirty(card))
+    card.querySelectorAll<HTMLSelectElement>('.override-select').forEach(select => select.addEventListener('change', () => markDirty(card)))
+    card.querySelectorAll<HTMLButtonElement>('[data-bulk]').forEach(button => button.addEventListener('click', () => {
+      const mode = button.dataset.bulk || 'default'
+      card.querySelectorAll<HTMLSelectElement>('.override-select').forEach(select => { select.value = mode === 'view' ? (select.dataset.permission?.endsWith('.view') || select.dataset.permission === 'reports.export' ? 'allow' : 'deny') : mode })
+      markDirty(card)
     }))
+    card.querySelector<HTMLButtonElement>('.reset-member')?.addEventListener('click', () => {
+      const role = card.querySelector<HTMLSelectElement>('.role-select')!; role.value = role.dataset.original || ''
+      card.querySelectorAll<HTMLSelectElement>('.override-select').forEach(select => { select.value = select.dataset.original || 'default' })
+      markDirty(card)
+    })
+    card.querySelector<HTMLButtonElement>('.save-member')?.addEventListener('click', async event => {
+      const saveButton = event.currentTarget as HTMLButtonElement
+      saveButton.disabled = true; saveButton.textContent = 'Salvataggio…'
+      const role = card.querySelector<HTMLSelectElement>('.role-select')!
+      let saveError: { message: string } | null = null
+      if (role.value !== role.dataset.original) saveError = (await supabase.rpc('assign_member_role', { p_organization_id: access.organization_id, p_user_id: userId, p_role_id: role.value })).error
+      for (const select of card.querySelectorAll<HTMLSelectElement>('.override-select')) {
+        if (saveError || select.value === select.dataset.original) continue
+        const params = { p_organization_id: access.organization_id, p_user_id: userId, p_permission_key: select.dataset.permission! }
+        saveError = (select.value === 'default' ? await supabase.rpc('admin_clear_permission_override', params) : await supabase.rpc('admin_set_permission_override', { ...params, p_allowed: select.value === 'allow' })).error
+      }
+      await renderAccessManagement(user, access, saveError?.message || `Accesso di ${card.querySelector('h3')?.textContent || 'utente'} aggiornato.`)
+    })
+  })
+  host.querySelector<HTMLInputElement>('#permission-search')?.addEventListener('input', event => {
+    const term = (event.currentTarget as HTMLInputElement).value.trim().toLowerCase()
+    host.querySelectorAll<HTMLElement>('.permission-row').forEach(row => { row.hidden = Boolean(term && !row.dataset.search?.includes(term)) })
   })
 }
 
 async function renderModule(user: User, access: AccessContext, module: Module) {
   if (!supabase) return
-  app.innerHTML = '<main class="center"><div class="loader"></div></main>'
+  const host = mountShell(user, access, module.key, '<div class="loader-shell"><div class="loader"></div></div>')
   const relatedModules: Record<string, string[]> = {
     orders: ['orders', 'production', 'issues'], clients: ['clients', 'orders', 'production', 'tasks'],
     inventory: ['inventory'], zentha: ['zentha'], production: ['production'], cotton: ['cotton'],
@@ -322,7 +429,16 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
   })))
   const records = results.flatMap(result => (result.data || []) as CloudRecord[])
   const error = results.find(result => result.error)?.error
-  renderAnalyticalModule(app, module, records, access.permissions.includes('finance.view'), () => { void renderWorkspace(user, access) }, error?.message || '')
+  renderAnalyticalModule(
+    host,
+    module,
+    records,
+    access.permissions.includes('finance.view'),
+    () => { void renderWorkspace(user, access) },
+    error?.message || '',
+    access.permissions.includes(`${module.key}.manage`),
+    access.permissions.includes('reports.export')
+  )
 }
 
 async function renderForUser(user: User) {

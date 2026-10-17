@@ -12,8 +12,8 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 25
-        versionName = "3.1.6-beta8"
+        versionCode = 26
+        versionName = "3.1.7-beta9"
 
         // Project URL and sb_publishable key are public client configuration.
         // RLS protects the data; properties/environment can override these
@@ -74,6 +74,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")

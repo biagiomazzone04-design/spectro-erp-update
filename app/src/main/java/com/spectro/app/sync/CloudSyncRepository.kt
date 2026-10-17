@@ -49,12 +49,30 @@ internal fun expectedCloudChunkCount(sizeBytes: Long, chunkBytes: Long): Int {
     return (sizeBytes / chunkBytes + if (sizeBytes % chunkBytes == 0L) 0 else 1).toInt()
 }
 
+internal fun requiresAttachmentMirrorUpgrade(currentVersion: Int, hasLocalAttachments: Boolean): Boolean =
+    currentVersion < 1 && hasLocalAttachments
+
 class CloudSyncRepository(
     context: Context,
     private val auth: SupabaseAuthRepository,
     private val repository: SpectroRepository
 ) {
     private val appContext = context.applicationContext
+    private val syncPreferences = appContext.getSharedPreferences("spectro_cloud_sync", Context.MODE_PRIVATE)
+
+    /**
+     * Le installazioni aggiornate da una versione precedente potevano risultare
+     * già allineate pur avendo nel mirror solo il conteggio degli allegati. Marca
+     * una sola ripubblicazione completa quando trova file locali reali.
+     */
+    fun prepareAttachmentMirrorUpgrade(): Boolean {
+        val currentVersion = syncPreferences.getInt(ATTACHMENT_MIRROR_VERSION_KEY, 0)
+        val hasLocalAttachments = BackupManager.attachmentPaths(repository.snapshot()).any { File(it).isFile }
+        if (!requiresAttachmentMirrorUpgrade(currentVersion, hasLocalAttachments)) return false
+        val state = repository.localSyncState()
+        if (!state.pendingChanges) repository.saveLocalSyncState(state.copy(pendingChanges = true))
+        return true
+    }
 
     suspend fun inspect(access: UserAccess): SyncInspection {
         val local = localStateFor(access.organizationId)
@@ -165,6 +183,7 @@ class CloudSyncRepository(
                 pendingChanges = latestLocal.pendingChanges
             )
             repository.saveLocalSyncState(saved)
+            syncPreferences.edit().putInt(ATTACHMENT_MIRROR_VERSION_KEY, ATTACHMENT_MIRROR_VERSION).apply()
             uploadedPaths.clear() // i file sono ora referenziati dalla revisione pubblicata
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
         } catch (t: Throwable) {
@@ -326,5 +345,7 @@ class CloudSyncRepository(
         const val CHUNK_BYTES = 45L * 1024L * 1024L
         const val MAX_CHUNKS = 24
         const val MAX_WORKSPACE_BYTES = 1024L * 1024L * 1024L
+        const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
+        const val ATTACHMENT_MIRROR_VERSION = 1
     }
 }

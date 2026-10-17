@@ -46,4 +46,11 @@ class CloudSyncStateTest {
         assertEquals(2, expectedCloudChunkCount(chunk + 1, chunk))
         assertEquals(3, expectedCloudChunkCount(100L * 1024L * 1024L, chunk))
     }
+
+    @Test
+    fun existingAttachmentsForceOnlyOneMirrorUpgrade() {
+        assertTrue(requiresAttachmentMirrorUpgrade(currentVersion = 0, hasLocalAttachments = true))
+        assertFalse(requiresAttachmentMirrorUpgrade(currentVersion = 0, hasLocalAttachments = false))
+        assertFalse(requiresAttachmentMirrorUpgrade(currentVersion = 1, hasLocalAttachments = true))
+    }
 }

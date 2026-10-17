@@ -1,9 +1,9 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.1.6 Beta 8**.
-- versionCode 25
-- versionName `3.1.6-beta8`
+Base: **Spectro ERP 3.1.7 Beta 9**.
+- versionCode 26
+- versionName `3.1.7-beta9`
 - applicationId `com.spectro.app`
 - SQLite schema 9
 - backup formato v8
@@ -41,6 +41,8 @@ Il portale web v11 concentra le attività aperte in un grande primo piano cromat
 Il portale web v13 rende deterministico l’ordinamento cronologico in tutti i moduli, corregge il ripristino involontario della vista al ritorno sulla scheda e conserva anche la posizione di scorrimento per sezione. Il dossier produttivo dispone di scheda tecnica, annotazioni, galleria immagini privata e valutazione post-produzione con voto, criticità, problemi e nota finale, aggregate anche nelle statistiche mensili. Android Beta 8 pubblica gli allegati come oggetti cloud privati separati e inserisce nel mirror soltanto i relativi percorsi protetti; le anteprime web usano URL firmati temporanei.
 
 Il portale web v14 corregge il blocco della pagina Produzione all’apertura di un ordine: il contenitore analitico non conserva più una trasformazione CSS capace di spostare fuori schermo il dossier a posizione fissa. Il blocco dello scorrimento della pagina principale viene inoltre applicato soltanto dopo che il dossier è stato montato e reso visibile.
+
+Android Beta 9 forza una sola ripubblicazione degli allegati locali per le installazioni aggiornate da versioni che avevano già marcato il workspace come allineato. Ogni scrittura marca ora la sincronizzazione prima della modifica e pianifica anche un lavoro persistente vincolato alla rete: se l’app passa in background o viene chiusa, il trasferimento viene ripreso automaticamente. I trasferimenti avviati dalla UI e dal lavoro in background sono serializzati per evitare revisioni concorrenti.
 
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.

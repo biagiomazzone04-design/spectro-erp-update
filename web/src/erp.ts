@@ -48,7 +48,7 @@ const primaryTypes: Record<string, string[]> = {
 
 const columns: Record<string, string[]> = {
   orders: ['Ordine', 'Cliente', 'Consegna', 'Metri', 'Stato'],
-  production: ['Data', 'Cliente / ordine', 'Disegni', 'Carta / tessuto', 'Plotter'],
+  production: ['Cliente', 'Data', 'Carta / tessuto', 'Plotter', 'Disegni'],
   inventory: ['Tessuto', 'Proprietario', 'Disponibilità', 'Lotto', 'Stato scorta'],
   clients: ['Cliente', 'Ordini', 'Produzioni', 'Attività', 'Ultimo aggiornamento'],
   cotton: ['Ordine', 'Cliente', 'Tessuto', 'Avanzamento', 'Stato'],
@@ -77,11 +77,11 @@ function cells(module: string, row: CloudRecord, records: CloudRecord[]) {
       `<strong>${num(x.orderedMeters)} m</strong><small>${related(records, 'production_record', 'workOrderId', x.id).length} produzioni</small>`, badge(x.status)
     ]
     case 'production': return [
-      `<strong>${date(x.date)}</strong><small>${esc(label(x.type))}</small>`,
       `<strong>${esc(text(x.clientName))}</strong><small>${esc(text(x.orderRef, 'Senza riferimento'))}</small>`,
-      `<strong>${esc(Array.isArray(x.designs) ? x.designs.join(', ') || '—' : text(x.designs))}</strong><small>${esc(text(x.technicalNotes, 'Nessuna nota'))}</small>`,
+      `<strong>${date(x.date)}</strong><small>${esc(label(x.type))}</small>`,
       `<strong>${num(x.printedPaperMeters)} m</strong><small>Tessuto ${num(x.fabricUsedMeters)} m</small>`,
-      `<strong>${esc(text(x.plotter))}</strong><small>${esc(text(x.fabricDisplayName, 'Nessun tessuto'))}</small>`
+      `<strong>${esc(text(x.plotter))}</strong><small>${esc(text(x.fabricDisplayName, 'Nessun tessuto'))}</small>`,
+      `<strong>${esc(Array.isArray(x.designs) ? x.designs.join(', ') || '—' : text(x.designs))}</strong><small>${esc(text(x.technicalNotes, 'Nessuna nota'))}</small>`
     ]
     case 'inventory': {
       const low = Number(x.quantityMeters || 0) <= Number(x.minimumQuantityMeters || 0)
@@ -175,9 +175,7 @@ function taskFocusBoard(rows: CloudRecord[], canManage: boolean) {
     return aUrgency - bUrgency || priorityRank(a) - priorityRank(b) || (aDue || '9999').localeCompare(bDue || '9999')
   })
   const buckets = [
-    { key: 'urgent', state: '', title: 'Scadute e di oggi', subtitle: 'Da gestire per prime', rows: sorted.filter(row => dueOf(row) && dueOf(row) <= today) },
-    { key: 'progress', state: 'IN_PROGRESS', title: 'In corso', subtitle: 'Lavorazioni già avviate', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && /PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) },
-    { key: 'planned', state: 'OPEN', title: 'Da pianificare', subtitle: 'Prossime attività operative', rows: sorted.filter(row => !(dueOf(row) && dueOf(row) <= today) && !/PROGRESS|STARTED|PRODUCTION/.test(String(p(row).status || ''))) },
+    { key: 'work', state: 'OPEN', title: 'Attività da lavorare', subtitle: 'Tutto ciò che richiede il tuo intervento', rows: sorted },
     { key: 'completed', state: 'DONE', title: 'Completate', subtitle: 'Ultime attività concluse', rows: rows.filter(row => terminalStatus.test(String(p(row).status || ''))).sort((a,b) => b.updated_at.localeCompare(a.updated_at)) }
   ]
   const card = (row: CloudRecord) => {
@@ -192,7 +190,7 @@ function taskFocusBoard(rows: CloudRecord[], canManage: boolean) {
   }
   const calendarDays = Array.from({length:7},(_,index) => { const value = new Date(`${today}T12:00:00`); value.setDate(value.getDate()+index); return value.toISOString().slice(0,10) })
   return `<section class="task-focus-board">
-    <header><div><p class="kicker">PRIORITÀ OPERATIVE</p><h2>Cosa richiede attenzione adesso</h2><p>Le attività sono ordinate automaticamente. ${canManage ? 'Trascina le schede per aggiornarne lo stato.' : ''}</p></div><span><b>${active.length}</b> attività aperte</span></header>
+    <header><div><p class="kicker">PRIMO PIANO OPERATIVO</p><h2>Attività da lavorare</h2><p>Le attività aperte sono tutte in primo piano, ordinate per urgenza. ${canManage ? 'Trascinale su Completate quando hai finito.' : ''}</p></div><span><b>${active.length}</b> da lavorare</span></header>
     <div class="task-focus-columns">${buckets.map(bucket => `<article class="task-focus-column ${bucket.key}" ${bucket.state ? `data-drop-state="${bucket.state}"` : ''}><div class="task-column-heading"><span><i></i><strong>${bucket.title}</strong><small>${bucket.subtitle}</small></span><b>${bucket.rows.length}</b></div><div class="task-card-list">${bucket.rows.slice(0, 6).map(card).join('') || '<div class="task-column-empty">Nessuna attività in questa area</div>'}</div></article>`).join('')}</div>
     <div class="task-week"><div class="task-week-heading"><p class="kicker">CALENDARIO RAPIDO</p><h3>Prossimi 7 giorni</h3></div><div class="task-week-grid">${calendarDays.map(day => { const dayRows = active.filter(row => dueOf(row) === day); return `<article class="${day === today ? 'today' : ''}"><span>${new Date(`${day}T12:00:00`).toLocaleDateString('it-IT',{weekday:'short'})}</span><strong>${new Date(`${day}T12:00:00`).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})}</strong><b>${dayRows.length}</b><small>${dayRows.slice(0,2).map(row => esc(titleOf(row))).join(' · ') || 'Nessuna scadenza'}</small></article>` }).join('')}</div></div>
   </section>`
@@ -355,7 +353,7 @@ export function renderAnalyticalModule(
     <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">${module.key === 'tasks' ? 'ARCHIVIO E PIANIFICAZIONE' : 'CENTRO OPERATIVO'}</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
       <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(String(p(row).status || ''))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || p(row).status))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(String(p(row).status || ''))).length}</b></button></div>
       <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
-      <div class="table-wrap"><table><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
+      <div class="table-wrap"><table class="module-table ${esc(module.key)}"><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
       <footer class="table-footer"><span id="result-count"></span><small>Seleziona una riga per aprire il dossier completo</small></footer>
     </section>

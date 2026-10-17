@@ -51,6 +51,20 @@ const saveUiPreferences = (userId: string, preferences: UiPreferences) => {
   localStorage.setItem(preferenceKey(userId), JSON.stringify(preferences)); applyUiPreferences(preferences)
 }
 
+function installInteractiveMotion() {
+  if (document.documentElement.dataset.motionReady) return
+  document.documentElement.dataset.motionReady = 'true'
+  let frame = 0
+  document.addEventListener('pointermove', event => {
+    cancelAnimationFrame(frame)
+    frame = requestAnimationFrame(() => { document.documentElement.style.setProperty('--pointer-x', `${event.clientX}px`); document.documentElement.style.setProperty('--pointer-y', `${event.clientY}px`) })
+  }, { passive:true })
+  document.addEventListener('pointerdown', event => {
+    const button = (event.target as HTMLElement).closest('button'); if (!button || document.documentElement.dataset.motion === 'none') return
+    const rect = button.getBoundingClientRect(); const ripple = document.createElement('i'); ripple.className = 'click-ripple'; ripple.style.left = `${event.clientX - rect.left}px`; ripple.style.top = `${event.clientY - rect.top}px`; button.appendChild(ripple); ripple.addEventListener('animationend', () => ripple.remove())
+  })
+}
+
 type Module = {
   key: string
   eyebrow: string
@@ -85,6 +99,7 @@ function allowedModules(access: AccessContext) {
 
 function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
   document.body.classList.remove('drawer-open')
+  localStorage.setItem(`spectro-last-route:${user.id}`, activeKey)
   let uiPreferences = readUiPreferences(user.id)
   applyUiPreferences(uiPreferences)
   const allowed = allowedModules(access)
@@ -123,13 +138,10 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
   document.querySelectorAll<HTMLElement>('[data-route]').forEach(element => element.addEventListener('click', () => {
     document.body.classList.remove('drawer-open')
     const key = element.dataset.route
-    if (key === 'dashboard') void renderWorkspace(user, access)
-    else {
-      const module = modules.find(item => item.key === key)
-      if (module?.key === 'users') void renderAccessManagement(user, access)
-      else if (module?.key === 'sync') void renderCloudStatus(user, access)
-      else if (module) void renderModule(user, access, module)
-    }
+    const navigate = () => { if (key === 'dashboard') void renderWorkspace(user, access)
+      else { const module = modules.find(item => item.key === key); if (module?.key === 'users') void renderAccessManagement(user, access); else if (module?.key === 'sync') void renderCloudStatus(user, access); else if (module) void renderModule(user, access, module) } }
+    const viewDocument = document as Document & { startViewTransition?: (callback: () => void) => void }
+    if (viewDocument.startViewTransition && document.documentElement.dataset.motion === 'full') viewDocument.startViewTransition(navigate); else navigate()
   }))
   const customizationPanel = document.querySelector<HTMLElement>('#customization-panel')!
   const notificationPanel = document.querySelector<HTMLElement>('#notification-panel')!
@@ -372,7 +384,7 @@ async function renderWorkspace(user: User, access: AccessContext) {
     const revenue = byType('economic_work').reduce((sum, row) => sum + Number(row.payload.manualGrossRevenue || Number(row.payload.quantity || 0) * Number(row.payload.unitPrice || 0)), 0) + production.reduce((sum, row) => sum + Number(row.payload.grossRevenue || 0), 0)
     const periodLabel = `${formatItalianDate(range.start)} – ${formatItalianDate(range.end)}`
     host.innerHTML = `<section class="dashboard-heading"><div><p class="kicker">CENTRO DI CONTROLLO</p><h1>Buon lavoro, ${escapeHtml((access.display_name || 'Biagio').split(' ')[0])}.</h1><p>Indicatori calcolati esclusivamente nel periodo selezionato.</p></div><div class="period-controller"><label>Periodo<select id="dashboard-period"><option value="current_month" ${periodMode === 'current_month' ? 'selected' : ''}>Mese corrente</option><option value="previous_month" ${periodMode === 'previous_month' ? 'selected' : ''}>Mese precedente</option><option value="7" ${periodMode === '7' ? 'selected' : ''}>Ultimi 7 giorni</option><option value="30" ${periodMode === '30' ? 'selected' : ''}>Ultimi 30 giorni</option><option value="90" ${periodMode === '90' ? 'selected' : ''}>Ultimi 90 giorni</option><option value="custom" ${periodMode === 'custom' ? 'selected' : ''}>Intervallo personalizzato</option></select></label><label>Dal<input id="dashboard-from" type="date" value="${range.start}"></label><label>Al<input id="dashboard-to" type="date" value="${range.end}"></label><strong>${periodLabel}</strong></div></section>
-      <section class="executive-metrics"><article><div><span>Ordini del periodo</span><strong>${orders.length}</strong></div><b class="trend ${overdueOrders ? 'negative' : 'positive'}">${activeOrders} operativi · ${overdueOrders} in ritardo</b><small>${periodLabel}</small></article><article class="meter-kpi paper"><div><span>Carta stampata</span><strong>${printedPaper.toLocaleString('it-IT', { maximumFractionDigits: 1 })} m</strong></div><b class="trend positive">${production.length} registrazioni</b><small>metri effettivi nel periodo</small></article><article class="meter-kpi fabric"><div><span>Tessuto lavorato</span><strong>${fabricUsed.toLocaleString('it-IT', { maximumFractionDigits: 1 })} m</strong></div><b class="trend neutral">${production.length ? (fabricUsed / production.length).toLocaleString('it-IT', { maximumFractionDigits: 1 }) : '0'} m medi</b><small>consumo rilevato nel periodo</small></article><article><div><span>Magazzino attuale</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 0 })} m</strong></div><b class="trend ${lowStock.length ? 'negative' : 'positive'}">${lowStock.length} sotto soglia</b><small>dato corrente, non storico</small></article><article><div><span>Attività del periodo</span><strong>${tasks.length}</strong></div><b class="trend ${overdueTasks ? 'negative' : 'positive'}">${openTasks} aperte · ${overdueTasks} scadute</b><small>${periodLabel}</small></article>${access.permissions.includes('finance.view') ? `<article><div><span>Volume economico</span><strong>${revenue.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</strong></div><b class="trend neutral">Periodo selezionato</b><small>produzioni e altri ricavi</small></article>` : ''}</section>
+      <section class="executive-metrics"><article><div><span>Ordini del periodo</span><strong>${orders.length}</strong></div><b class="trend ${overdueOrders ? 'negative' : 'positive'}">${activeOrders} operativi · ${overdueOrders} in ritardo</b><small>${periodLabel}</small></article><article class="meter-kpi paper"><div><span>Carta stampata</span><strong>${printedPaper.toLocaleString('it-IT', { maximumFractionDigits: 1 })} m</strong></div><b class="trend positive">${production.length} registrazioni</b><small>metri effettivi nel periodo</small></article><article class="meter-kpi fabric"><div><span>Tessuto lavorato</span><strong>${fabricUsed.toLocaleString('it-IT', { maximumFractionDigits: 1 })} m</strong></div><b class="trend neutral">${production.length ? (fabricUsed / production.length).toLocaleString('it-IT', { maximumFractionDigits: 1 }) : '0'} m medi</b><small>consumo rilevato nel periodo</small></article><article><div><span>Magazzino attuale</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 0 })} m</strong></div><b class="trend ${lowStock.length ? 'negative' : 'positive'}">${lowStock.length} sotto soglia</b><small>dato corrente, non storico</small></article><article><div><span>Attività del periodo</span><strong>${tasks.length}</strong></div><b class="trend ${overdueTasks ? 'negative' : 'positive'}">${openTasks} aperte · ${overdueTasks} scadute</b><small>${periodLabel}</small></article>${access.permissions.includes('finance.view') ? `<article><div><span>Fatturato</span><strong>${revenue.toLocaleString('it-IT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 })}</strong></div><b class="trend neutral">Periodo selezionato</b><small>produzioni e altri ricavi</small></article>` : ''}</section>
       <section class="dashboard-grid"><article class="dashboard-card production-chart"><div class="card-heading"><div><p class="kicker">PRODUZIONE</p><h2>Carta stampata · ${periodLabel}</h2></div><button data-open-module="production">Apri reparto →</button></div><div class="large-bars ${chartDays.length > 14 ? 'dense' : ''}">${productionTotals.map((value, index) => `<div title="${formatItalianDate(chartDays[index])}: ${Math.round(value)} m"><b>${value ? Math.round(value) : ''}</b><i style="height:${Math.max(4, value / maximumProduction * 100)}%"></i><span>${new Date(`${chartDays[index]}T12:00:00`).toLocaleDateString('it-IT', { day:'2-digit', month:'2-digit' })}</span></div>`).join('')}</div></article><article class="dashboard-card attention-card"><div class="card-heading"><div><p class="kicker">ATTENZIONE RICHIESTA</p><h2>Priorità nel periodo</h2></div><span>${overdueOrders + overdueTasks + lowStock.length + openIssues.length}</span></div><div class="attention-list"><button data-open-module="orders"><i class="danger"></i><div><strong>Ordini in ritardo</strong><small>Nel periodo selezionato</small></div><b>${overdueOrders}</b></button><button data-open-module="tasks"><i class="warn"></i><div><strong>Attività scadute</strong><small>Nel periodo selezionato</small></div><b>${overdueTasks}</b></button><button data-open-module="inventory"><i class="danger"></i><div><strong>Tessuti sotto soglia</strong><small>Situazione attuale</small></div><b>${lowStock.length}</b></button><button data-open-module="issues"><i class="info"></i><div><strong>Criticità aperte</strong><small>Nel periodo selezionato</small></div><b>${openIssues.length}</b></button></div></article></section>
       <section class="dashboard-lower"><article><div class="section-head"><div><p class="kicker">AREE DI LAVORO</p><h2>Moduli autorizzati</h2></div><span>${allowed.length} disponibili</span></div><div class="compact-module-grid">${allowed.map(module => `<button data-open-module="${module.key}"><i>${moduleIcons[module.key] || '•'}</i><span><strong>${module.title}</strong><small>${module.description}</small></span><b>→</b></button>`).join('')}</div></article><article><div class="section-head"><div><p class="kicker">MOVIMENTI NEL PERIODO</p><h2>Attività recenti</h2></div></div><div class="recent-list">${recent.length ? recent.map(row => `<div class="recent-row"><span class="dot ${row.module}"></span><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || translateCode(row.entity_type)))}</strong><small>${escapeHtml(moduleLabel(row.module))} · ${formatItalianDate(row.updated_at, true)}</small></div></div>`).join('') : '<p class="empty">Nessun movimento nel periodo selezionato.</p>'}</div></article></section>`
     host.querySelector<HTMLSelectElement>('#dashboard-period')?.addEventListener('change', event => { periodMode = (event.currentTarget as HTMLSelectElement).value; if (periodMode !== 'custom') range = periodDates(periodMode); drawDashboard() })
@@ -590,13 +602,21 @@ async function renderForUser(user: User) {
   try {
     const access = await loadAccess(user)
     if (!access?.organization_id) renderPending(user, access)
-    else await renderWorkspace(user, access)
+    else {
+      const lastRoute = localStorage.getItem(`spectro-last-route:${user.id}`) || 'dashboard'
+      const module = modules.find(item => item.key === lastRoute && access.permissions.includes(item.permission))
+      if (lastRoute === 'users' && module) await renderAccessManagement(user, access)
+      else if (lastRoute === 'sync' && module) await renderCloudStatus(user, access)
+      else if (module) await renderModule(user, access, module)
+      else await renderWorkspace(user, access)
+    }
   } catch (error) {
     renderPending(user, null, error instanceof Error ? error.message : 'Impossibile verificare i permessi.')
   }
 }
 
 async function start() {
+  installInteractiveMotion()
   if (!supabase) return renderSetup()
   const { data } = await supabase.auth.getSession()
   if (data.session?.user) await renderForUser(data.session.user)

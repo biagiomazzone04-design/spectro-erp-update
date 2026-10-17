@@ -28,6 +28,8 @@ Il portale web v5 introduce la Control Tower desktop: navigazione laterale persi
 
 Il portale web v6 aumenta la leggibilità dell’intera interfaccia, imposta le statistiche sul mese corrente e aggiunge intervalli predefiniti o personalizzati dal/al. Zentha mostra anche catalogo prodotti e listini rilevati e genera documenti dedicati per produzione, contabilità e dossier completo. L’amministratore può aprire un’anteprima effettiva dei permessi di un utente; i dati economici vengono rimossi anche localmente durante l’anteprima. Il login accetta le password esistenti da almeno 6 caratteri, mentre la registrazione continua a richiederne almeno 8.
 
+Il portale web v7 aggiunge l’anteprima globale di qualunque ruolo anche in assenza di un account registrato, rende centrali i KPI in metri di carta e tessuto e introduce l’analisi Produzione per cliente e plotter. Il Centro esportazioni permette di scegliere report direzionale, operativo senza prezzi o analisi completa e genera un documento A4 impaginato con KPI, barre comparative e dettaglio delle produzioni filtrate.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 

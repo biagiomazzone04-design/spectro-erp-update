@@ -415,9 +415,12 @@ export function renderAnalyticalModule(
     tabs.innerHTML = module.key === 'production' ? '<button class="active" data-detail-target="top">Riepilogo</button><button data-detail-target=".production-brief">Scheda tecnica</button><button data-detail-target=".production-quality">Valutazione</button><button data-detail-target=".attachment-section">Immagini</button>' : `<button class="active" data-detail-target="top">Riepilogo</button>${module.key === 'orders' ? '<button data-detail-target=".detail-section">Collegamenti e timeline</button>' : ''}<button data-detail-target=".attachment-section">Allegati</button>`
     const drawer = root.querySelector<HTMLElement>('.detail-drawer')!
     tabs.querySelectorAll<HTMLButtonElement>('[data-detail-target]').forEach(button => button.addEventListener('click', () => { if (button.dataset.detailTarget === 'top') drawer.scrollTo({top:0,behavior:'smooth'}); else drawer.querySelector<HTMLElement>(button.dataset.detailTarget || '')?.scrollIntoView({behavior:'smooth',block:'start'}); tabs.querySelectorAll('button').forEach(item => item.classList.toggle('active',item === button)) }))
-    root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false
+    const detailOverlay = root.querySelector<HTMLElement>('#detail-overlay')!
+    detailOverlay.hidden = false
     drawer.scrollTop = 0
-    document.body.classList.add('drawer-open')
+    requestAnimationFrame(() => {
+      if (!detailOverlay.hidden && detailOverlay.isConnected) document.body.classList.add('drawer-open')
+    })
   }
   const draw = () => {
     const term = search.value.trim().toLowerCase(); const selected = status?.value || ''

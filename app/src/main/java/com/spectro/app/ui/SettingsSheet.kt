@@ -182,6 +182,16 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                     }
                 }
             }
+            if (!vm.can(AppPermission.SYNC_USE) && vm.can(AppPermission.USERS_MANAGE)) item {
+                SpectroCard(p = p) {
+                    Text("Workspace cloud da abilitare", fontWeight = FontWeight.Black, fontSize = 17.sp)
+                    Text(
+                        "Il ruolo Admin non ha ancora il permesso sync.use. Esegui la migrazione cloud 003 su Supabase, poi disconnettiti e accedi di nuovo.",
+                        color = p.warning,
+                        fontSize = 12.sp
+                    )
+                }
+            }
             if (vm.can(AppPermission.BACKUP_MANAGE)) item {
                 SpectroCard(p = p) {
                     Text("Backup e sicurezza dati", fontWeight = FontWeight.Black, fontSize = 17.sp)

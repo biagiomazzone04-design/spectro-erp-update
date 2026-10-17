@@ -26,6 +26,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spectro.app.auth.AppPermission
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.ReportExporter
@@ -38,7 +39,8 @@ fun DashboardScreen(
     p: SpectroPalette,
     onRecord: (ProductionRecord) -> Unit,
     onOpenOrder: (WorkOrder) -> Unit = {},
-    onEditOrder: (WorkOrder) -> Unit = {}
+    onEditOrder: (WorkOrder) -> Unit = {},
+    onOpenModule: (AppTab) -> Unit = {}
 ) {
     var mode by remember { mutableStateOf("day") }
     var query by remember { mutableStateOf("") }
@@ -75,6 +77,33 @@ fun DashboardScreen(
                 singleLine = true,
                 shape = RoundedCornerShape(18.dp)
             )
+        }
+
+        item {
+            val shortcuts = buildList {
+                if (vm.can(AppPermission.ORDERS_VIEW)) add(Triple(AppTab.WORK, "Ordini", Icons.Rounded.Assignment))
+                if (vm.can(AppPermission.CLIENTS_VIEW)) add(Triple(AppTab.CLIENTS, "Clienti", Icons.Rounded.People))
+                if (vm.can(AppPermission.INVENTORY_VIEW)) add(Triple(AppTab.INVENTORY, "Magazzino", Icons.Rounded.Inventory2))
+                if (vm.can(AppPermission.TASKS_VIEW)) add(Triple(AppTab.ACTIVITIES, "Attività", Icons.Rounded.NotificationsActive))
+                if (vm.can(AppPermission.ZENTHA_VIEW)) add(Triple(AppTab.ZENTHA, "Zentha", Icons.Rounded.SportsVolleyball))
+                if (vm.can(AppPermission.ISSUES_VIEW)) add(Triple(AppTab.ISSUES, "Criticità", Icons.Rounded.ReportProblem))
+            }
+            if (shortcuts.isNotEmpty()) {
+                Column {
+                    Text("SCORCIATOIE", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        shortcuts.forEach { (tab, label, icon) ->
+                            FilledTonalButton(onClick = { onOpenModule(tab) }, shape = RoundedCornerShape(16.dp)) {
+                                Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text(label, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (mode == "day") {
@@ -114,7 +143,7 @@ fun DashboardScreen(
             if (activeOrders.isNotEmpty()) {
                 item { SectionTitle("Ordini attivi") }
                 items(activeOrders, key = { "order-${it.id}" }) { order ->
-                    DashboardOrderCard(vm, order, p, onOpenOrder, onEditOrder, onComplete = { vm.completeWorkOrder(it.id) }, onDelete = { deleteTarget = it })
+                    DashboardOrderCard(vm, order, p, vm.can(AppPermission.ORDERS_MANAGE), onOpenOrder, onEditOrder, onComplete = { vm.completeWorkOrder(it.id) }, onDelete = { deleteTarget = it })
                 }
             }
             item {
@@ -458,7 +487,7 @@ private fun GroupedProductionCard(
 }
 
 @Composable
-private fun DashboardOrderCard(vm: SpectroViewModel, order: WorkOrder, p: SpectroPalette, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onComplete: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
+private fun DashboardOrderCard(vm: SpectroViewModel, order: WorkOrder, p: SpectroPalette, canManage: Boolean, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onComplete: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
     val overdue = order.dueDate.isNotBlank() && runCatching { LocalDate.parse(order.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
     val accent = when {
         order.status == WorkStatus.BLOCKED || overdue -> p.danger
@@ -478,11 +507,13 @@ private fun DashboardOrderCard(vm: SpectroViewModel, order: WorkOrder, p: Spectr
                 if (order.orderCode.isNotBlank()) Text(order.orderCode, color = p.textMuted, fontSize = 10.sp, maxLines = 1)
                 if (order.dueDate.isNotBlank()) Text("Consegna ${order.dueDate}${if (overdue) " • SCADUTA" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (overdue) FontWeight.Black else FontWeight.Normal)
             }
-            if (productions.isNotEmpty() && !order.status.isFinishedOrder()) {
+            if (canManage && productions.isNotEmpty() && !order.status.isFinishedOrder()) {
                 IconButton(onClick = { onComplete(order) }) { Icon(Icons.Rounded.TaskAlt, "Completa ed evadi", tint = p.success) }
             }
-            IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
-            IconButton(onClick = { onDelete(order) }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+            if (canManage) {
+                IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
+                IconButton(onClick = { onDelete(order) }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+            }
         }
         if (fabrics.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))

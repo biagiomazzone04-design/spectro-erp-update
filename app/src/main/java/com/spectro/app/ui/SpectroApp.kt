@@ -8,6 +8,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -202,7 +204,8 @@ fun SpectroApp(vm: SpectroViewModel) {
                             palette,
                             onRecord = { detail = it },
                             onOpenOrder = ::openOrder,
-                            onEditOrder = ::editOrder
+                            onEditOrder = ::editOrder,
+                            onOpenModule = { navigate(it) }
                         )
                         AppTab.WORK -> WorkOrdersScreen(vm, palette, onEdit = ::editOrder, onOpen = ::openOrder, onStartProduction = ::startProduction)
                         AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork, sourceWork) { done ->
@@ -318,7 +321,10 @@ fun SpectroApp(vm: SpectroViewModel) {
 
 @Composable
 private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (AppTab) -> Unit) {
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
         Text("Altri moduli", fontSize = 28.sp, fontWeight = FontWeight.Black)
         Text("CRM, criticità, cotone, attività, ricavi e Zentha.", color = p.textMuted)
         Spacer(Modifier.height(4.dp))
@@ -327,7 +333,12 @@ private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (
         if (vm.can(AppPermission.COTTON_VIEW)) ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
         if (vm.can(AppPermission.TASKS_VIEW)) ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
         if (vm.can(AppPermission.FINANCE_VIEW)) ModuleCard("Altri ricavi", "Trasferimenti, lavorazioni e materiali fatturati", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
-        if (vm.can(AppPermission.ZENTHA_VIEW)) ModuleCard("ZENTHA", "Catalogo, ordini, utile 50/50 e pagamenti", Icons.Rounded.SportsVolleyball, p) { onOpen(AppTab.ZENTHA) }
+        if (vm.can(AppPermission.ZENTHA_VIEW)) ModuleCard(
+            "ZENTHA",
+            if (vm.can(AppPermission.FINANCE_VIEW)) "Catalogo, ordini, utile 50/50 e pagamenti" else "Catalogo, ordini e dettagli di produzione",
+            Icons.Rounded.SportsVolleyball,
+            p
+        ) { onOpen(AppTab.ZENTHA) }
     }
 }
 
@@ -341,7 +352,7 @@ private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, vm: SpectroVie
     val moreSelected = selected in listOf(AppTab.MORE, AppTab.CLIENTS, AppTab.ISSUES, AppTab.COTTON, AppTab.ZENTHA, AppTab.ECONOMIC, AppTab.ACTIVITIES)
     Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
         Row(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(36.dp)).background(p.surface).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceAround) {
-            if (vm.can(AppPermission.DASHBOARD_VIEW) && vm.can(AppPermission.FINANCE_VIEW)) BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
+            if (vm.can(AppPermission.DASHBOARD_VIEW)) BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
             if (vm.can(AppPermission.ORDERS_VIEW)) BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
             if (vm.can(AppPermission.ORDERS_MANAGE) || vm.can(AppPermission.PRODUCTION_MANAGE)) {
                 FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.Black)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
@@ -353,7 +364,7 @@ private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, vm: SpectroVie
 }
 
 private fun isTabAllowed(tab: AppTab, vm: SpectroViewModel): Boolean = when (tab) {
-    AppTab.DASHBOARD -> vm.can(AppPermission.DASHBOARD_VIEW) && vm.can(AppPermission.FINANCE_VIEW)
+    AppTab.DASHBOARD -> vm.can(AppPermission.DASHBOARD_VIEW)
     AppTab.WORK -> vm.can(AppPermission.ORDERS_VIEW)
     AppTab.CREATE -> vm.can(AppPermission.ORDERS_MANAGE) || vm.can(AppPermission.PRODUCTION_MANAGE)
     AppTab.INVENTORY -> vm.can(AppPermission.INVENTORY_VIEW)

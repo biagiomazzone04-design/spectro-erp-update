@@ -166,8 +166,9 @@ async function renderWorkspace(user: User, access: AccessContext) {
   const allowed = modules.filter(module => access.permissions.includes(module.permission))
   let recent: Array<{ id: string; module: string; entity_type: string; payload: Record<string, unknown>; updated_at: string }> = []
   if (supabase) {
-    const response = await supabase.from('erp_records').select('id,module,entity_type,payload,updated_at')
-      .is('deleted_at', null).order('updated_at', { ascending: false }).limit(8)
+    const response = await supabase.rpc('list_erp_records_safe', {
+      p_organization_id: access.organization_id, p_module: null, p_limit: 8
+    })
     recent = response.data || []
   }
   app.innerHTML = `<div class="workspace">
@@ -225,6 +226,7 @@ type MemberRow = {
 
 type RoleRow = { id: string; name: string; description: string }
 type PermissionRow = { key: string; module: string; label: string; description: string }
+type CloudRecord = { id: string; module: string; entity_type: string; payload: Record<string, unknown>; updated_at: string; revision: number }
 
 async function renderAccessManagement(user: User, access: AccessContext, message = '') {
   if (!supabase || !access.organization_id) return
@@ -295,12 +297,13 @@ async function renderAccessManagement(user: User, access: AccessContext, message
 async function renderModule(user: User, access: AccessContext, module: Module) {
   if (!supabase) return
   app.innerHTML = '<main class="center"><div class="loader"></div></main>'
-  const { data, error } = await supabase.from('erp_records').select('id,entity_type,payload,updated_at,revision')
-    .eq('organization_id', access.organization_id).eq('module', module.key).is('deleted_at', null)
-    .order('updated_at', { ascending: false }).limit(100)
+  const { data, error } = await supabase.rpc('list_erp_records_safe', {
+    p_organization_id: access.organization_id, p_module: module.key, p_limit: 100
+  })
+  const records = (data || []) as CloudRecord[]
   app.innerHTML = `<main class="module-page"><header class="module-header"><button id="home" class="back">← Dashboard</button><div><p class="kicker">${module.eyebrow}</p><h1>${module.title}</h1><p>${module.description}</p></div><div class="live"><i></i>${data?.length || 0} record</div></header>
     ${error ? `<p class="form-message">${escapeHtml(error.message)}</p>` : ''}
-    <div class="record-grid">${data?.length ? data.map(row => `<article class="record-card"><p>${escapeHtml(row.entity_type)}</p><h3>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.clientName || row.payload.orderCode || 'Record Spectro'))}</h3><span>Aggiornato ${new Date(row.updated_at).toLocaleString('it-IT')} · rev. ${row.revision}</span></article>`).join('') : `<section class="empty-state"><div class="brand-mark small">S</div><h2>Modulo pronto</h2><p>I dati condivisi di ${module.title} compariranno qui dopo la prima sincronizzazione.</p></section>`}</div>
+    <div class="record-grid">${records.length ? records.map(row => `<article class="record-card"><p>${escapeHtml(row.entity_type)}</p><h3>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.clientName || row.payload.orderCode || 'Record Spectro'))}</h3><span>Aggiornato ${new Date(row.updated_at).toLocaleString('it-IT')} · rev. ${row.revision}</span></article>`).join('') : `<section class="empty-state"><div class="brand-mark small">S</div><h2>Modulo pronto</h2><p>I dati condivisi di ${module.title} compariranno qui dopo la prima sincronizzazione.</p></section>`}</div>
   </main>`
   document.querySelector('#home')?.addEventListener('click', () => renderWorkspace(user, access))
 }

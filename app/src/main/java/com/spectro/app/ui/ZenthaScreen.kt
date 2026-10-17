@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.spectro.app.auth.AppPermission
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.AttachmentStore
@@ -47,6 +48,8 @@ fun ZenthaScreen(
     initialOpenOrderId: Long? = null,
     onOpenConsumed: () -> Unit = {}
 ) {
+    val canManage = vm.can(AppPermission.ZENTHA_MANAGE)
+    val canFinance = vm.can(AppPermission.FINANCE_VIEW)
     var mode by remember { mutableStateOf("ORDERS") }
     var query by remember { mutableStateOf("") }
     var newProduct by remember { mutableStateOf(false) }
@@ -68,8 +71,8 @@ fun ZenthaScreen(
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(20.dp, 16.dp, 20.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Text("ZENTHA", fontSize = 28.sp, fontWeight = FontWeight.Black); Text("Ordini sportivi, catalogo, margini e pagamenti.", color = p.textMuted) }
-                FilledIconButton(onClick = { if (mode == "ORDERS") newOrder = true else newProduct = true }) { Icon(Icons.Rounded.Add, null) }
+                Column(Modifier.weight(1f)) { Text("ZENTHA", fontSize = 28.sp, fontWeight = FontWeight.Black); Text(if (canFinance) "Ordini sportivi, catalogo, margini e pagamenti." else "Ordini sportivi, catalogo e dettagli di produzione.", color = p.textMuted) }
+                if (canManage) FilledIconButton(onClick = { if (mode == "ORDERS") newOrder = true else newProduct = true }) { Icon(Icons.Rounded.Add, null) }
             }
             Spacer(Modifier.height(12.dp)); SegmentedChoice(listOf("ORDERS" to "ORDINI", "PRODUCTS" to "PRODOTTI"), mode, p) { mode = it }
             Spacer(Modifier.height(10.dp)); OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), leadingIcon = { Icon(Icons.Rounded.Search, null) }, placeholder = { Text(if (mode == "ORDERS") "Cliente o ordine…" else "Prodotto, SKU o categoria…") }, singleLine = true, shape = RoundedCornerShape(16.dp))
@@ -79,8 +82,12 @@ fun ZenthaScreen(
                 val totals = orders.map { vm.zenthaTotals(it.id) }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Metric("Ordini", orders.size.toString(), modifier = Modifier.weight(1f))
-                    Metric("Vendite", euro(totals.sumOf { it.revenue }), modifier = Modifier.weight(1f))
-                    Metric("Utile", euro(totals.sumOf { it.profit }), valueColor = p.success, modifier = Modifier.weight(1f))
+                    if (canFinance) {
+                        Metric("Vendite", euro(totals.sumOf { it.revenue }), modifier = Modifier.weight(1f))
+                        Metric("Utile", euro(totals.sumOf { it.profit }), valueColor = p.success, modifier = Modifier.weight(1f))
+                    } else {
+                        Metric("Articoli", orders.sumOf { order -> vm.state.zenthaItems.filter { it.orderId == order.id }.sumOf { it.quantity } }.toString(), modifier = Modifier.weight(1f))
+                    }
                 }
             }
             if (orders.isEmpty()) item { EmptyState(Icons.Rounded.SportsVolleyball, "Nessun ordine Zentha", "Premi + per creare il primo ordine") }
@@ -91,20 +98,29 @@ fun ZenthaScreen(
                         Column(Modifier.weight(1f)) { Text(order.orderCode.ifBlank { "Ordine Zentha" }, fontWeight = FontWeight.Black, fontSize = 17.sp); Text("${order.clientName} • ${order.orderDate} • consegna ${order.dueDate.ifBlank { "-" }}", color = p.textMuted, fontSize = 12.sp) }
                         AssistChip(onClick = {}, label = { Text(zenthaStatusLabel(order.status), fontSize = 9.sp) })
                     }
-                    Spacer(Modifier.height(10.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(t.revenue), modifier = Modifier.weight(1f)); Metric("Utile", euro(t.profit), valueColor = if (t.profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f)); Metric("Da incassare", euro(t.outstanding), valueColor = if (t.outstanding > 0) p.warning else p.success, modifier = Modifier.weight(1f)) }
+                    if (canFinance) {
+                        Spacer(Modifier.height(10.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(t.revenue), modifier = Modifier.weight(1f)); Metric("Utile", euro(t.profit), valueColor = if (t.profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f)); Metric("Da incassare", euro(t.outstanding), valueColor = if (t.outstanding > 0) p.warning else p.success, modifier = Modifier.weight(1f)) }
+                    } else {
+                        val itemCount = vm.state.zenthaItems.filter { it.orderId == order.id }.sumOf { it.quantity }
+                        Spacer(Modifier.height(8.dp)); Text("$itemCount articoli • dettagli produttivi disponibili", color = p.textMuted, fontSize = 12.sp)
+                    }
                 }
             }
         } else {
             if (products.isEmpty()) item { EmptyState(Icons.Rounded.Inventory, "Catalogo vuoto", "Premi + per aggiungere Canotte, Kit, T-shirt e altri prodotti") }
             items(products, key = { it.id }) { product ->
-                SpectroCard(p = p, onClick = { editingProduct = product }) {
+                SpectroCard(p = p, onClick = if (canManage) ({ editingProduct = product }) else null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) { Text(product.name, fontWeight = FontWeight.Black); Text(listOf(product.sku, product.category).filter { it.isNotBlank() }.joinToString(" • "), color = p.textMuted, fontSize = 12.sp) }
                         if (!product.active) Text("DISATTIVO", color = p.warning, fontSize = 10.sp, fontWeight = FontWeight.Black)
                     }
-                    Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Costo", euro(product.standardCost), modifier = Modifier.weight(1f)); Metric("Listino", euro(product.standardPrice), modifier = Modifier.weight(1f)); Metric("Margine", euro(product.unitMargin), valueColor = p.success, modifier = Modifier.weight(1f)) }
-                    Spacer(Modifier.height(7.dp)); Text("${product.priceListName} • ricarico ${"%.0f".format(product.markupPercent)}% • margine ${"%.1f".format(product.marginPercent)}%", color = p.textMuted, fontSize = 11.sp)
-                    if (product.hasCostBreakdown) Text(product.costComponents().joinToString(" • ") { "${it.first} ${euro(it.second)}" }, color = p.textMuted, fontSize = 10.sp)
+                    if (canFinance) {
+                        Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Costo", euro(product.standardCost), modifier = Modifier.weight(1f)); Metric("Listino", euro(product.standardPrice), modifier = Modifier.weight(1f)); Metric("Margine", euro(product.unitMargin), valueColor = p.success, modifier = Modifier.weight(1f)) }
+                        Spacer(Modifier.height(7.dp)); Text("${product.priceListName} • ricarico ${"%.0f".format(product.markupPercent)}% • margine ${"%.1f".format(product.marginPercent)}%", color = p.textMuted, fontSize = 11.sp)
+                        if (product.hasCostBreakdown) Text(product.costComponents().joinToString(" • ") { "${it.first} ${euro(it.second)}" }, color = p.textMuted, fontSize = 10.sp)
+                    } else if (product.description.isNotBlank()) {
+                        Spacer(Modifier.height(7.dp)); Text(product.description, color = p.textMuted, fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -114,7 +130,7 @@ fun ZenthaScreen(
     editingProduct?.let { ZenthaProductDialog(vm, p, it) { editingProduct = null } }
     if (newOrder) ZenthaOrderDialog(vm, p, null) { newOrder = false }
     editingOrder?.let { ZenthaOrderDialog(vm, p, it) { editingOrder = null } }
-    detailOrder?.let { order -> ZenthaOrderDetailDialog(vm, p, order, onDismiss = { detailOrder = null }, onEdit = { detailOrder = null; editingOrder = order }) }
+    detailOrder?.let { order -> ZenthaOrderDetailDialog(vm, p, order, canManage, canFinance, onDismiss = { detailOrder = null }, onEdit = { detailOrder = null; editingOrder = order }) }
 }
 
 @Composable
@@ -330,7 +346,7 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
 }
 
 @Composable
-private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, order: ZenthaOrder, onDismiss: () -> Unit, onEdit: () -> Unit) {
+private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, order: ZenthaOrder, canManage: Boolean, canFinance: Boolean, onDismiss: () -> Unit, onEdit: () -> Unit) {
     val context = LocalContext.current
     var paymentOpen by remember { mutableStateOf(false) }
     var exportOpen by remember { mutableStateOf(false) }
@@ -346,7 +362,7 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
                 item { Text("${order.clientName} • consegna ${order.dueDate.ifBlank { "-" }}", color = p.textMuted) }
                 items(orderItems, key = { it.id }) { i -> SpectroCard(p = p) {
                     Text(listOf(i.skuSnapshot, i.productName).filter { it.isNotBlank() }.joinToString(" • ") + " × ${i.quantity}", fontWeight = FontWeight.Black)
-                    Text("Vendita ${euro(i.revenue)} • Costo ${euro(i.cost)} • Margine ${euro(i.margin)}", color = p.textMuted, fontSize = 12.sp)
+                    if (canFinance) Text("Vendita ${euro(i.revenue)} • Costo ${euro(i.cost)} • Margine ${euro(i.margin)}", color = p.textMuted, fontSize = 12.sp)
                     listOf(
                         "Variante" to i.variant,
                         "Colore" to i.color,
@@ -355,11 +371,11 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
                         "Produzione" to i.productionNotes
                     ).filter { it.second.isNotBlank() }.forEach { (label, value) -> Text("$label: $value", color = p.textMuted, fontSize = 11.sp) }
                 } }
-                if (extras.isNotEmpty()) item { Text("Costi extra: ${extras.joinToString { "${it.label} ${euro(it.amount)}" }}", color = p.textMuted) }
-                item { SpectroCard(p = p) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(t.revenue), modifier = Modifier.weight(1f)); Metric("Utile", euro(t.profit), valueColor = p.success, modifier = Modifier.weight(1f)); Metric("Residuo", euro(t.outstanding), valueColor = if (t.outstanding > 0) p.warning else p.success, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(8.dp)); Text("Divisione utile: A ${euro(t.shareA)} • B ${euro(t.shareB)}", fontWeight = FontWeight.Bold) } }
-                item { SectionTitle("Pagamenti") }
-                items(payments, key = { it.id }) { pay -> Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("${pay.date} • ${euro(pay.amount)}", fontWeight = FontWeight.Bold); Text(pay.method.name, color = p.textMuted, fontSize = 11.sp) }; IconButton(onClick = { vm.deleteZenthaPayment(pay.id) }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) } } }
-                item { OutlinedButton(onClick = { paymentOpen = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Payments, null); Spacer(Modifier.width(6.dp)); Text("Registra pagamento") } }
+                if (canFinance && extras.isNotEmpty()) item { Text("Costi extra: ${extras.joinToString { "${it.label} ${euro(it.amount)}" }}", color = p.textMuted) }
+                if (canFinance) item { SpectroCard(p = p) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(t.revenue), modifier = Modifier.weight(1f)); Metric("Utile", euro(t.profit), valueColor = p.success, modifier = Modifier.weight(1f)); Metric("Residuo", euro(t.outstanding), valueColor = if (t.outstanding > 0) p.warning else p.success, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(8.dp)); Text("Divisione utile: A ${euro(t.shareA)} • B ${euro(t.shareB)}", fontWeight = FontWeight.Bold) } }
+                if (canFinance) item { SectionTitle("Pagamenti") }
+                if (canFinance) items(payments, key = { it.id }) { pay -> Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("${pay.date} • ${euro(pay.amount)}", fontWeight = FontWeight.Bold); Text(pay.method.name, color = p.textMuted, fontSize = 11.sp) }; if (canManage) IconButton(onClick = { vm.deleteZenthaPayment(pay.id) }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) } } }
+                if (canFinance && canManage) item { OutlinedButton(onClick = { paymentOpen = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Payments, null); Spacer(Modifier.width(6.dp)); Text("Registra pagamento") } }
                 item {
                     OutlinedButton(
                         onClick = { exportOpen = true },
@@ -369,28 +385,30 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
                 if (order.attachments.isNotEmpty()) item { Text("Allegati ordine: ${order.attachments.size}", fontWeight = FontWeight.Bold) }
             }
         },
-        confirmButton = { Button(onClick = onEdit) { Text("Modifica") } },
+        confirmButton = { if (canManage) Button(onClick = onEdit) { Text("Modifica") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Chiudi") } }
     )
-    if (paymentOpen) ZenthaPaymentDialog(vm, order.id) { paymentOpen = false }
+    if (paymentOpen && canManage && canFinance) ZenthaPaymentDialog(vm, order.id) { paymentOpen = false }
     if (exportOpen) ZenthaExportDialog(
         onDismiss = { exportOpen = false },
         onExport = { profile ->
-            ReportExporter.shareZenthaOrder(context, order, orderItems, extras, payments, vm.state.zenthaProducts, profile)
+            val safeProfile = if (canFinance) profile else ZenthaExportProfile.PRODUCTION
+            ReportExporter.shareZenthaOrder(context, order, orderItems, extras, payments, vm.state.zenthaProducts, safeProfile)
             exportOpen = false
-        }
+        },
+        canFinance = canFinance
     )
 }
 
 @Composable
-private fun ZenthaExportDialog(onDismiss: () -> Unit, onExport: (ZenthaExportProfile) -> Unit) {
+private fun ZenthaExportDialog(onDismiss: () -> Unit, onExport: (ZenthaExportProfile) -> Unit, canFinance: Boolean) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Esporta ordine Zentha", fontWeight = FontWeight.Black) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Scegli il documento in base al destinatario. I contenuti economici riservati non vengono inclusi nella scheda produzione.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                ExportProfileButton(
+                if (canFinance) ExportProfileButton(
                     title = "Contabilità / fatturazione",
                     description = "Articoli, codici, tessuti, quantità, prezzi di vendita, totali e pagamenti.",
                     icon = Icons.AutoMirrored.Rounded.ReceiptLong
@@ -400,7 +418,7 @@ private fun ZenthaExportDialog(onDismiss: () -> Unit, onExport: (ZenthaExportPro
                     description = "Articoli, quantità, taglie, colori, nomi, numeri e personalizzazioni. Nessun prezzo.",
                     icon = Icons.Rounded.Factory
                 ) { onExport(ZenthaExportProfile.PRODUCTION) }
-                ExportProfileButton(
+                if (canFinance) ExportProfileButton(
                     title = "Completo analitico",
                     description = "Dossier interno con ricavi, costi, margini, componenti di costo e incassi.",
                     icon = Icons.Rounded.Analytics

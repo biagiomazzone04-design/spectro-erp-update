@@ -2,8 +2,8 @@
 
 ## Snapshot handoff
 Base: **Spectro ERP 3.0.0 Beta 6**.
-- versionCode 20
-- versionName `3.1.1-beta3`
+- versionCode 21
+- versionName `3.1.2-beta4`
 - applicationId `com.spectro.app`
 - SQLite schema 7
 - backup formato v8
@@ -15,6 +15,8 @@ Clienti, WorkOrder, produzioni multiple, timeline, criticità, magazzino, colli,
 Zentha include inoltre il catalogo analitico del listino 13/10/2026, costo unitario scomposto, snapshot di codice/descrizione/varianti e tre PDF separati per contabilità, produzione e controllo completo.
 
 Il flusso di autenticazione consente di reinviare autonomamente l’email di conferma da Android e dal portale web. I messaggi Supabase più comuni sono tradotti e ricordano di usare esclusivamente il link più recente, perché ogni reinvio rende obsoleti quelli precedenti.
+
+La Beta 4 ripara il permesso di sincronizzazione degli Admin esistenti, aggiunge i preset Supervisore e Attività/Zentha senza prezzi, sanifica lato server il mirror web per chi non possiede `finance.view`, ripristina lo scorrimento di Altri moduli e aggiunge le scorciatoie alla dashboard.
 
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.

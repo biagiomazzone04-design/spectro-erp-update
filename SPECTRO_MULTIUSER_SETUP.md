@@ -19,7 +19,7 @@ Questa versione introduce la base cloud comune per Android, Windows e Mac.
 
 ## Attivazione Supabase
 
-1. Eseguire, nell’ordine, `supabase/migrations/202610100001_multi_user_foundation.sql`, `supabase/migrations/202610100002_workspace_sync.sql` e `supabase/migrations/202610170003_sync_roles_and_safe_web.sql` nel SQL Editor del progetto Supabase. La terza migrazione è ripetibile, ripara anche `sync.use` per gli Admin già esistenti e non cancella dati.
+1. Eseguire, nell’ordine, `supabase/migrations/202610100001_multi_user_foundation.sql`, `supabase/migrations/202610100002_workspace_sync.sql`, `supabase/migrations/202610170003_sync_roles_and_safe_web.sql` e `supabase/migrations/202610170004_chunked_workspace_sync.sql` nel SQL Editor del progetto Supabase. Le migrazioni 003 e 004 sono ripetibili e non cancellano dati; la 004 abilita workspace oltre 50 MB tramite blocchi verificati.
 2. In Authentication abilitare il provider Email.
 3. La chiave pubblica `sb_publishable_` del progetto è già configurata nei client. Se viene ruotata, sostituirla tramite secret GitHub `SPECTRO_SUPABASE_ANON_KEY` e variabile web `VITE_SUPABASE_ANON_KEY`.
 4. Creare il primo account.
@@ -77,4 +77,4 @@ La pubblicazione aggiorna nello stesso commit anche `erp_records`: il portale Wi
 
 ## Modello di conflitto intenzionalmente conservativo
 
-La sincronizzazione attuale è a revisione dell’intero workspace, non una fusione automatica record-per-record. Due utenti possono consultare il gestionale e usare il portale con permessi diversi, ma prima di pubblicare da Android devono partire dalla stessa revisione cloud. Questa scelta evita duplicazioni degli ID locali, perdite di allegati e sovrascritture silenziose. La futura sincronizzazione incrementale userà gli UUID già presenti nell’envelope `erp_records`.
+La sincronizzazione attuale è a revisione dell’intero workspace, non una fusione automatica record-per-record. Due utenti possono consultare il gestionale e usare il portale con permessi diversi, ma prima di pubblicare da Android devono partire dalla stessa revisione cloud. Questa scelta evita duplicazioni degli ID locali, perdite di allegati e sovrascritture silenziose. I workspace oltre 50 MB vengono suddivisi automaticamente in blocchi da 45 MB, ricomposti e verificati tramite SHA-256 prima del ripristino. La futura sincronizzazione incrementale userà gli UUID già presenti nell’envelope `erp_records`.

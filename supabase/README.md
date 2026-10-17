@@ -2,7 +2,7 @@
 
 Il progetto è predisposto per `https://fbfxtyowcxgagseqdlyz.supabase.co`.
 
-1. Aprire **Supabase → SQL Editor** ed eseguire, nell’ordine e una sola volta, `migrations/202610100001_multi_user_foundation.sql` e `migrations/202610100002_workspace_sync.sql`.
+1. Aprire **Supabase → SQL Editor** ed eseguire nell’ordine le migrazioni `202610100001`, `202610100002`, `202610170003` e `202610170004`. Le ultime due sono ripetibili e riparano in sicurezza installazioni già avviate.
 2. In **Authentication → Providers → Email** abilitare email/password. In produzione lasciare attiva la conferma email.
 3. Creare il primo account dall’app o dal portale desktop.
 4. Con quel primo account autenticato chiamare una sola volta l’RPC `bootstrap_spectro_organization('Spectro')`. La funzione è protetta da lock e smette di funzionare dopo la creazione della prima organizzazione.
@@ -28,7 +28,7 @@ La chiave `sb_publishable_` è configurazione client pubblica. La chiave `servic
 - soft-delete e revisione ottimistica dei record ERP;
 - audit append-only delle modifiche;
 - bucket allegati privato, organizzato con percorso `{organization_id}/...`.
-- workspace completo limitato a chi possiede `sync.use`, con SHA-256 e limite 50 MB;
+- workspace completo limitato a chi possiede `sync.use`, con SHA-256 e trasferimento a blocchi da 45 MB (fino a 1 GB complessivo);
 - pubblicazione atomica con revisione attesa: un client obsoleto riceve `SYNC_CONFLICT`;
 - mirror `erp_records` aggiornato nello stesso commit e leggibile solo in base ai permessi del modulo.
 

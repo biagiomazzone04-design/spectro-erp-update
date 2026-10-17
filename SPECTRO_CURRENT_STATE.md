@@ -2,8 +2,8 @@
 
 ## Snapshot handoff
 Base: **Spectro ERP 3.0.0 Beta 6**.
-- versionCode 22
-- versionName `3.1.3-beta5`
+- versionCode 23
+- versionName `3.1.4-beta6`
 - applicationId `com.spectro.app`
 - SQLite schema 8
 - backup formato v8
@@ -20,11 +20,13 @@ La Beta 4 ripara il permesso di sincronizzazione degli Admin esistenti, aggiunge
 
 La Beta 5 aggiunge la migrazione locale schema 7 → 8 e un controllo auto-riparante per `cloud_sync_state`. Corregge le installazioni esistenti in cui il database era già marcato schema 7 prima dell'introduzione della sincronizzazione cloud, senza riscrivere i record ERP.
 
+La Beta 6 cloud elimina il limite pratico di 50 MB per l’intero workspace: archivio, foto e allegati vengono suddivisi automaticamente in blocchi da 45 MB, pubblicati con un manifest e verificati singolarmente e globalmente tramite SHA-256. I workspace cloud precedenti in formato 1 restano compatibili.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 
 ## Stato build
-Lo snapshot Beta 6 con autenticazione, permessi e workspace cloud è stato compilato con `assembleDebug` e verificato con i test unitari. L’installazione su un dispositivo reale resta una verifica operativa da eseguire prima del rilascio.
+Lo snapshot con autenticazione, permessi e workspace cloud a blocchi viene verificato con `assembleDebug`, test unitari e pipeline APK RELEASE firmata. L’installazione su un dispositivo reale resta una verifica operativa da eseguire prima del rilascio.
 
 ## Bug aperto prioritario
 Nel profilo cliente (esempio Goccia) lo storico mostra solo alcuni ordini, mentre esistono altre lavorazioni passate.

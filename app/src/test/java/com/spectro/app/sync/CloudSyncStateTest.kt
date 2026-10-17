@@ -30,4 +30,13 @@ class CloudSyncStateTest {
         )
         assertFalse(inspection.hasConflict)
     }
+
+    @Test
+    fun cloudArchiveIsSplitBelowTheSupabaseObjectLimit() {
+        val chunk = 45L * 1024L * 1024L
+        assertEquals(0, expectedCloudChunkCount(0, chunk))
+        assertEquals(1, expectedCloudChunkCount(chunk, chunk))
+        assertEquals(2, expectedCloudChunkCount(chunk + 1, chunk))
+        assertEquals(3, expectedCloudChunkCount(100L * 1024L * 1024L, chunk))
+    }
 }

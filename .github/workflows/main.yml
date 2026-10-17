@@ -170,7 +170,7 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v3.1.4-BETA6-CHUNKED-CLOUD
+          name: SpectroERP-v3.1.5-BETA7-AUTO-SYNC-WEB-ERP
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

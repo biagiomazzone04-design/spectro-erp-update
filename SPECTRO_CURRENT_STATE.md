@@ -1,11 +1,11 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.0.0 Beta 6**.
-- versionCode 23
-- versionName `3.1.4-beta6`
+Base: **Spectro ERP 3.1.5 Beta 7**.
+- versionCode 24
+- versionName `3.1.5-beta7`
 - applicationId `com.spectro.app`
-- SQLite schema 8
+- SQLite schema 9
 - backup formato v8
 - branch di sviluppo usato: `spectro-3.0-beta`
 
@@ -22,11 +22,13 @@ La Beta 5 aggiunge la migrazione locale schema 7 → 8 e un controllo auto-ripar
 
 La Beta 6 cloud elimina il limite pratico di 50 MB per l’intero workspace: archivio, foto e allegati vengono suddivisi automaticamente in blocchi da 45 MB, pubblicati con un manifest e verificati singolarmente e globalmente tramite SHA-256. I workspace cloud precedenti in formato 1 restano compatibili.
 
+La Beta 7 rende persistente la sincronizzazione automatica: ogni modifica autorizzata marca il workspace come pendente, viene pubblicata una sola volta dopo un breve raggruppamento delle operazioni e, in assenza di rete, resta salvata sul dispositivo e viene ritentata. Il portale web v3 aggiunge KPI, filtri, tabelle analitiche, righe cliccabili e dossier record, mantenendo la rimozione server-side dei dati economici per i ruoli senza `finance.view`.
+
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.
 
 ## Stato build
-Lo snapshot con autenticazione, permessi e workspace cloud a blocchi viene verificato con `assembleDebug`, test unitari e pipeline APK RELEASE firmata. L’installazione su un dispositivo reale resta una verifica operativa da eseguire prima del rilascio.
+Lo snapshot con autenticazione, permessi, sincronizzazione automatica e workspace cloud a blocchi viene verificato con `assembleDebug`, test unitari e pipeline APK RELEASE firmata. L’installazione su un dispositivo reale resta una verifica operativa da eseguire prima del rilascio.
 
 ## Bug aperto prioritario
 Nel profilo cliente (esempio Goccia) lo storico mostra solo alcuni ordini, mentre esistono altre lavorazioni passate.

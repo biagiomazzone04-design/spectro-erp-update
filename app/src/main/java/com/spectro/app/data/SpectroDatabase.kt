@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 8) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 9) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -190,6 +190,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             // their existing ERP data stays untouched and only sync metadata is added.
             createV6Tables(db)
         }
+        if (oldVersion < 9) {
+            safeAlter(db, "ALTER TABLE cloud_sync_state ADD COLUMN pending_changes INTEGER NOT NULL DEFAULT 0")
+        }
         createIndexes(db)
     }
 
@@ -251,15 +254,16 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 last_seen_remote_revision INTEGER NOT NULL DEFAULT 0,
                 last_synced_at TEXT NOT NULL DEFAULT '',
                 last_error TEXT NOT NULL DEFAULT '',
-                recovery_backup_path TEXT NOT NULL DEFAULT ''
+                recovery_backup_path TEXT NOT NULL DEFAULT '',
+                pending_changes INTEGER NOT NULL DEFAULT 0
             )
         """.trimIndent())
         db.execSQL("""
             INSERT OR IGNORE INTO cloud_sync_state(
                 id, organization_id, device_id, base_revision,
                 last_seen_remote_revision, last_synced_at, last_error,
-                recovery_backup_path
-            ) VALUES (1, '', '', 0, 0, '', '', '')
+                recovery_backup_path, pending_changes
+            ) VALUES (1, '', '', 0, 0, '', '', '', 0)
         """.trimIndent())
     }
 
@@ -679,7 +683,8 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 lastSeenRemoteRevision = c.long("last_seen_remote_revision"),
                 lastSyncedAt = c.string("last_synced_at"),
                 lastError = c.string("last_error"),
-                recoveryBackupPath = c.string("recovery_backup_path")
+                recoveryBackupPath = c.string("recovery_backup_path"),
+                pendingChanges = c.optionalInt("pending_changes", 0) == 1
             )
         }
     }
@@ -695,6 +700,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             put("last_synced_at", state.lastSyncedAt)
             put("last_error", state.lastError)
             put("recovery_backup_path", state.recoveryBackupPath)
+            put("pending_changes", if (state.pendingChanges) 1 else 0)
         }, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
@@ -840,6 +846,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun Cursor.optionalDouble(name: String, default: Double = 0.0): Double { val i = getColumnIndex(name); return if (i < 0 || isNull(i)) default else getDouble(i) }
     private fun Cursor.long(name: String) = getLong(getColumnIndexOrThrow(name))
     private fun Cursor.int(name: String) = getInt(getColumnIndexOrThrow(name))
+    private fun Cursor.optionalInt(name: String, default: Int = 0): Int { val i = getColumnIndex(name); return if (i < 0 || isNull(i)) default else getInt(i) }
     private fun Cursor.nullableLong(name: String): Long? { val i = getColumnIndexOrThrow(name); return if (isNull(i)) null else getLong(i) }
     private fun Cursor.optionalNullableLong(name: String): Long? { val i = getColumnIndex(name); return if (i < 0 || isNull(i)) null else getLong(i) }
     private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String, default: T): T = enumValues<T>().firstOrNull { it.name == value } ?: default

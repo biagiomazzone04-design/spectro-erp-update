@@ -13,8 +13,12 @@ import com.spectro.app.data.*
 import com.spectro.app.sync.CloudSyncRepository
 import com.spectro.app.sync.SyncInspection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 import java.time.YearMonth
 
@@ -73,11 +77,16 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var cloudSyncState by mutableStateOf(CloudSyncUiState())
         private set
+    private var automaticSyncJob: Job? = null
+    private val cloudTransferMutex = Mutex()
 
     init {
         viewModelScope.launch {
             authState = authRepository.restore()
-            if (authState is AuthState.SignedIn) refresh()
+            if (authState is AuthState.SignedIn) {
+                refresh()
+                scheduleAutomaticSync(if (repo.localSyncState().pendingChanges) 1_500 else 0, onlyWhenPending = true)
+            }
             else state = state.copy(loading = false)
         }
     }
@@ -88,7 +97,10 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
             authMessage = null
             try {
                 authState = authRepository.signIn(email, password)
-                if (authState is AuthState.SignedIn) refresh()
+                if (authState is AuthState.SignedIn) {
+                    refresh()
+                    scheduleAutomaticSync(if (repo.localSyncState().pendingChanges) 1_500 else 0, onlyWhenPending = true)
+                }
             } catch (t: Throwable) {
                 authState = AuthState.SignedOut
                 authMessage = t.message ?: "Accesso non riuscito."
@@ -115,7 +127,10 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
             authState = AuthState.Loading
             authState = runCatching { authRepository.retryAccess() }
                 .getOrElse { AuthState.AwaitingAccess("", it.message ?: "Impossibile verificare i permessi.") }
-            if (authState is AuthState.SignedIn) refresh()
+            if (authState is AuthState.SignedIn) {
+                refresh()
+                scheduleAutomaticSync(if (repo.localSyncState().pendingChanges) 1_500 else 0, onlyWhenPending = true)
+            }
         }
     }
 
@@ -131,12 +146,16 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
                         it.message ?: "Impossibile creare la prima azienda. Se esiste già, chiedi a un amministratore di assegnarti un ruolo."
                     )
                 }
-            if (authState is AuthState.SignedIn) refresh("Azienda Spectro configurata. Sei l’amministratore iniziale.")
+            if (authState is AuthState.SignedIn) {
+                refresh("Azienda Spectro configurata. Sei l’amministratore iniziale.")
+                scheduleAutomaticSync(if (repo.localSyncState().pendingChanges) 1_500 else 0, onlyWhenPending = true)
+            }
         }
     }
 
     fun signOut() {
         viewModelScope.launch {
+            automaticSyncJob?.cancel()
             authRepository.signOut()
             authState = AuthState.SignedOut
             authMessage = null
@@ -167,8 +186,13 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { block() }
+                withContext(Dispatchers.IO) {
+                    val sync = repo.localSyncState()
+                    repo.saveLocalSyncState(sync.copy(pendingChanges = true))
+                }
                 val s = withContext(Dispatchers.IO) { repo.snapshot() }
                 state = s.toUiState(success)
+                scheduleAutomaticSync()
             } catch (t: Throwable) { state = state.copy(loading = false, message = t.message ?: "Operazione non riuscita") }
         }
     }
@@ -234,6 +258,13 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun publishCloudWorkspace() = runCloudSync { access ->
+        val inspection = cloudSyncRepository.inspect(access)
+        if (!inspection.local.pendingChanges && inspection.remote.exists) {
+            return@runCloudSync CloudSyncUiState(
+                inspection = inspection,
+                message = "Workspace già allineato alla revisione ${inspection.remote.revision}. Non è stata creata una revisione duplicata."
+            )
+        }
         val result = cloudSyncRepository.publish(access)
         CloudSyncUiState(
             inspection = result.inspection,
@@ -265,7 +296,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             cloudSyncState = cloudSyncState.copy(loading = true, message = null, error = null)
             try {
-                val result = withContext(Dispatchers.IO) { block(access) }
+                automaticSyncJob?.cancel()
+                val result = cloudTransferMutex.withLock { withContext(Dispatchers.IO) { block(access) } }
                 if (refreshData) {
                     val refreshed = withContext(Dispatchers.IO) { repo.snapshot() }
                     state = refreshed.toUiState("Workspace cloud scaricato in sicurezza")
@@ -278,6 +310,51 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
                 )
             } finally {
                 if (cloudSyncState.loading) cloudSyncState = cloudSyncState.copy(loading = false)
+            }
+        }
+    }
+
+    private fun scheduleAutomaticSync(
+        delayMillis: Long = 2_500,
+        onlyWhenPending: Boolean = true
+    ) {
+        // If the current job is already transferring, it will inspect pendingChanges again
+        // after publishing and immediately process the next batch.
+        if (automaticSyncJob?.isActive == true && cloudTransferMutex.isLocked) return
+        automaticSyncJob?.cancel()
+        if (!can(AppPermission.SYNC_USE)) return
+        val access = (authState as? AuthState.SignedIn)?.access ?: return
+        automaticSyncJob = viewModelScope.launch {
+            var nextDelay = delayMillis
+            while (true) {
+                delay(nextDelay)
+                val outcome = cloudTransferMutex.withLock {
+                    val pending = withContext(Dispatchers.IO) { repo.localSyncState().pendingChanges }
+                    if (onlyWhenPending && !pending) return@withLock 0
+                    cloudSyncState = cloudSyncState.copy(loading = true, message = null, error = null)
+                    try {
+                        val result = withContext(Dispatchers.IO) { cloudSyncRepository.publish(access) }
+                        cloudSyncState = CloudSyncUiState(
+                            inspection = result.inspection,
+                            message = "Sincronizzazione automatica completata • revisione ${result.inspection.remote.revision}."
+                        )
+                        1
+                    } catch (t: Throwable) {
+                        cloudSyncState = cloudSyncState.copy(
+                            loading = false,
+                            error = "Modifiche salvate sul dispositivo; sincronizzazione automatica in attesa. ${t.message.orEmpty()}".trim()
+                        )
+                        -1
+                    }
+                }
+                if (outcome == 0) return@launch
+                if (outcome < 0) {
+                    nextDelay = 30_000
+                    continue
+                }
+                val stillPending = withContext(Dispatchers.IO) { repo.localSyncState().pendingChanges }
+                if (!stillPending) return@launch
+                nextDelay = 2_500
             }
         }
     }

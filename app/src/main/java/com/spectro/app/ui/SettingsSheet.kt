@@ -138,7 +138,7 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                 SpectroCard(p = p) {
                     Text("Workspace cloud", fontWeight = FontWeight.Black, fontSize = 17.sp)
                     Text(
-                        "Sincronizzazione versionata dell’intero gestionale, inclusi gli allegati. Prima di ogni trasferimento viene creato un backup locale di recupero.",
+                        "Sincronizzazione automatica e versionata dell’intero gestionale, inclusi gli allegati. Dopo ogni modifica Spectro pubblica una sola revisione e crea un backup locale di recupero.",
                         color = p.textMuted,
                         fontSize = 12.sp
                     )
@@ -151,6 +151,7 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                         else -> {
                             Text("Cloud rev. ${remote.revision} • ${remote.recordCount} record • ${formatBytes(remote.sizeBytes)}", fontWeight = FontWeight.Bold)
                             Text("Base locale rev. ${local?.baseRevision ?: 0}${remote.updatedBy.takeIf { it.isNotBlank() }?.let { " • ultimo invio: $it" }.orEmpty()}", color = p.textMuted, fontSize = 12.sp)
+                            Text(if (local?.pendingChanges == true) "Modifiche locali in attesa di invio automatico" else "Dispositivo e cloud allineati", color = if (local?.pendingChanges == true) p.warning else p.success, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     if (mustDownload) {
@@ -178,7 +179,7 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                             onClick = { confirmPublish = true },
                             enabled = !sync.loading && inspection != null && !mustDownload,
                             modifier = Modifier.weight(1f)
-                        ) { Icon(Icons.Rounded.CloudUpload, null); Spacer(Modifier.width(6.dp)); Text("Pubblica") }
+                        ) { Icon(Icons.Rounded.CloudUpload, null); Spacer(Modifier.width(6.dp)); Text("Sincronizza ora") }
                     }
                 }
             }
@@ -220,9 +221,9 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
 
     if (confirmPublish) AlertDialog(
         onDismissRequest = { confirmPublish = false },
-        title = { Text("Pubblicare questa postazione?") },
-        text = { Text("Verranno preparati ${vm.snapshot().recordCount} record. Sarà creato un backup locale, caricato il workspace completo e pubblicata una nuova revisione solo se il cloud non è cambiato. In caso di conflitto l’operazione si fermerà senza sovrascrivere dati.") },
-        confirmButton = { TextButton(onClick = { confirmPublish = false; vm.publishCloudWorkspace() }) { Text("Pubblica") } },
+        title = { Text("Sincronizzare adesso?") },
+        text = { Text("Normalmente Spectro sincronizza automaticamente dopo ogni modifica. Il controllo manuale non creerà revisioni duplicate se il dispositivo è già allineato.") },
+        confirmButton = { TextButton(onClick = { confirmPublish = false; vm.publishCloudWorkspace() }) { Text("Sincronizza") } },
         dismissButton = { TextButton(onClick = { confirmPublish = false }) { Text("Annulla") } }
     )
 

@@ -1,5 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import './style.css'
+import { renderAnalyticalModule, type CloudRecord } from './erp'
 
 const projectUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fbfxtyowcxgagseqdlyz.supabase.co'
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU'
@@ -31,6 +32,7 @@ const modules: Module[] = [
   { key: 'production', eyebrow: 'Reparto', title: 'Produzione', description: 'Lavorazioni giornaliere e avanzamento.', permission: 'production.view', accent: 'orange' },
   { key: 'inventory', eyebrow: 'Scorte', title: 'Magazzino', description: 'Tessuti, colli, lotti e movimenti.', permission: 'inventory.view', accent: 'pink' },
   { key: 'clients', eyebrow: 'CRM', title: 'Clienti', description: 'Anagrafiche, storico e criticità.', permission: 'clients.view', accent: 'orange' },
+  { key: 'issues', eyebrow: 'Controllo operativo', title: 'Timeline e criticità', description: 'Eventi, ritardi, responsabilità e risoluzioni.', permission: 'issues.view', accent: 'pink' },
   { key: 'cotton', eyebrow: 'Linea', title: 'Cotone', description: 'Ordini reattivi e pigmento.', permission: 'cotton.view', accent: 'pink' },
   { key: 'zentha', eyebrow: 'Business unit', title: 'Zentha', description: 'Catalogo, ordini sport e marginalità.', permission: 'zentha.view', accent: 'orange' },
   { key: 'finance', eyebrow: 'Controllo', title: 'Economia', description: 'Ricavi, costi, pagamenti e KPI.', permission: 'finance.view', accent: 'pink' },
@@ -164,13 +166,18 @@ function renderPending(user: User, access: AccessContext | null, message = '') {
 
 async function renderWorkspace(user: User, access: AccessContext) {
   const allowed = modules.filter(module => access.permissions.includes(module.permission))
-  let recent: Array<{ id: string; module: string; entity_type: string; payload: Record<string, unknown>; updated_at: string }> = []
+  let allRecords: CloudRecord[] = []
   if (supabase) {
     const response = await supabase.rpc('list_erp_records_safe', {
-      p_organization_id: access.organization_id, p_module: null, p_limit: 8
+      p_organization_id: access.organization_id, p_module: null, p_limit: 500
     })
-    recent = response.data || []
+    allRecords = response.data || []
   }
+  const recent = allRecords.slice(0, 8)
+  const count = (type: string) => allRecords.filter(row => row.entity_type === type).length
+  const activeOrders = allRecords.filter(row => row.entity_type === 'work_order' && !['COMPLETED','DELIVERED','CLOSED','CANCELLED'].includes(String(row.payload.status))).length
+  const openTasks = allRecords.filter(row => row.entity_type === 'operational_task' && !['DONE','CANCELLED'].includes(String(row.payload.status))).length
+  const stockMeters = allRecords.filter(row => row.entity_type === 'inventory_item').reduce((sum, row) => sum + Number(row.payload.quantityMeters || 0), 0)
   app.innerHTML = `<div class="workspace">
     <aside class="sidebar">
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>ERP CLOUD</strong></div></div>
@@ -180,6 +187,12 @@ async function renderWorkspace(user: User, access: AccessContext) {
     <main class="content">
       <header><div><p class="kicker">${escapeHtml(access.organization_name)}</p><h1>Buon lavoro, ${escapeHtml((access.display_name || '').split(' ')[0])}.</h1></div><div class="live"><i></i> Cloud attivo</div></header>
       <section class="hero"><div><span class="pill">MULTIUTENTE</span><h2>Ogni reparto allineato.<br><em>Con accessi controllati.</em></h2><p>Ruoli, dati e attività nello stesso spazio protetto e versionato.</p></div><div class="hero-stat"><strong>${allowed.length}</strong><span>moduli disponibili</span></div></section>
+      <section class="dashboard-metrics">
+        <article><span>Ordini operativi</span><strong>${activeOrders}</strong><small>${count('work_order')} ordini complessivi</small></article>
+        <article><span>Produzioni</span><strong>${count('production_record')}</strong><small>registrazioni sincronizzate</small></article>
+        <article><span>Magazzino</span><strong>${stockMeters.toLocaleString('it-IT', { maximumFractionDigits: 1 })} m</strong><small>disponibilità totale</small></article>
+        <article><span>Attività aperte</span><strong>${openTasks}</strong><small>scadenze operative</small></article>
+      </section>
       <section><div class="section-head"><div><p class="kicker">IL TUO SPAZIO</p><h2>Moduli autorizzati</h2></div><span>${escapeHtml(access.role_name)}</span></div>
         <div class="module-grid">${allowed.map(module => `<article class="module-card ${module.accent}" data-module="${module.key}"><p>${module.eyebrow}</p><h3>${module.title}</h3><span>${module.description}</span><button>Apri modulo <b>→</b></button></article>`).join('') || '<p class="empty">Nessun modulo assegnato a questo ruolo.</p>'}</div>
       </section>
@@ -226,8 +239,6 @@ type MemberRow = {
 
 type RoleRow = { id: string; name: string; description: string }
 type PermissionRow = { key: string; module: string; label: string; description: string }
-type CloudRecord = { id: string; module: string; entity_type: string; payload: Record<string, unknown>; updated_at: string; revision: number }
-
 async function renderAccessManagement(user: User, access: AccessContext, message = '') {
   if (!supabase || !access.organization_id) return
   app.innerHTML = '<main class="center"><div class="loader"></div></main>'
@@ -297,15 +308,21 @@ async function renderAccessManagement(user: User, access: AccessContext, message
 async function renderModule(user: User, access: AccessContext, module: Module) {
   if (!supabase) return
   app.innerHTML = '<main class="center"><div class="loader"></div></main>'
-  const { data, error } = await supabase.rpc('list_erp_records_safe', {
-    p_organization_id: access.organization_id, p_module: module.key, p_limit: 100
+  const relatedModules: Record<string, string[]> = {
+    orders: ['orders', 'production', 'issues'], clients: ['clients', 'orders', 'production', 'tasks'],
+    inventory: ['inventory'], zentha: ['zentha'], production: ['production'], cotton: ['cotton'],
+    finance: ['finance'], tasks: ['tasks'], issues: ['issues']
+  }
+  const permitted = (relatedModules[module.key] || [module.key]).filter(key => {
+    const definition = modules.find(item => item.key === key)
+    return definition ? access.permissions.includes(definition.permission) : true
   })
-  const records = (data || []) as CloudRecord[]
-  app.innerHTML = `<main class="module-page"><header class="module-header"><button id="home" class="back">← Dashboard</button><div><p class="kicker">${module.eyebrow}</p><h1>${module.title}</h1><p>${module.description}</p></div><div class="live"><i></i>${data?.length || 0} record</div></header>
-    ${error ? `<p class="form-message">${escapeHtml(error.message)}</p>` : ''}
-    <div class="record-grid">${records.length ? records.map(row => `<article class="record-card"><p>${escapeHtml(row.entity_type)}</p><h3>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.clientName || row.payload.orderCode || 'Record Spectro'))}</h3><span>Aggiornato ${new Date(row.updated_at).toLocaleString('it-IT')} · rev. ${row.revision}</span></article>`).join('') : `<section class="empty-state"><div class="brand-mark small">S</div><h2>Modulo pronto</h2><p>I dati condivisi di ${module.title} compariranno qui dopo la prima sincronizzazione.</p></section>`}</div>
-  </main>`
-  document.querySelector('#home')?.addEventListener('click', () => renderWorkspace(user, access))
+  const results = await Promise.all(permitted.map(key => supabase.rpc('list_erp_records_safe', {
+    p_organization_id: access.organization_id, p_module: key, p_limit: 500
+  })))
+  const records = results.flatMap(result => (result.data || []) as CloudRecord[])
+  const error = results.find(result => result.error)?.error
+  renderAnalyticalModule(app, module, records, access.permissions.includes('finance.view'), () => { void renderWorkspace(user, access) }, error?.message || '')
 }
 
 async function renderForUser(user: User) {

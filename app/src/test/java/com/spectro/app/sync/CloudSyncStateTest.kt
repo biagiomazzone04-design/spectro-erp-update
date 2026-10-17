@@ -32,6 +32,13 @@ class CloudSyncStateTest {
     }
 
     @Test
+    fun pendingChangesAreExplicitAndPersistable() {
+        val state = LocalSyncState(baseRevision = 20, pendingChanges = true)
+        assertTrue(state.pendingChanges)
+        assertEquals(20, state.baseRevision)
+    }
+
+    @Test
     fun cloudArchiveIsSplitBelowTheSupabaseObjectLimit() {
         val chunk = 45L * 1024L * 1024L
         assertEquals(0, expectedCloudChunkCount(0, chunk))

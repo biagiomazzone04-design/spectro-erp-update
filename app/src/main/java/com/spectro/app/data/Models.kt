@@ -512,5 +512,6 @@ data class LocalSyncState(
     val lastSeenRemoteRevision: Long = 0,
     val lastSyncedAt: String = "",
     val lastError: String = "",
-    val recoveryBackupPath: String = ""
+    val recoveryBackupPath: String = "",
+    val pendingChanges: Boolean = false
 )

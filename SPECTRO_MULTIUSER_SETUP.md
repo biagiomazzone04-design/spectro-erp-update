@@ -14,6 +14,7 @@ Questa versione introduce la base cloud comune per Android, Windows e Mac.
 - workspace Android completo versionato, con allegati, checksum SHA-256 e controllo conflitti;
 - mirror web dei record privo di percorsi file locali, filtrato modulo per modulo e sanificato lato server per i ruoli senza accesso economico;
 - backup locale di recupero automatico prima di ogni pubblicazione o download;
+- sincronizzazione automatica dopo ogni gruppo di modifiche, con stato pendente persistente e retry in caso di rete assente;
 - ruoli iniziali Admin, Produzione, Commerciale, Zentha e Sola lettura;
 - preset **Supervisore** (tutto in sola lettura) e **Attività e Zentha senza prezzi**.
 
@@ -59,9 +60,9 @@ Il portale è una PWA: da Edge/Chrome su Windows o Chrome/Safari su macOS può e
 
 1. Accedere su Android con l’utente Admin.
 2. Aprire **Account e impostazioni → Workspace cloud → Verifica stato cloud**.
-3. Se il cloud è vuoto, scegliere **Pubblica**. L’app crea prima un backup locale, comprime database e allegati, calcola SHA-256 e pubblica la revisione 1.
+3. Se il cloud è vuoto, scegliere **Sincronizza ora** una sola volta. L’app crea prima un backup locale, comprime database e allegati, calcola SHA-256 e pubblica la prima revisione.
 4. Su una seconda postazione Android scegliere **Verifica** e poi **Scarica**. Anche in questo caso la copia locale precedente viene salvata prima della sostituzione.
-5. Dopo le modifiche, verificare lo stato e pubblicare una nuova revisione. Se un’altra postazione ha già pubblicato, Spectro blocca l’operazione e richiede di scaricare la revisione più recente.
+5. Dopo le modifiche non serve pubblicare manualmente: Spectro le raggruppa, crea una sola nuova revisione e ritenta automaticamente se la rete non è disponibile. **Sincronizza ora** resta disponibile come controllo manuale e non crea duplicati quando il workspace è già allineato. Se un’altra postazione Android ha già pubblicato, Spectro blocca la sovrascrittura e richiede di scaricare la revisione più recente.
 
 Se la scheda **Workspace cloud** non compare per l’Admin, rieseguire la terza migrazione, disconnettersi e accedere di nuovo: la sessione ricaricherà `sync.use`.
 
@@ -77,4 +78,4 @@ La pubblicazione aggiorna nello stesso commit anche `erp_records`: il portale Wi
 
 ## Modello di conflitto intenzionalmente conservativo
 
-La sincronizzazione attuale è a revisione dell’intero workspace, non una fusione automatica record-per-record. Due utenti possono consultare il gestionale e usare il portale con permessi diversi, ma prima di pubblicare da Android devono partire dalla stessa revisione cloud. Questa scelta evita duplicazioni degli ID locali, perdite di allegati e sovrascritture silenziose. I workspace oltre 50 MB vengono suddivisi automaticamente in blocchi da 45 MB, ricomposti e verificati tramite SHA-256 prima del ripristino. La futura sincronizzazione incrementale userà gli UUID già presenti nell’envelope `erp_records`.
+La sincronizzazione resta a revisione dell’intero workspace, non è ancora una fusione record-per-record. L’invio è automatico, ma due dispositivi Android che modificano dati devono comunque partire dalla stessa revisione cloud: i conflitti vengono bloccati invece di sovrascrivere silenziosamente. Il portale Windows/Mac legge il mirror aggiornato senza richiedere pubblicazioni manuali. I workspace oltre 50 MB vengono suddivisi automaticamente in blocchi da 45 MB, ricomposti e verificati tramite SHA-256 prima del ripristino. La futura sincronizzazione incrementale userà gli UUID già presenti nell’envelope `erp_records`.

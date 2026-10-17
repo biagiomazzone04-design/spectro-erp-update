@@ -72,6 +72,9 @@ class CloudSyncRepository(
 
     suspend fun publish(access: UserAccess): SyncTransferResult {
         val local = localStateFor(access.organizationId)
+        // Claim the currently pending batch before taking its snapshot. Any edit made while
+        // the upload is running sets this flag again and is sent in the following revision.
+        repository.saveLocalSyncState(local.copy(pendingChanges = false))
         val snapshot = repository.snapshot()
         val recovery = BackupManager.createRecoveryBackup(appContext, snapshot, "prima_pubblicazione_cloud")
         val transfer = BackupManager.createCloudTransferBackup(appContext, snapshot)
@@ -141,20 +144,24 @@ class CloudSyncRepository(
             }
 
             val remote = parseRemote(response)
-            val saved = local.copy(
+            val latestLocal = repository.localSyncState()
+            val saved = latestLocal.copy(
                 baseRevision = remote.revision,
                 lastSeenRemoteRevision = remote.revision,
                 lastSyncedAt = Instant.now().toString(),
                 lastError = "",
-                recoveryBackupPath = recovery.absolutePath
+                recoveryBackupPath = recovery.absolutePath,
+                pendingChanges = latestLocal.pendingChanges
             )
             repository.saveLocalSyncState(saved)
             uploadedPaths.clear() // i file sono ora referenziati dalla revisione pubblicata
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
         } catch (t: Throwable) {
-            repository.saveLocalSyncState(local.copy(
+            val latestLocal = repository.localSyncState()
+            repository.saveLocalSyncState(latestLocal.copy(
                 lastError = t.message ?: "Pubblicazione cloud non riuscita.",
-                recoveryBackupPath = recovery.absolutePath
+                recoveryBackupPath = recovery.absolutePath,
+                pendingChanges = true
             ))
             uploadedPaths.asReversed().forEach { path -> runCatching { auth.deleteStorageObject(BUCKET, path) } }
             throw t
@@ -187,7 +194,8 @@ class CloudSyncRepository(
                 lastSeenRemoteRevision = remote.revision,
                 lastSyncedAt = Instant.now().toString(),
                 lastError = "",
-                recoveryBackupPath = recovery.absolutePath
+                recoveryBackupPath = recovery.absolutePath,
+                pendingChanges = false
             )
             repository.saveLocalSyncState(saved)
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
@@ -208,7 +216,8 @@ class CloudSyncRepository(
             lastSeenRemoteRevision = 0,
             lastSyncedAt = "",
             lastError = "",
-            recoveryBackupPath = ""
+            recoveryBackupPath = "",
+            pendingChanges = false
         ).also(repository::saveLocalSyncState)
     }
 

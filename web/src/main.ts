@@ -317,7 +317,10 @@ async function onSignup(event: Event) {
   const { error } = await supabase.auth.signUp({
     email,
     password: String(form.get('password')),
-    options: { data: { display_name: String(form.get('name')) } }
+    options: {
+      data: { display_name: String(form.get('name')) },
+      emailRedirectTo: `${window.location.origin}/`
+    }
   })
   renderSignup(
     error ? friendlyAuthMessage(error.message) : 'Richiesta inviata. Apri solo l’email più recente, poi attendi l’assegnazione del ruolo.',
@@ -330,7 +333,11 @@ async function onResendConfirmation() {
   const input = document.querySelector<HTMLInputElement>('#signup-form input[name="email"]')
   const email = input?.value.trim() || ''
   if (!email) return renderSignup('Inserisci prima l’indirizzo email usato per registrarti.')
-  const { error } = await supabase.auth.resend({ type: 'signup', email })
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: `${window.location.origin}/` }
+  })
   renderSignup(
     error ? friendlyAuthMessage(error.message) : 'Nuovo link inviato. Apri solo l’email più recente: i link precedenti diventano obsoleti.',
     email

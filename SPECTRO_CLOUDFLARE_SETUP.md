@@ -20,6 +20,10 @@ autenticazione e allegati restano nel progetto Supabase esistente.
 7. Avviare il primo deploy. Cloudflare assegna un indirizzo del tipo
    `https://spectro-erp-cloud.<account>.workers.dev`.
 
+Il fallback delle pagine interne è già gestito da `wrangler.toml` tramite
+`not_found_handling = "single-page-application"`. Non aggiungere un secondo file
+`_redirects`: sui Workers produrrebbe un ciclo di redirect.
+
 Ogni push futuro sul branch `spectro-3.0-beta` pubblicherà automaticamente il
 portale senza interventi manuali.
 

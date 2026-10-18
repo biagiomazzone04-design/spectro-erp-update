@@ -1,5 +1,5 @@
 const CACHE_PREFIX = 'spectro-shell-'
-const CACHE = `${CACHE_PREFIX}v14`
+const CACHE = `${CACHE_PREFIX}v15`
 const SHELL = ['/', '/manifest.webmanifest', '/spectro-icon.svg']
 self.addEventListener('install', event => event.waitUntil(
   caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())

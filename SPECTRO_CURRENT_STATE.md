@@ -44,7 +44,7 @@ Il portale web v14 corregge il blocco della pagina Produzione all’apertura di 
 
 Android Beta 9 forza una sola ripubblicazione degli allegati locali per le installazioni aggiornate da versioni che avevano già marcato il workspace come allineato. Ogni scrittura marca ora la sincronizzazione prima della modifica e pianifica anche un lavoro persistente vincolato alla rete: se l’app passa in background o viene chiusa, il trasferimento viene ripreso automaticamente. I trasferimenti avviati dalla UI e dal lavoro in background sono serializzati per evitare revisioni concorrenti.
 
-Il frontend è predisposto per la migrazione indipendente su Cloudflare Pages: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT.
+Il frontend è predisposto per la migrazione indipendente su Cloudflare Workers: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT. La pubblicazione automatica usa la root `web`, il comando di build `npm run build` e il comando di deploy `npx wrangler deploy`.
 
 ## Beta 6
 Ha introdotto navigazione contestuale, home cliente, produzioni giornaliere raggruppate, dossier ordine più completo e tema Spectro Neon.

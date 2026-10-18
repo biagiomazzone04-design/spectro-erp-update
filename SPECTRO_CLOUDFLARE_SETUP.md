@@ -1,4 +1,4 @@
-# Spectro ERP su Cloudflare Pages
+# Spectro ERP su Cloudflare Workers
 
 Questa configurazione rende il portale web indipendente da ChatGPT Sites. Database,
 autenticazione e allegati restano nel progetto Supabase esistente.
@@ -6,19 +6,19 @@ autenticazione e allegati restano nel progetto Supabase esistente.
 ## Creazione del portale
 
 1. Accedere a Cloudflare e aprire **Workers & Pages**.
-2. Selezionare **Create application → Pages → Connect to Git**.
+2. Selezionare **Create application → Import a repository**.
 3. Collegare GitHub e scegliere il repository privato `spectro-erp-update`.
 4. Impostare il branch di produzione `spectro-3.0-beta`.
 5. Usare queste impostazioni di build:
    - Framework preset: `Vite`
    - Root directory: `web`
    - Build command: `npm run build`
-   - Build output directory: `dist`
+   - Deploy command: `npx wrangler deploy`
 6. Aggiungere le variabili di produzione:
    - `VITE_SUPABASE_URL` = `https://fbfxtyowcxgagseqdlyz.supabase.co`
    - `VITE_SUPABASE_ANON_KEY` = la chiave publishable Supabase
 7. Avviare il primo deploy. Cloudflare assegna un indirizzo del tipo
-   `https://spectro-erp-cloud.pages.dev`.
+   `https://spectro-erp-cloud.<account>.workers.dev`.
 
 Ogni push futuro sul branch `spectro-3.0-beta` pubblicherà automaticamente il
 portale senza interventi manuali.
@@ -37,7 +37,7 @@ conferma, quindi eventuali domini personalizzati funzioneranno senza ricompilare
 
 ## Dominio personalizzato opzionale
 
-In Cloudflare Pages aprire **Custom domains → Set up a custom domain** e collegare,
+Nel progetto Cloudflare aprire **Domains → Add a custom domain** e collegare,
 per esempio, `cloud.spectroerp.it`. Dopo la verifica DNS, sostituire il Site URL e
 aggiungere il nuovo dominio ai Redirect URLs di Supabase.
 

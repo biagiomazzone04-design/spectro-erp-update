@@ -68,8 +68,12 @@ data class InventoryItem(
     val composition: String = "",
     val weightGsm: String = "",
     val variant: String = "",
-    val lotCode: String = ""
-)
+    val lotCode: String = "",
+    val processingCostPerMeter: Double = 0.0,
+    val defaultSalePricePerMeter: Double = 0.0
+) {
+    val actualCostPerMeter: Double get() = purchasePricePerMeter + processingCostPerMeter
+}
 
 data class FabricRoll(
     val id: Long = 0,
@@ -145,7 +149,8 @@ data class ProductionRecord(
     val materialCostTotal: Double = 0.0,
     val grossRevenue: Double = 0.0,
     val grossProfit: Double = 0.0,
-    val workOrderId: Long? = null
+    val workOrderId: Long? = null,
+    val zenthaOrderId: Long? = null
 )
 
 data class WorkOrder(
@@ -167,7 +172,9 @@ data class WorkOrder(
     val designCode: String = "",
     val productionRecordId: Long? = null,
     val effectiveDeliveryDate: String = "",
-    val cancelReason: String = ""
+    val cancelReason: String = "",
+    val materialReceivedDate: String = "",
+    val materialReceiptNotes: String = ""
 )
 
 data class OrderTimelineEvent(
@@ -366,7 +373,8 @@ data class ZenthaOrder(
     val notes: String = "",
     val attachments: List<String> = emptyList(),
     val splitPercentA: Double = 50.0,
-    val splitPercentB: Double = 50.0
+    val splitPercentB: Double = 50.0,
+    val chromiaRatePerMeter: Double = 2.50
 )
 
 data class ZenthaOrderItem(
@@ -401,6 +409,8 @@ enum class ZenthaExportProfile(
     COMPLETE(true, true, true, true)
 }
 
+enum class PdfAppearance { LIGHT, DARK }
+
 data class ZenthaExtraCost(
     val id: Long = 0,
     val orderId: Long,
@@ -424,7 +434,8 @@ data class AppSettings(
     val protectionPaperCost: Double = 0.10,
     val themeKey: String = "spectro",
     val zenthaSplitA: Double = 50.0,
-    val zenthaSplitB: Double = 50.0
+    val zenthaSplitB: Double = 50.0,
+    val chromiaRatePerMeter: Double = 2.50
 )
 
 data class DashboardDay(

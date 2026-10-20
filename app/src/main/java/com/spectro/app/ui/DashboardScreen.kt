@@ -163,7 +163,7 @@ fun DashboardScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Metric("Altri ricavi", euro(currentMonthStats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
+                        Metric("Ulteriori lavorazioni", euro(currentMonthStats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
                         Metric("Ordini evasi", currentMonthStats.completedOrderCount.toString(), valueColor = p.success, modifier = Modifier.weight(1f))
                         Metric("Criticità", currentMonthStats.criticalityCount.toString(), valueColor = if (currentMonthStats.criticalityCount > 0) p.warning else p.success, modifier = Modifier.weight(1f))
                     }
@@ -186,6 +186,24 @@ fun DashboardScreen(
                     onPrevious = { selectedDate = LocalDate.parse(selectedDate).minusDays(1).toString() },
                     onNext = { selectedDate = LocalDate.parse(selectedDate).plusDays(1).toString() }
                 )
+            }
+            if (day != null) item {
+                val byClient = day.records.filter { it.type == RecordType.PRODUCTION }
+                    .groupBy { it.clientName.ifBlank { "Senza cliente" } }
+                    .mapValues { (_, rows) -> rows.sumOf { it.printedPaperMeters } }
+                    .toList().sortedByDescending { it.second }
+                if (byClient.isNotEmpty()) SpectroCard(p = p) {
+                    Text("Metri stampati per cliente", fontWeight = FontWeight.Black, fontSize = 17.sp)
+                    Text("Aggiornamento automatico per la giornata selezionata", color = p.textMuted, fontSize = 11.sp)
+                    Spacer(Modifier.height(10.dp))
+                    byClient.forEach { (client, paperMeters) ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(client, fontWeight = FontWeight.Bold, color = p.text)
+                            Text(meters(paperMeters), fontWeight = FontWeight.Black, color = p.primary, fontSize = 16.sp)
+                        }
+                        Spacer(Modifier.height(7.dp))
+                    }
+                }
             }
             item { SectionTitle("Produzioni del giorno") }
             if (day == null || day.records.isEmpty()) {

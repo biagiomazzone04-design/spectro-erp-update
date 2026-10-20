@@ -50,7 +50,8 @@ begin
             'amount','fabricCost','fabricCostPerMeter','fabricSalePricePerMeter','grossProfit','grossRevenue',
             'manualGrossRevenue','markupPercent','materialCostTotal','otherCost','otherCosts','paperPrintCost',
             'priceListName','printCost','printPricePerMeter','productionCostPerMeter','standardCost','standardPrice',
-            'unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost'
+            'unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost','processingCostPerMeter',
+            'defaultSalePricePerMeter','chromiaRatePerMeter'
         ) then raise exception 'Financial field not authorized'; end if;
     end loop;
 
@@ -107,7 +108,8 @@ begin
             'markupPercent','materialCostTotal','otherCost','otherCosts','packagingCost','paperPrintCost',
             'priceListName','printCost','printPricePerMeter','productionCostPerMeter','protectionPaperCost',
             'purchasePricePerMeter','refundCost','ribCost','sewingCost','splitPercentA','splitPercentB',
-            'standardCost','standardPrice','unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost'
+            'standardCost','standardPrice','unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost',
+            'processingCostPerMeter','defaultSalePricePerMeter','chromiaRatePerMeter'
         ] end,
         greatest(r.updated_at, coalesce(o.updated_at, r.updated_at)),
         r.revision + coalesce(o.revision, 0)

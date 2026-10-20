@@ -21,7 +21,11 @@ import com.spectro.app.auth.AppPermission
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.util.AttachmentStore
+import com.spectro.app.util.DraftStore
 import com.spectro.app.util.ReportExporter
+import com.spectro.app.util.ZenthaDraft
+import com.spectro.app.util.ZenthaExtraDraftData
+import com.spectro.app.util.ZenthaLineDraft
 import java.time.LocalDate
 
 private data class ZenthaItemDraft(
@@ -220,18 +224,21 @@ private fun ZenthaProductDialog(vm: SpectroViewModel, p: SpectroPalette, editing
 @Composable
 private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: ZenthaOrder?, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    var clientId by remember(editing?.id) { mutableStateOf(editing?.clientId) }
-    var clientName by remember(editing?.id) { mutableStateOf(editing?.clientName.orEmpty()) }
-    var date by remember(editing?.id) { mutableStateOf(editing?.orderDate ?: LocalDate.now().toString()) }
-    var due by remember(editing?.id) { mutableStateOf(editing?.dueDate.orEmpty()) }
-    var status by remember(editing?.id) { mutableStateOf(editing?.status ?: ZenthaOrderStatus.CONFIRMED) }
-    var notes by remember(editing?.id) { mutableStateOf(editing?.notes.orEmpty()) }
-    var attachments by remember(editing?.id) { mutableStateOf<List<String>>(editing?.attachments ?: emptyList()) }
-    var splitA by remember(editing?.id) { mutableStateOf((editing?.splitPercentA ?: vm.state.settings.zenthaSplitA).toString()) }
-    var splitB by remember(editing?.id) { mutableStateOf((editing?.splitPercentB ?: vm.state.settings.zenthaSplitB).toString()) }
+    val draftKey = editing?.id?.let { "edit-$it" } ?: "new"
+    val savedDraft = remember(editing?.id) { DraftStore.loadZentha(context, draftKey) }
+    var clientId by remember(editing?.id) { mutableStateOf(savedDraft?.clientId ?: editing?.clientId) }
+    var clientName by remember(editing?.id) { mutableStateOf(savedDraft?.clientName?.takeIf { it.isNotBlank() } ?: editing?.clientName.orEmpty()) }
+    var date by remember(editing?.id) { mutableStateOf(savedDraft?.date?.takeIf { it.isNotBlank() } ?: editing?.orderDate ?: LocalDate.now().toString()) }
+    var due by remember(editing?.id) { mutableStateOf(savedDraft?.due ?: editing?.dueDate.orEmpty()) }
+    var status by remember(editing?.id) { mutableStateOf(savedDraft?.status?.let { runCatching { ZenthaOrderStatus.valueOf(it) }.getOrNull() } ?: editing?.status ?: ZenthaOrderStatus.CONFIRMED) }
+    var notes by remember(editing?.id) { mutableStateOf(savedDraft?.notes ?: editing?.notes.orEmpty()) }
+    var attachments by remember(editing?.id) { mutableStateOf<List<String>>(savedDraft?.attachments?.takeIf { it.isNotEmpty() } ?: editing?.attachments ?: emptyList()) }
+    var splitA by remember(editing?.id) { mutableStateOf(savedDraft?.splitA ?: (editing?.splitPercentA ?: vm.state.settings.zenthaSplitA).toString()) }
+    var splitB by remember(editing?.id) { mutableStateOf(savedDraft?.splitB ?: (editing?.splitPercentB ?: vm.state.settings.zenthaSplitB).toString()) }
+    var chromiaRate by remember(editing?.id) { mutableStateOf(savedDraft?.chromiaRate ?: (editing?.chromiaRatePerMeter ?: vm.state.settings.chromiaRatePerMeter).toString()) }
     var drafts by remember(editing?.id, vm.state.zenthaItems) {
         mutableStateOf<List<ZenthaItemDraft>>(
-            editing?.let { o ->
+            savedDraft?.lines?.map { line -> ZenthaItemDraft(line.productId, line.productName, line.quantity, line.unitPrice, line.unitCost, line.sku, line.description, line.variant, line.color, line.sizes, line.personalization, line.productionNotes) }?.takeIf { it.isNotEmpty() } ?: editing?.let { o ->
                 vm.state.zenthaItems
                     .filter { it.orderId == o.id }
                     .map {
@@ -256,7 +263,7 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     }
     var extras by remember(editing?.id, vm.state.zenthaExtraCosts) {
         mutableStateOf<List<ZenthaExtraDraft>>(
-            editing?.let { o ->
+            savedDraft?.extras?.map { ZenthaExtraDraft(it.label, it.amount) } ?: editing?.let { o ->
                 vm.state.zenthaExtraCosts
                     .filter { it.orderId == o.id }
                     .map { ZenthaExtraDraft(it.label, it.amount.toString()) }
@@ -264,6 +271,15 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         )
     }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> attachments = attachments + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
+
+    LaunchedEffect(clientId, clientName, date, due, status, notes, attachments, splitA, splitB, chromiaRate, drafts, extras) {
+        DraftStore.saveZentha(context, ZenthaDraft(
+            clientId = clientId, clientName = clientName, date = date, due = due, status = status.name, notes = notes,
+            attachments = attachments, splitA = splitA, splitB = splitB, chromiaRate = chromiaRate,
+            lines = drafts.map { ZenthaLineDraft(it.productId, it.productName, it.quantity, it.unitPrice, it.unitCost, it.skuSnapshot, it.productDescriptionSnapshot, it.variant, it.color, it.sizeBreakdown, it.personalization, it.productionNotes) },
+            extras = extras.map { ZenthaExtraDraftData(it.label, it.amount) }
+        ), draftKey)
+    }
 
     val revenue = drafts.sumOf { it.quantity.toDoubleSafe() * it.unitPrice.toDoubleSafe() }
     val costs = drafts.sumOf { it.quantity.toDoubleSafe() * it.unitCost.toDoubleSafe() }
@@ -276,7 +292,9 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         text = {
             LazyColumn(Modifier.heightIn(max = 680.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
+                item { SpectroTextField("Cliente manuale", clientName, { clientName = it; clientId = null }, placeholder = "Associazione o società non in rubrica") }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { WheelDateField("Data ordine", date, { date = it }, Modifier.weight(1f)); WheelDateField("Consegna", due, { due = it }, Modifier.weight(1f), allowEmpty = true) } }
+                if (editing == null && date < LocalDate.now().toString()) item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Bozza recuperata con data precedente", color = p.danger, modifier = Modifier.weight(1f)); TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Usa oggi") } } }
                 item { SimpleSelectField("Stato", zenthaStatusLabel(status), ZenthaOrderStatus.entries.map { it to zenthaStatusLabel(it) }) { status = it } }
                 item { SectionTitle("Prodotti", "+ Aggiungi") { drafts = drafts + ZenthaItemDraft() } }
                 items(drafts.size) { index ->
@@ -304,6 +322,7 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                         Spacer(Modifier.height(8.dp)); SpectroTextField("Personalizzazioni", d.personalization, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(personalization = v) } }, placeholder = "Nomi, numeri, sponsor, loghi e grafiche", singleLine = false)
                         Spacer(Modifier.height(8.dp)); SpectroTextField("Note produzione", d.productionNotes, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(productionNotes = v) } }, placeholder = "Indicazioni tecniche, cuciture e confezionamento", singleLine = false)
                         if (drafts.size > 1) TextButton(onClick = { drafts = drafts.filterIndexed { i, _ -> i != index } }) { Text("Rimuovi prodotto", color = p.danger) }
+                        Button(onClick = { drafts = drafts + ZenthaItemDraft() }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi un altro prodotto") }
                     }
                 }
                 item { SectionTitle("Costi extra", "+ Aggiungi") { extras = extras + ZenthaExtraDraft() } }
@@ -312,6 +331,7 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 if (attachments.isNotEmpty()) item { Text("${attachments.size} allegati salvati", color = p.textMuted, fontWeight = FontWeight.Bold) }
                 item { SpectroTextField("Note", notes, { notes = it }, singleLine = false) }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Quota A %", splitA, { splitA = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Quota B %", splitB, { splitB = it }, Modifier.weight(1f), numeric = true) } }
+                item { SpectroTextField("Tariffa Chromia €/mt carta", chromiaRate, { chromiaRate = it }, numeric = true); Text("I metri sono letti dalle produzioni collegate a questo ordine.", color = p.textMuted, fontSize = 11.sp) }
                 item { SpectroCard(p = p) { Text("Riepilogo", fontWeight = FontWeight.Black); Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(revenue), modifier = Modifier.weight(1f)); Metric("Costi", euro(costs + extraTotal), modifier = Modifier.weight(1f)); Metric("Utile", euro(profit), valueColor = if (profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(6.dp)); Text("Quota A ${euro(profit * splitA.toDoubleSafe() / 100)} • Quota B ${euro(profit * splitB.toDoubleSafe() / 100)}", color = p.textMuted) } }
             }
         },
@@ -337,7 +357,9 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 }
                 val extraRows = extras.filter { it.label.isNotBlank() && it.amount.toDoubleSafe() > 0 }.map { ZenthaExtraCost(orderId = editing?.id ?: 0, label = it.label.trim(), amount = it.amount.toDoubleSafe()) }
                 if (clientName.isNotBlank() && items.isNotEmpty() && kotlin.math.abs(a + b - 100.0) < .01) {
-                    vm.saveZenthaOrder(ZenthaOrder(editing?.id ?: 0, editing?.orderCode.orEmpty(), clientId, clientName, date, due, status, notes.trim(), attachments, a, b), items, extraRows); onDismiss()
+                    vm.saveZenthaOrder(ZenthaOrder(editing?.id ?: 0, editing?.orderCode.orEmpty(), clientId, clientName, date, due, status, notes.trim(), attachments, a, b, chromiaRate.toDoubleSafe()), items, extraRows)
+                    DraftStore.clearZentha(context, draftKey)
+                    onDismiss()
                 }
             }) { Text("Salva ordine") }
         },
@@ -353,6 +375,8 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
     val orderItems = vm.state.zenthaItems.filter { it.orderId == order.id }
     val extras = vm.state.zenthaExtraCosts.filter { it.orderId == order.id }
     val payments = vm.state.zenthaPayments.filter { it.orderId == order.id }
+    val linkedProductions = vm.productionsForZenthaOrder(order.id)
+    val paperMeters = linkedProductions.sumOf { it.printedPaperMeters }
     val t = vm.zenthaTotals(order.id)
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -360,6 +384,7 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
         text = {
             LazyColumn(Modifier.heightIn(max = 640.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { Text("${order.clientName} • consegna ${order.dueDate.ifBlank { "-" }}", color = p.textMuted) }
+                item { SpectroCard(p = p) { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Carta collegata", meters(paperMeters), p.primary, Modifier.weight(1f)); if (canFinance) Metric("Stampa Chromia", euro(paperMeters * order.chromiaRatePerMeter), p.success, Modifier.weight(1f)) }; Text("${linkedProductions.size} registrazioni produttive collegate", color = p.textMuted, fontSize = 11.sp) } }
                 items(orderItems, key = { it.id }) { i -> SpectroCard(p = p) {
                     Text(listOf(i.skuSnapshot, i.productName).filter { it.isNotBlank() }.joinToString(" • ") + " × ${i.quantity}", fontWeight = FontWeight.Black)
                     if (canFinance) Text("Vendita ${euro(i.revenue)} • Costo ${euro(i.cost)} • Margine ${euro(i.margin)}", color = p.textMuted, fontSize = 12.sp)
@@ -390,10 +415,11 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
     )
     if (paymentOpen && canManage && canFinance) ZenthaPaymentDialog(vm, order.id) { paymentOpen = false }
     if (exportOpen) ZenthaExportDialog(
+        p = p,
         onDismiss = { exportOpen = false },
-        onExport = { profile ->
+        onExport = { profile, appearance ->
             val safeProfile = if (canFinance) profile else ZenthaExportProfile.PRODUCTION
-            ReportExporter.shareZenthaOrder(context, order, orderItems, extras, payments, vm.state.zenthaProducts, safeProfile)
+            ReportExporter.shareZenthaOrder(context, order, orderItems, extras, payments, vm.state.zenthaProducts, safeProfile, linkedProductions, appearance)
             exportOpen = false
         },
         canFinance = canFinance
@@ -401,28 +427,30 @@ private fun ZenthaOrderDetailDialog(vm: SpectroViewModel, p: SpectroPalette, ord
 }
 
 @Composable
-private fun ZenthaExportDialog(onDismiss: () -> Unit, onExport: (ZenthaExportProfile) -> Unit, canFinance: Boolean) {
+private fun ZenthaExportDialog(p: SpectroPalette, onDismiss: () -> Unit, onExport: (ZenthaExportProfile, PdfAppearance) -> Unit, canFinance: Boolean) {
+    var appearance by remember { mutableStateOf(PdfAppearance.LIGHT) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Esporta ordine Zentha", fontWeight = FontWeight.Black) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Scegli il documento in base al destinatario. I contenuti economici riservati non vengono inclusi nella scheda produzione.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SegmentedChoice(listOf(PdfAppearance.LIGHT.name to "CHIARO / STAMPA", PdfAppearance.DARK.name to "SCURO"), appearance.name, p) { appearance = PdfAppearance.valueOf(it) }
                 if (canFinance) ExportProfileButton(
                     title = "Contabilità / fatturazione",
                     description = "Articoli, codici, tessuti, quantità, prezzi di vendita, totali e pagamenti.",
                     icon = Icons.AutoMirrored.Rounded.ReceiptLong
-                ) { onExport(ZenthaExportProfile.ACCOUNTING) }
+                ) { onExport(ZenthaExportProfile.ACCOUNTING, appearance) }
                 ExportProfileButton(
                     title = "Produzione",
                     description = "Articoli, quantità, taglie, colori, nomi, numeri e personalizzazioni. Nessun prezzo.",
                     icon = Icons.Rounded.Factory
-                ) { onExport(ZenthaExportProfile.PRODUCTION) }
+                ) { onExport(ZenthaExportProfile.PRODUCTION, appearance) }
                 if (canFinance) ExportProfileButton(
                     title = "Completo analitico",
                     description = "Dossier interno con ricavi, costi, margini, componenti di costo e incassi.",
                     icon = Icons.Rounded.Analytics
-                ) { onExport(ZenthaExportProfile.COMPLETE) }
+                ) { onExport(ZenthaExportProfile.COMPLETE, appearance) }
             }
         },
         confirmButton = {},

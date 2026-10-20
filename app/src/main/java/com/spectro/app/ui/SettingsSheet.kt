@@ -39,6 +39,7 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
     var protection by remember(vm.state.settings) { mutableStateOf(vm.state.settings.protectionPaperCost.toString()) }
     var zenthaA by remember(vm.state.settings) { mutableStateOf(vm.state.settings.zenthaSplitA.toString()) }
     var zenthaB by remember(vm.state.settings) { mutableStateOf(vm.state.settings.zenthaSplitB.toString()) }
+    var chromiaRate by remember(vm.state.settings) { mutableStateOf(vm.state.settings.chromiaRatePerMeter.toString()) }
     var theme by remember(vm.state.settings) { mutableStateOf(vm.state.settings.themeKey) }
     var confirmReset by remember { mutableStateOf(false) }
     var confirmPublish by remember { mutableStateOf(false) }
@@ -91,6 +92,8 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                     val total = zenthaA.toDoubleSafe() + zenthaB.toDoubleSafe()
                     Spacer(Modifier.height(6.dp))
                     Text("Totale: ${"%.1f".format(total)}%", color = if (kotlin.math.abs(total - 100.0) < .01) p.success else p.danger, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Spacer(Modifier.height(12.dp)); SpectroTextField("Tariffa stampa Chromia €/mt", chromiaRate, { chromiaRate = it }, numeric = true)
+                    Text("Viene congelata in ogni nuovo ordine Zentha e applicata ai metri carta collegati dalla Produzione.", color = p.textMuted, fontSize = 11.sp)
                 }
             }
             if (vm.can(AppPermission.SETTINGS_MANAGE)) item {
@@ -123,7 +126,8 @@ fun SettingsSheet(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit
                         protectionPaperCost = protection.toDoubleSafe(),
                         themeKey = theme,
                         zenthaSplitA = zenthaA.toDoubleSafe(),
-                        zenthaSplitB = zenthaB.toDoubleSafe()
+                        zenthaSplitB = zenthaB.toDoubleSafe(),
+                        chromiaRatePerMeter = chromiaRate.toDoubleSafe()
                     ))
                     onDismiss()
                 }

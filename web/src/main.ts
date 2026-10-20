@@ -89,7 +89,7 @@ const modules: Module[] = [
   { key: 'issues', eyebrow: 'Controllo operativo', title: 'Timeline e criticità', description: 'Eventi, ritardi, responsabilità e risoluzioni.', permission: 'issues.view', accent: 'pink' },
   { key: 'cotton', eyebrow: 'Linea', title: 'Cotone', description: 'Ordini reattivi e pigmento.', permission: 'cotton.view', accent: 'pink' },
   { key: 'zentha', eyebrow: 'Business unit', title: 'Zentha', description: 'Catalogo, ordini sport e marginalità.', permission: 'zentha.view', accent: 'orange' },
-  { key: 'finance', eyebrow: 'Controllo', title: 'Economia', description: 'Ricavi, costi, pagamenti e KPI.', permission: 'finance.view', accent: 'pink' },
+  { key: 'finance', eyebrow: 'Controllo', title: 'Ulteriori lavorazioni', description: 'Beni personalizzati, trasferimenti, ricavi e pagamenti.', permission: 'finance.view', accent: 'pink' },
   { key: 'tasks', eyebrow: 'Organizzazione', title: 'Attività', description: 'Scadenze e attività operative.', permission: 'tasks.view', accent: 'orange' },
   { key: 'sync', eyebrow: 'Sicurezza dati', title: 'Workspace cloud', description: 'Revisioni, integrità e stato dell’ultima pubblicazione.', permission: 'sync.use', accent: 'orange' },
   { key: 'users', eyebrow: 'Amministrazione', title: 'Utenti e accessi', description: 'Ruoli e permessi personalizzati.', permission: 'users.manage', accent: 'pink' }
@@ -234,7 +234,7 @@ function periodDates(mode: string) {
   return { start: start.toISOString().slice(0, 10), end }
 }
 
-const financeFields = new Set(['amount','dailyFixedCost','defaultPrintPrice','fabricCost','fabricCostPerMeter','fabricLossCost','fabricSalePricePerMeter','grossProfit','grossRevenue','labelCost','liningCost','manualGrossRevenue','markupPercent','materialCostTotal','otherCost','otherCosts','packagingCost','paperPrintCost','priceListName','printCost','printPricePerMeter','productionCostPerMeter','protectionPaperCost','purchasePricePerMeter','refundCost','ribCost','sewingCost','splitPercentA','splitPercentB','standardCost','standardPrice','unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost'])
+const financeFields = new Set(['amount','dailyFixedCost','defaultPrintPrice','fabricCost','fabricCostPerMeter','fabricLossCost','fabricSalePricePerMeter','grossProfit','grossRevenue','labelCost','liningCost','manualGrossRevenue','markupPercent','materialCostTotal','otherCost','otherCosts','packagingCost','paperPrintCost','priceListName','printCost','printPricePerMeter','productionCostPerMeter','protectionPaperCost','purchasePricePerMeter','processingCostPerMeter','defaultSalePricePerMeter','chromiaRatePerMeter','refundCost','ribCost','sewingCost','splitPercentA','splitPercentB','standardCost','standardPrice','unitCost','unitPrice','accessoryCost','cuttingCost','fabricUsedCost'])
 
 function recordsForAccess(records: CloudRecord[], access: AccessContext) {
   const visibleModules = new Set(allowedModules(access).map(module => module.key))
@@ -583,7 +583,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
   const host = mountShell(user, access, module.key, '<div class="loader-shell"><div class="loader"></div></div>')
   const relatedModules: Record<string, string[]> = {
     orders: ['orders', 'production', 'issues'], clients: ['clients', 'orders', 'production', 'tasks'],
-    inventory: ['inventory'], zentha: ['zentha'], production: ['production'], cotton: ['cotton'],
+    inventory: ['inventory'], zentha: ['zentha', 'production'], production: ['production'], cotton: ['cotton'],
     finance: ['finance'], tasks: ['tasks'], issues: ['issues']
   }
   const permitted = (relatedModules[module.key] || [module.key]).filter(key => {

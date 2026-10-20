@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 9) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 10) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -56,7 +56,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 composition TEXT NOT NULL DEFAULT '',
                 weight_gsm TEXT NOT NULL DEFAULT '',
                 variant TEXT NOT NULL DEFAULT '',
-                lot_code TEXT NOT NULL DEFAULT ''
+                lot_code TEXT NOT NULL DEFAULT '',
+                processing_cost_m REAL NOT NULL DEFAULT 0,
+                default_sale_price_m REAL NOT NULL DEFAULT 0
             )
         """.trimIndent())
         db.execSQL("""
@@ -91,7 +93,8 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 material_cost_total REAL NOT NULL DEFAULT 0,
                 gross_revenue REAL NOT NULL DEFAULT 0,
                 gross_profit REAL NOT NULL DEFAULT 0,
-                work_order_id INTEGER
+                work_order_id INTEGER,
+                zentha_order_id INTEGER
             )
         """.trimIndent())
         db.execSQL("""
@@ -114,7 +117,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 design_code TEXT NOT NULL DEFAULT '',
                 production_record_id INTEGER,
                 effective_delivery_date TEXT NOT NULL DEFAULT '',
-                cancel_reason TEXT NOT NULL DEFAULT ''
+                cancel_reason TEXT NOT NULL DEFAULT '',
+                material_received_date TEXT NOT NULL DEFAULT '',
+                material_receipt_notes TEXT NOT NULL DEFAULT ''
             )
         """.trimIndent())
         createIssueTables(db)
@@ -131,14 +136,15 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 protection_cost REAL NOT NULL,
                 theme_key TEXT NOT NULL,
                 zentha_split_a REAL NOT NULL DEFAULT 50,
-                zentha_split_b REAL NOT NULL DEFAULT 50
+                zentha_split_b REAL NOT NULL DEFAULT 50,
+                chromia_rate_m REAL NOT NULL DEFAULT 2.5
             )
         """.trimIndent())
         val s = AppSettings()
         db.insert("settings", null, ContentValues().apply {
             put("id", 1); put("daily_fixed_cost", s.dailyFixedCost); put("plotter_x1_cost", s.plotterX1Cost)
             put("plotter_x2_cost", s.plotterX2Cost); put("protection_cost", s.protectionPaperCost); put("theme_key", s.themeKey)
-            put("zentha_split_a", s.zenthaSplitA); put("zentha_split_b", s.zenthaSplitB)
+            put("zentha_split_a", s.zenthaSplitA); put("zentha_split_b", s.zenthaSplitB); put("chromia_rate_m", s.chromiaRatePerMeter)
         })
         createIndexes(db)
     }
@@ -192,6 +198,15 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         }
         if (oldVersion < 9) {
             safeAlter(db, "ALTER TABLE cloud_sync_state ADD COLUMN pending_changes INTEGER NOT NULL DEFAULT 0")
+        }
+        if (oldVersion < 10) {
+            safeAlter(db, "ALTER TABLE inventory ADD COLUMN processing_cost_m REAL NOT NULL DEFAULT 0")
+            safeAlter(db, "ALTER TABLE inventory ADD COLUMN default_sale_price_m REAL NOT NULL DEFAULT 0")
+            safeAlter(db, "ALTER TABLE production ADD COLUMN zentha_order_id INTEGER")
+            safeAlter(db, "ALTER TABLE work_orders ADD COLUMN material_received_date TEXT NOT NULL DEFAULT ''")
+            safeAlter(db, "ALTER TABLE work_orders ADD COLUMN material_receipt_notes TEXT NOT NULL DEFAULT ''")
+            safeAlter(db, "ALTER TABLE zentha_orders ADD COLUMN chromia_rate_m REAL NOT NULL DEFAULT 2.5")
+            safeAlter(db, "ALTER TABLE settings ADD COLUMN chromia_rate_m REAL NOT NULL DEFAULT 2.5")
         }
         createIndexes(db)
     }
@@ -436,7 +451,8 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 notes TEXT NOT NULL DEFAULT '',
                 attachments_json TEXT NOT NULL DEFAULT '[]',
                 split_a REAL NOT NULL DEFAULT 50,
-                split_b REAL NOT NULL DEFAULT 50
+                split_b REAL NOT NULL DEFAULT 50,
+                chromia_rate_m REAL NOT NULL DEFAULT 2.5
             )
         """.trimIndent())
         db.execSQL("""
@@ -543,6 +559,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private fun createIndexes(db: SQLiteDatabase) {
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_production_date ON production(date)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_production_client ON production(client_id, client_name)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_production_zentha ON production(zentha_order_id)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_inventory_owner ON inventory(owner_name)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_status ON work_orders(status)")
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_work_code ON work_orders(order_code)")
@@ -667,9 +684,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
 
     fun getSettings(db: SQLiteDatabase = readableDatabase): AppSettings = db.query("settings", null, "id=1", null, null, null, null).use { c ->
         if (!c.moveToFirst()) return AppSettings()
-        AppSettings(c.double("daily_fixed_cost"), c.double("plotter_x1_cost"), c.double("plotter_x2_cost"), c.double("protection_cost"), c.string("theme_key"), c.optionalDouble("zentha_split_a", 50.0), c.optionalDouble("zentha_split_b", 50.0))
+        AppSettings(c.double("daily_fixed_cost"), c.double("plotter_x1_cost"), c.double("plotter_x2_cost"), c.double("protection_cost"), c.string("theme_key"), c.optionalDouble("zentha_split_a", 50.0), c.optionalDouble("zentha_split_b", 50.0), c.optionalDouble("chromia_rate_m", 2.5))
     }
-    fun saveSettings(settings: AppSettings, db: SQLiteDatabase = writableDatabase) { db.update("settings", ContentValues().apply { put("daily_fixed_cost", settings.dailyFixedCost); put("plotter_x1_cost", settings.plotterX1Cost); put("plotter_x2_cost", settings.plotterX2Cost); put("protection_cost", settings.protectionPaperCost); put("theme_key", settings.themeKey); put("zentha_split_a", settings.zenthaSplitA); put("zentha_split_b", settings.zenthaSplitB) }, "id=1", null) }
+    fun saveSettings(settings: AppSettings, db: SQLiteDatabase = writableDatabase) { db.update("settings", ContentValues().apply { put("daily_fixed_cost", settings.dailyFixedCost); put("plotter_x1_cost", settings.plotterX1Cost); put("plotter_x2_cost", settings.plotterX2Cost); put("protection_cost", settings.protectionPaperCost); put("theme_key", settings.themeKey); put("zentha_split_a", settings.zenthaSplitA); put("zentha_split_b", settings.zenthaSplitB); put("chromia_rate_m", settings.chromiaRatePerMeter) }, "id=1", null) }
 
     fun getLocalSyncState(db: SQLiteDatabase = readableDatabase): LocalSyncState {
         // Defensive self-heal for databases produced by the affected schema-7 build.
@@ -746,7 +763,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private inline fun <T> SQLiteDatabase.runInTransaction(block: SQLiteDatabase.() -> T): T { beginTransaction(); try { val r = block(); setTransactionSuccessful(); return r } finally { endTransaction() } }
 
     private fun Cursor.client() = Client(long("id"), string("name"), double("default_print_price"))
-    private fun Cursor.inventory() = InventoryItem(long("id"), enumValueOrDefault(string("owner_type"), OwnerType.CLIENT), string("owner_name"), string("fabric_name"), double("quantity_m"), double("purchase_price_m"), string("created_date"), string("images_json").toStringList(), optionalDouble("minimum_quantity_m"), optionalString("supplier_name"), optionalString("composition"), optionalString("weight_gsm"), optionalString("variant"), optionalString("lot_code"))
+    private fun Cursor.inventory() = InventoryItem(long("id"), enumValueOrDefault(string("owner_type"), OwnerType.CLIENT), string("owner_name"), string("fabric_name"), double("quantity_m"), double("purchase_price_m"), string("created_date"), string("images_json").toStringList(), optionalDouble("minimum_quantity_m"), optionalString("supplier_name"), optionalString("composition"), optionalString("weight_gsm"), optionalString("variant"), optionalString("lot_code"), optionalDouble("processing_cost_m"), optionalDouble("default_sale_price_m"))
     private fun Cursor.fabricRoll() = FabricRoll(long("id"), long("inventory_id"), string("roll_code"), double("initial_m"), double("available_m"), string("created_date"), string("note"), enumValueOrDefault(string("status"), RollStatus.OPEN), optionalString("images_json").toStringList())
     private fun Cursor.stockMovement() = StockMovement(long("id"), long("inventory_id"), long("roll_id"), enumValueOrDefault(string("type"), StockMovementType.ADJUSTMENT), string("date_time"), double("meters"), nullableString("order_kind")?.let { enumValueOrDefault(it, OrderKind.WORK) }, nullableLong("order_id"), string("order_ref"), string("note"))
     private fun Cursor.rollUsage() = RollUsage(long("id"), enumValueOrDefault(string("order_kind"), OrderKind.WORK), long("order_id"), string("order_ref"), long("inventory_id"), long("roll_id"), double("meters"), string("created_at"))
@@ -755,9 +772,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         designs = string("designs_json").toStringList(), printPricePerMeter = double("print_price_m"), plotter = string("plotter"), printedPaperMeters = double("printed_paper_m"), protectionPaperMeters = double("protection_paper_m"), paperWasteMeters = double("paper_waste_m"),
         fabricMode = enumValueOrDefault(string("fabric_mode"), FabricMode.NONE), fabricId = nullableLong("fabric_id"), fabricUsedMeters = double("fabric_used_m"), fabricWasteMeters = double("fabric_waste_m"), fabricSalePricePerMeter = double("fabric_sale_price_m"), manualFabricName = string("manual_fabric_name"),
         fabricDisplayName = string("fabric_display_name"), technicalNotes = string("technical_notes"), images = string("images_json").toStringList(), refundCost = double("refund_cost"), fabricLossCost = double("fabric_loss_cost"), applyFixedCosts = int("apply_fixed_costs") == 1,
-        paperPrintCost = double("paper_print_cost"), protectionPaperCost = double("protection_paper_cost"), fabricUsedCost = double("fabric_used_cost"), materialCostTotal = double("material_cost_total"), grossRevenue = double("gross_revenue"), grossProfit = double("gross_profit"), workOrderId = optionalNullableLong("work_order_id")
+        paperPrintCost = double("paper_print_cost"), protectionPaperCost = double("protection_paper_cost"), fabricUsedCost = double("fabric_used_cost"), materialCostTotal = double("material_cost_total"), grossRevenue = double("gross_revenue"), grossProfit = double("gross_profit"), workOrderId = optionalNullableLong("work_order_id"), zenthaOrderId = optionalNullableLong("zentha_order_id")
     )
-    private fun Cursor.workOrder() = WorkOrder(long("id"), string("received_date"), string("client"), string("title"), string("description"), string("images_json").toStringList(), enumValueOrDefault(string("status"), WorkStatus.IN_PROCESS), string("due_date"), enumValueOrDefault(string("priority"), Priority.NORMAL), enumValueOrDefault(string("blocker"), Blocker.NONE), optionalNullableLong("client_id"), optionalString("order_code"), optionalNullableLong("fabric_inventory_id"), optionalDouble("ordered_m"), optionalDouble("print_price_m"), optionalString("design_code"), optionalNullableLong("production_record_id"), optionalString("effective_delivery_date"), optionalString("cancel_reason"))
+    private fun Cursor.workOrder() = WorkOrder(long("id"), string("received_date"), string("client"), string("title"), string("description"), string("images_json").toStringList(), enumValueOrDefault(string("status"), WorkStatus.IN_PROCESS), string("due_date"), enumValueOrDefault(string("priority"), Priority.NORMAL), enumValueOrDefault(string("blocker"), Blocker.NONE), optionalNullableLong("client_id"), optionalString("order_code"), optionalNullableLong("fabric_inventory_id"), optionalDouble("ordered_m"), optionalDouble("print_price_m"), optionalString("design_code"), optionalNullableLong("production_record_id"), optionalString("effective_delivery_date"), optionalString("cancel_reason"), optionalString("material_received_date"), optionalString("material_receipt_notes"))
     private fun Cursor.timelineEvent() = OrderTimelineEvent(long("id"), long("work_order_id"), nullableLong("client_id"), string("client_name"), string("order_ref"), string("event_date"), string("event_time"), enumValueOrDefault(string("category"), TimelineCategory.NOTE), enumValueOrDefault(string("responsibility"), TimelineResponsibility.NONE), enumValueOrDefault(string("severity"), TimelineSeverity.INFO), enumValueOrDefault(string("status"), TimelineStatus.OPEN), string("title"), string("description"), string("old_due_date"), string("new_due_date"), string("images_json").toStringList(), string("resolution_note"), string("resolved_date"))
     private fun Cursor.clientIssue() = ClientIssue(long("id"), nullableLong("client_id"), string("client_name"), string("order_ref"), string("title"), enumValueOrDefault(string("category"), IssueCategory.OTHER), enumValueOrDefault(string("responsibility"), IssueResponsibility.TO_VERIFY), enumValueOrDefault(string("severity"), IssueSeverity.MEDIUM), enumValueOrDefault(string("status"), IssueStatus.OPEN), string("opened_date"), string("expected_delivery_date"), string("revised_delivery_date"), int("delay_days"), string("description"), string("internal_notes"), string("evidence_images_json").toStringList())
     private fun Cursor.issueUpdate() = IssueUpdate(long("id"), long("issue_id"), string("date"), string("note"), string("images_json").toStringList())
@@ -773,7 +790,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         priceListName = optionalString("price_list_name").ifBlank { "Listino standard" }, markupPercent = optionalDouble("markup_percent"),
         sourceReference = optionalString("source_reference")
     )
-    private fun Cursor.zenthaOrder() = ZenthaOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), enumValueOrDefault(string("status"), ZenthaOrderStatus.CONFIRMED), string("notes"), string("attachments_json").toStringList(), double("split_a"), double("split_b"))
+    private fun Cursor.zenthaOrder() = ZenthaOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), enumValueOrDefault(string("status"), ZenthaOrderStatus.CONFIRMED), string("notes"), string("attachments_json").toStringList(), double("split_a"), double("split_b"), optionalDouble("chromia_rate_m", 2.5))
     private fun Cursor.zenthaItem() = ZenthaOrderItem(
         id = long("id"), orderId = long("order_id"), productId = nullableLong("product_id"), productName = string("product_name"),
         quantity = int("quantity"), unitPrice = double("unit_price"), unitCost = double("unit_cost"),
@@ -797,7 +814,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         images = string("images_json").toStringList()
     )
 
-    private fun InventoryItem.inventoryValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("owner_type", ownerType.name); put("owner_name", ownerName); put("fabric_name", fabricName); put("quantity_m", quantityMeters); put("purchase_price_m", purchasePricePerMeter); put("created_date", createdDate); put("images_json", images.toJsonArrayString()); put("minimum_quantity_m", minimumQuantityMeters); put("supplier_name", supplierName); put("composition", composition); put("weight_gsm", weightGsm); put("variant", variant); put("lot_code", lotCode) }
+    private fun InventoryItem.inventoryValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("owner_type", ownerType.name); put("owner_name", ownerName); put("fabric_name", fabricName); put("quantity_m", quantityMeters); put("purchase_price_m", purchasePricePerMeter); put("created_date", createdDate); put("images_json", images.toJsonArrayString()); put("minimum_quantity_m", minimumQuantityMeters); put("supplier_name", supplierName); put("composition", composition); put("weight_gsm", weightGsm); put("variant", variant); put("lot_code", lotCode); put("processing_cost_m", processingCostPerMeter); put("default_sale_price_m", defaultSalePricePerMeter) }
     private fun FabricRoll.fabricRollValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_code", rollCode); put("initial_m", initialMeters); put("available_m", availableMeters); put("created_date", createdDate); put("note", note); put("status", status.name); put("images_json", images.toJsonArrayString()) }
     private fun StockMovement.stockMovementValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_id", rollId); put("type", type.name); put("date_time", dateTime); put("meters", meters); if (orderKind == null) putNull("order_kind") else put("order_kind", orderKind.name); if (orderId == null) putNull("order_id") else put("order_id", orderId); put("order_ref", orderRef); put("note", note) }
     private fun RollUsage.rollUsageValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_kind", orderKind.name); put("order_id", orderId); put("order_ref", orderRef); put("inventory_id", inventoryId); put("roll_id", rollId); put("meters", meters); put("created_at", createdAt) }
@@ -805,9 +822,9 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         if (includeId) put("id", id); put("type", type.name); put("date", date); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("designs_json", designs.toJsonArrayString()); put("print_price_m", printPricePerMeter)
         put("plotter", plotter); put("printed_paper_m", printedPaperMeters); put("protection_paper_m", protectionPaperMeters); put("paper_waste_m", paperWasteMeters); put("fabric_mode", fabricMode.name); if (fabricId == null) putNull("fabric_id") else put("fabric_id", fabricId)
         put("fabric_used_m", fabricUsedMeters); put("fabric_waste_m", fabricWasteMeters); put("fabric_sale_price_m", fabricSalePricePerMeter); put("manual_fabric_name", manualFabricName); put("fabric_display_name", fabricDisplayName); put("technical_notes", technicalNotes); put("images_json", images.toJsonArrayString())
-        put("refund_cost", refundCost); put("fabric_loss_cost", fabricLossCost); put("apply_fixed_costs", if (applyFixedCosts) 1 else 0); put("paper_print_cost", paperPrintCost); put("protection_paper_cost", protectionPaperCost); put("fabric_used_cost", fabricUsedCost); put("material_cost_total", materialCostTotal); put("gross_revenue", grossRevenue); put("gross_profit", grossProfit); if (workOrderId == null) putNull("work_order_id") else put("work_order_id", workOrderId)
+        put("refund_cost", refundCost); put("fabric_loss_cost", fabricLossCost); put("apply_fixed_costs", if (applyFixedCosts) 1 else 0); put("paper_print_cost", paperPrintCost); put("protection_paper_cost", protectionPaperCost); put("fabric_used_cost", fabricUsedCost); put("material_cost_total", materialCostTotal); put("gross_revenue", grossRevenue); put("gross_profit", grossProfit); if (workOrderId == null) putNull("work_order_id") else put("work_order_id", workOrderId); if (zenthaOrderId == null) putNull("zentha_order_id") else put("zentha_order_id", zenthaOrderId)
     }
-    private fun WorkOrder.workValues() = ContentValues().apply { put("received_date", receivedDate); put("client", client); put("title", title); put("description", description); put("images_json", images.toJsonArrayString()); put("status", status.name); put("due_date", dueDate); put("priority", priority.name); put("blocker", blocker.name); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("order_code", orderCode); if (fabricInventoryId == null) putNull("fabric_inventory_id") else put("fabric_inventory_id", fabricInventoryId); put("ordered_m", orderedMeters); put("print_price_m", printPricePerMeter); put("design_code", designCode); if (productionRecordId == null) putNull("production_record_id") else put("production_record_id", productionRecordId); put("effective_delivery_date", effectiveDeliveryDate); put("cancel_reason", cancelReason) }
+    private fun WorkOrder.workValues() = ContentValues().apply { put("received_date", receivedDate); put("client", client); put("title", title); put("description", description); put("images_json", images.toJsonArrayString()); put("status", status.name); put("due_date", dueDate); put("priority", priority.name); put("blocker", blocker.name); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("order_code", orderCode); if (fabricInventoryId == null) putNull("fabric_inventory_id") else put("fabric_inventory_id", fabricInventoryId); put("ordered_m", orderedMeters); put("print_price_m", printPricePerMeter); put("design_code", designCode); if (productionRecordId == null) putNull("production_record_id") else put("production_record_id", productionRecordId); put("effective_delivery_date", effectiveDeliveryDate); put("cancel_reason", cancelReason); put("material_received_date", materialReceivedDate); put("material_receipt_notes", materialReceiptNotes) }
     private fun OrderTimelineEvent.timelineValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("work_order_id", workOrderId); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("event_date", date); put("event_time", time); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("title", title); put("description", description); put("old_due_date", oldDueDate); put("new_due_date", newDueDate); put("images_json", images.toJsonArrayString()); put("resolution_note", resolutionNote); put("resolved_date", resolvedDate) }
     private fun ClientIssue.issueValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("title", title); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("opened_date", openedDate); put("expected_delivery_date", expectedDeliveryDate); put("revised_delivery_date", revisedDeliveryDate); put("delay_days", delayDays); put("description", description); put("internal_notes", internalNotes); put("evidence_images_json", evidenceImages.toJsonArrayString()) }
     private fun IssueUpdate.issueUpdateValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("issue_id", issueId); put("date", date); put("note", note); put("images_json", images.toJsonArrayString()) }
@@ -819,7 +836,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         put("lining_cost", liningCost); put("print_cost", printCost); put("accessory_cost", accessoryCost); put("cutting_cost", cuttingCost); put("sewing_cost", sewingCost)
         put("label_cost", labelCost); put("packaging_cost", packagingCost); put("other_cost", otherCost); put("price_list_name", priceListName); put("markup_percent", markupPercent); put("source_reference", sourceReference)
     }
-    private fun ZenthaOrder.zenthaOrderValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("status", status.name); put("notes", notes); put("attachments_json", attachments.toJsonArrayString()); put("split_a", splitPercentA); put("split_b", splitPercentB) }
+    private fun ZenthaOrder.zenthaOrderValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("status", status.name); put("notes", notes); put("attachments_json", attachments.toJsonArrayString()); put("split_a", splitPercentA); put("split_b", splitPercentB); put("chromia_rate_m", chromiaRatePerMeter) }
     private fun ZenthaOrderItem.zenthaItemValues(includeId: Boolean) = ContentValues().apply {
         if (includeId) put("id", id); put("order_id", orderId); if (productId == null) putNull("product_id") else put("product_id", productId)
         put("product_name", productName); put("quantity", quantity); put("unit_price", unitPrice); put("unit_cost", unitCost); put("sku_snapshot", skuSnapshot)

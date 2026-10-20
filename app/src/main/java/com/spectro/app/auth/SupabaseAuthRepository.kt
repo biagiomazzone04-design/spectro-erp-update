@@ -25,14 +25,21 @@ class SupabaseAuthRepository(context: Context) {
         val stored = sessionStore.load() ?: return@withContext AuthState.SignedOut
         runCatching {
             val active = if (stored.expiresAtEpochSeconds <= Instant.now().epochSecond + 90) {
-                refresh(stored.refreshToken)
+                refresh(stored.refreshToken).copy(cachedAccess = stored.cachedAccess)
             } else stored
             persist(active)
             loadAccess(active)
-        }.getOrElse {
-            sessionStore.clear()
-            currentSession = null
-            AuthState.SignedOut
+        }.getOrElse { error ->
+            if (error is SupabaseRequestException && error.status in setOf(400, 401, 403)) {
+                sessionStore.clear()
+                currentSession = null
+                AuthState.SignedOut
+            } else {
+                stored.cachedAccess?.let {
+                    currentSession = stored
+                    AuthState.SignedIn(it)
+                } ?: AuthState.SignedOut
+            }
         }
     }
 
@@ -169,8 +176,7 @@ class SupabaseAuthRepository(context: Context) {
             )
         }
         val permissions = context.optJSONArray("permissions").toStringSet()
-        return AuthState.SignedIn(
-            UserAccess(
+        val access = UserAccess(
                 userId = session.userId,
                 email = session.email,
                 displayName = context.optString("display_name").ifBlank { session.email.substringBefore('@') },
@@ -179,7 +185,8 @@ class SupabaseAuthRepository(context: Context) {
                 roleName = context.optString("role_name").ifBlank { "Utente" },
                 permissions = permissions
             )
-        )
+        persist(session.copy(cachedAccess = access))
+        return AuthState.SignedIn(access)
     }
 
     private fun request(
@@ -206,7 +213,7 @@ class SupabaseAuthRepository(context: Context) {
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (status !in 200..299) {
-                throw IllegalStateException(errorMessage(status, text))
+                throw SupabaseRequestException(status, errorMessage(status, text))
             }
             when {
                 text.isBlank() -> JSONObject()
@@ -238,7 +245,7 @@ class SupabaseAuthRepository(context: Context) {
             return
         }
         val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        throw IllegalStateException(errorMessage(status, text))
+        throw SupabaseRequestException(status, errorMessage(status, text))
     }
 
     private fun errorMessage(status: Int, text: String): String {
@@ -269,3 +276,5 @@ class SupabaseAuthRepository(context: Context) {
         return buildSet { for (index in 0 until length()) optString(index).takeIf { it.isNotBlank() }?.let(::add) }
     }
 }
+
+private class SupabaseRequestException(val status: Int, message: String) : IllegalStateException(message)

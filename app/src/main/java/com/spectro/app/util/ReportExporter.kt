@@ -28,7 +28,7 @@ object ReportExporter {
     private val CYAN = Color.rgb(0, 220, 255)
     private val YELLOW = Color.rgb(245, 158, 11)
 
-    private class DarkPdf(private val context: Context, private val reportTitle: String, private val subtitle: String = "") {
+    private class DarkPdf(private val context: Context, private val reportTitle: String, private val subtitle: String = "", private val appearance: PdfAppearance = PdfAppearance.DARK) {
         val pdf = PdfDocument()
         var pageNo = 0
         lateinit var page: PdfDocument.Page
@@ -45,8 +45,17 @@ object ReportExporter {
 
         init { newPage() }
 
+        private fun tone(color: Int): Int = if (appearance == PdfAppearance.DARK) color else when (color) {
+            BG -> Color.WHITE
+            PANEL -> Color.rgb(247, 248, 250)
+            PANEL_2 -> Color.rgb(236, 239, 244)
+            WHITE -> Color.rgb(22, 25, 32)
+            MUTED -> Color.rgb(82, 89, 102)
+            else -> color
+        }
+
         private fun paint(color: Int, size: Float, bold: Boolean = false) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color; textSize = size; isFakeBoldText = bold
+            this.color = tone(color); textSize = size; isFakeBoldText = bold
         }
 
         fun newPage() {
@@ -54,7 +63,7 @@ object ReportExporter {
             pageNo++
             page = pdf.startPage(PdfDocument.PageInfo.Builder(595, 842, pageNo).create())
             c = page.canvas
-            c.drawColor(BG)
+            c.drawColor(tone(BG))
             y = 30f
             drawHeader()
         }
@@ -216,7 +225,8 @@ object ReportExporter {
         val d = DarkPdf(context, "Ordine", "${w.title.ifBlank { w.orderCode }} • ${w.client}")
         d.metricRow(listOf(Triple("Metri", if (w.orderedMeters > 0) "${w.orderedMeters} mt" else "-", CYAN), Triple("Prezzo", if (w.printPricePerMeter > 0) eur(w.printPricePerMeter) + "/mt" else "-", GREEN), Triple("Stato", workStatusIt(w.status), ORANGE)))
         d.section("Informazioni ordine")
-        d.infoRow("Codice interno", w.orderCode); d.infoRow("Cliente", w.client); d.infoRow("Data ordine", w.receivedDate); d.infoRow("Consegna", w.dueDate)
+        d.infoRow("Codice interno", w.orderCode); d.infoRow("Cliente", w.client); d.infoRow("Data ordine", w.receivedDate); d.infoRow("Consegna materiale", w.materialReceivedDate); d.infoRow("Consegna ordine", w.dueDate)
+        d.paragraph("Note consegna materiale", w.materialReceiptNotes, CYAN)
         d.infoRow("Disegno", w.designCode); d.infoRow("Priorità", if (w.priority == Priority.HIGH) "Alta" else "Normale", if (w.priority == Priority.HIGH) RED else GREEN)
         d.paragraph("Descrizione / note", w.description)
         d.images(w.images); d.finish(file); sharePdf(context, file, "Condividi ordine Spectro")
@@ -252,7 +262,8 @@ object ReportExporter {
         val d = DarkPdf(context, "Storico ordine", "${order.title.ifBlank { order.orderCode }} • ${order.client}")
         d.metricRow(listOf(Triple("Aggiornamenti", events.size.toString(), CYAN), Triple("Criticità", critical.size.toString(), YELLOW), Triple("Produzioni", productions.size.toString(), MAGENTA)))
         d.section("Dati ordine")
-        d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Data ordine", order.receivedDate); d.infoRow("Consegna", order.dueDate); d.infoRow("Metri ordine", "${order.orderedMeters} mt"); d.infoRow("Disegno", order.designCode)
+        d.infoRow("Stato", workStatusIt(order.status)); d.infoRow("Data ordine", order.receivedDate); d.infoRow("Consegna materiale", order.materialReceivedDate); d.infoRow("Consegna ordine", order.dueDate); d.infoRow("Metri ordine", "${order.orderedMeters} mt"); d.infoRow("Disegno", order.designCode)
+        d.paragraph("Note consegna materiale", order.materialReceiptNotes, CYAN)
         d.paragraph("Note ordine", order.description)
         d.images(order.images)
 
@@ -296,11 +307,11 @@ object ReportExporter {
         d.metricRow(listOf(Triple("Fatturato", eur(stats.totalRevenue), GREEN), Triple("Costi", eur(stats.totalCosts), YELLOW), Triple("Utile netto", eur(stats.netProfit), if (stats.netProfit >= 0) GREEN else RED)))
         d.metricRow(listOf(Triple("Carta stampata", "%.1f mt".format(Locale.ITALY, stats.printedPaperMeters), CYAN), Triple("Cotone", "%.1f mt".format(Locale.ITALY, stats.cottonMeters), MAGENTA), Triple("Criticità", stats.criticalityCount.toString(), if (stats.criticalityCount > 0) YELLOW else GREEN)))
         d.infoRow("Ordini completati / evasi", stats.completedOrderCount.toString(), GREEN)
-        d.barChart("Composizione fatturato", listOf("Sublimazione" to stats.productionRevenue, "Cotone" to stats.cottonRevenue, "Altri ricavi" to stats.otherRevenue), true)
+        d.barChart("Composizione fatturato", listOf("Sublimazione" to stats.productionRevenue, "Cotone" to stats.cottonRevenue, "Ulteriori lavorazioni" to stats.otherRevenue), true)
         d.barChart("Fatturato per cliente", stats.clients.take(8).map { it.clientName to it.revenue }, true)
         d.barChart("Metri carta per cliente", stats.clients.filter { it.paperMeters > 0 }.take(8).map { it.clientName to it.paperMeters })
         d.section("Riepilogo economico")
-        d.infoRow("Sublimazione", eur(stats.productionRevenue)); d.infoRow("Cotone", eur(stats.cottonRevenue)); d.infoRow("Altri ricavi", eur(stats.otherRevenue), GREEN)
+        d.infoRow("Sublimazione", eur(stats.productionRevenue)); d.infoRow("Cotone", eur(stats.cottonRevenue)); d.infoRow("Ulteriori lavorazioni", eur(stats.otherRevenue), GREEN)
         d.infoRow("Costi materie sublimazione", eur(stats.materialCosts)); d.infoRow("Costi cotone", eur(stats.cottonCosts)); d.infoRow("Costi altri lavori", eur(stats.otherCosts)); d.infoRow("Costi fissi", eur(stats.fixedCosts))
         d.section("Dettaglio clienti", MAGENTA)
         stats.clients.forEach { c -> d.detailCard(c.clientName, "Carta ${"%.1f".format(Locale.ITALY, c.paperMeters)} mt • Cotone ${"%.1f".format(Locale.ITALY, c.cottonMeters)} mt • Evasi ${c.completedOrders} • Criticità ${c.criticalities}", "${eur(c.revenue)} / ${eur(c.profit)}", if (c.profit >= 0) GREEN else RED) }
@@ -354,7 +365,9 @@ object ReportExporter {
         extras: List<ZenthaExtraCost>,
         payments: List<ZenthaPayment>,
         products: List<ZenthaProduct> = emptyList(),
-        profile: ZenthaExportProfile = ZenthaExportProfile.COMPLETE
+        profile: ZenthaExportProfile = ZenthaExportProfile.COMPLETE,
+        productions: List<ProductionRecord> = emptyList(),
+        appearance: PdfAppearance = PdfAppearance.DARK
     ) {
         val revenue = items.sumOf { it.revenue }
         val productCosts = items.sumOf { it.cost }
@@ -363,6 +376,8 @@ object ReportExporter {
         val profit = revenue - totalCosts
         val paid = payments.sumOf { it.amount }
         val quantity = items.sumOf { it.quantity }
+        val paperMeters = productions.filter { it.zenthaOrderId == order.id }.sumOf { it.printedPaperMeters }
+        val chromiaAmount = paperMeters * order.chromiaRatePerMeter
         val profileKey = when (profile) {
             ZenthaExportProfile.ACCOUNTING -> "CONTABILITA"
             ZenthaExportProfile.PRODUCTION -> "PRODUZIONE"
@@ -375,7 +390,7 @@ object ReportExporter {
             ZenthaExportProfile.PRODUCTION -> "Ordine Zentha • Produzione"
             ZenthaExportProfile.COMPLETE -> "Ordine Zentha • Dossier completo"
         }
-        val d = DarkPdf(context, title, "${order.orderCode} • ${order.clientName}")
+        val d = DarkPdf(context, title, "${order.orderCode} • ${order.clientName}", appearance)
 
         d.section("Identificazione ordine", ORANGE)
         d.infoRow("Codice ordine", order.orderCode)
@@ -412,6 +427,7 @@ object ReportExporter {
                 }
                 d.section("Totali e incassi", CYAN)
                 d.infoRow("Totale articoli", eur(revenue), GREEN)
+                d.infoRow("Stampa Chromia", "${"%.1f".format(Locale.ITALY, paperMeters)} mt × ${eur(order.chromiaRatePerMeter)}/mt = ${eur(chromiaAmount)}", MAGENTA)
                 d.infoRow("Incassato", eur(paid), GREEN)
                 d.infoRow("Da incassare", eur((revenue - paid).coerceAtLeast(0.0)), if (revenue > paid) YELLOW else GREEN)
                 payments.sortedBy { it.date }.forEach { payment ->
@@ -446,6 +462,7 @@ object ReportExporter {
                 }
                 d.section("Controllo finale", GREEN)
                 d.infoRow("Totale pezzi", quantity.toString(), GREEN)
+                d.infoRow("Carta stampata collegata", "${"%.1f".format(Locale.ITALY, paperMeters)} mt", MAGENTA)
                 d.infoRow("Allegati disponibili in app", order.attachments.size.toString())
                 d.paragraph("Verifiche", "Controllare quantità, taglie, colori, nomi, numeri, sponsor, loghi, grafica approvata e confezionamento prima di avviare la produzione.", GREEN)
             }
@@ -460,6 +477,7 @@ object ReportExporter {
                 d.infoRow("Margine sul venduto", if (revenue > 0) "${"%.1f".format(Locale.ITALY, profit / revenue * 100.0)}%" else "-")
                 d.infoRow("Quota A (${order.splitPercentA}%)", eur(profit * order.splitPercentA / 100.0))
                 d.infoRow("Quota B (${order.splitPercentB}%)", eur(profit * order.splitPercentB / 100.0))
+                d.infoRow("Stampa Chromia", "${"%.1f".format(Locale.ITALY, paperMeters)} mt × ${eur(order.chromiaRatePerMeter)}/mt = ${eur(chromiaAmount)}", MAGENTA)
                 d.section("Analisi articoli", MAGENTA)
                 items.forEachIndexed { index, item ->
                     val product = products.firstOrNull { it.id == item.productId }

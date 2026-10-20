@@ -332,7 +332,7 @@ private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (
         if (vm.can(AppPermission.ISSUES_VIEW)) ModuleCard("Criticità", "Centro operativo di problemi e ritardi • ${vm.openIssues().size} aperte", Icons.Rounded.ReportProblem, p) { onOpen(AppTab.ISSUES) }
         if (vm.can(AppPermission.COTTON_VIEW)) ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
         if (vm.can(AppPermission.TASKS_VIEW)) ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
-        if (vm.can(AppPermission.FINANCE_VIEW)) ModuleCard("Altri ricavi", "Trasferimenti, lavorazioni e materiali fatturati", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
+        if (vm.can(AppPermission.FINANCE_VIEW)) ModuleCard("Ulteriori lavorazioni", "Beni personalizzati, trasferimenti e lavorazioni fatturate", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
         if (vm.can(AppPermission.ZENTHA_VIEW)) ModuleCard(
             "ZENTHA",
             if (vm.can(AppPermission.FINANCE_VIEW)) "Catalogo, ordini, utile 50/50 e pagamenti" else "Catalogo, ordini e dettagli di produzione",

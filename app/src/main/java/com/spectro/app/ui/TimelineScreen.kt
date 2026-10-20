@@ -73,6 +73,12 @@ fun OrderTimelineScreen(
                     Metric("Consegna", current.dueDate.ifBlank { "-" }, modifier = Modifier.weight(1f))
                     Metric("Produzioni", productions.size.toString(), valueColor = if (productions.isNotEmpty()) p.primary else p.textMuted, modifier = Modifier.weight(1f))
                 }
+                if (current.materialReceivedDate.isNotBlank() || current.materialReceiptNotes.isNotBlank()) {
+                    Spacer(Modifier.height(12.dp))
+                    Text("CONSEGNA MATERIALE", color = p.textMuted, fontWeight = FontWeight.Black, fontSize = 10.sp)
+                    Text(current.materialReceivedDate.ifBlank { "Data non indicata" }, color = p.primary, fontWeight = FontWeight.Black)
+                    if (current.materialReceiptNotes.isNotBlank()) Text(current.materialReceiptNotes, color = p.textMuted, fontSize = 12.sp)
+                }
                 if (fabricRows.isNotEmpty()) {
                     Spacer(Modifier.height(14.dp))
                     Text("TESSUTI / METRAGGI", color = p.textMuted, fontWeight = FontWeight.Black, fontSize = 10.sp)

@@ -1,12 +1,12 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.1.7 Beta 9**.
-- versionCode 26
-- versionName `3.1.7-beta9`
+Base: **Spectro ERP 3.2.0 Beta 10**.
+- versionCode 27
+- versionName `3.2.0-beta10`
 - applicationId `com.spectro.app`
-- SQLite schema 9
-- backup formato v8
+- SQLite schema 10
+- backup formato v9 (import retrocompatibile)
 - branch di sviluppo usato: `spectro-3.0-beta`
 
 ## Funzioni già presenti
@@ -43,6 +43,8 @@ Il portale web v13 rende deterministico l’ordinamento cronologico in tutti i m
 Il portale web v14 corregge il blocco della pagina Produzione all’apertura di un ordine: il contenitore analitico non conserva più una trasformazione CSS capace di spostare fuori schermo il dossier a posizione fissa. Il blocco dello scorrimento della pagina principale viene inoltre applicato soltanto dopo che il dossier è stato montato e reso visibile.
 
 Android Beta 9 forza una sola ripubblicazione degli allegati locali per le installazioni aggiornate da versioni che avevano già marcato il workspace come allineato. Ogni scrittura marca ora la sincronizzazione prima della modifica e pianifica anche un lavoro persistente vincolato alla rete: se l’app passa in background o viene chiusa, il trasferimento viene ripreso automaticamente. I trasferimenti avviati dalla UI e dal lavoro in background sono serializzati per evitare revisioni concorrenti.
+
+Android Beta 10 mantiene la sessione cifrata anche durante errori di rete temporanei, distingue data ordine, consegna materiale e consegna finale, amplia i costi dei tessuti aziendali e trasforma Economia in Ulteriori lavorazioni. Zentha dispone di cliente manuale, bozza persistente, aggiunta rapida dei prodotti, PDF chiaro/scuro e collegamento per ID alle produzioni: i metri carta e la voce contabile Chromia vengono calcolati dalle registrazioni produttive senza duplicare dati. Il portale mostra e modifica gli stessi campi; la migrazione cloud 006 protegge i nuovi valori economici dai ruoli privi di `finance.view`.
 
 Il frontend è predisposto per la migrazione indipendente su Cloudflare Workers: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT. La pubblicazione automatica usa la root `web`, il comando di build `npm run build` e il comando di deploy `npx wrangler deploy`.
 

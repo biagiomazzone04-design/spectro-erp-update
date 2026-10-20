@@ -92,6 +92,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     val savedDraft = remember(editing?.id, source?.id) { DraftStore.loadProduction(context, draftKey) }
     var step by remember(editing?.id, source?.id) { mutableIntStateOf(savedDraft?.step ?: 1) }
     var workOrderId by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.workOrderId ?: initialSource?.id ?: editing?.workOrderId) }
+    var zenthaOrderId by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.zenthaOrderId ?: editing?.zenthaOrderId) }
     var date by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.date?.takeIf { it.isNotBlank() } ?: editing?.date ?: LocalDate.now().toString()) }
     var clientId by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.clientId ?: initialSource?.clientId ?: editing?.clientId) }
     var clientName by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.clientName?.takeIf { it.isNotBlank() } ?: initialSource?.client ?: editing?.clientName.orEmpty()) }
@@ -111,6 +112,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     var notes by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.notes?.takeIf { it.isNotBlank() } ?: editing?.technicalNotes.orEmpty()) }
     var images by remember(editing?.id, source?.id) { mutableStateOf(savedDraft?.images?.takeIf { it.isNotEmpty() } ?: editing?.images ?: emptyList()) }
     var sourceDialog by remember { mutableStateOf(false) }
+    var zenthaDialog by remember { mutableStateOf(false) }
     var clientDialog by remember { mutableStateOf(false) }
     var fabricDialog by remember { mutableStateOf(false) }
     var rollDialog by remember { mutableStateOf(false) }
@@ -125,12 +127,12 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     val consumeMeters = fabricUsed.toDoubleSafe() + fabricWaste.toDoubleSafe()
 
-    LaunchedEffect(step, workOrderId, date, clientId, clientName, orderRef, designs, printPrice, plotter, paper, protection, paperWaste, fabricMode, fabricId, fabricUsed, fabricWaste, salePrice, manualFabric, notes, images, allocations) {
+    LaunchedEffect(step, workOrderId, zenthaOrderId, date, clientId, clientName, orderRef, designs, printPrice, plotter, paper, protection, paperWaste, fabricMode, fabricId, fabricUsed, fabricWaste, salePrice, manualFabric, notes, images, allocations) {
         DraftStore.setLastCreateMode(context, CreateMode.PRODUCTION.name)
         DraftStore.saveProduction(
             context,
             ProductionDraft(
-                    step = step, workOrderId = workOrderId, date = date, clientId = clientId, clientName = clientName,
+                    step = step, workOrderId = workOrderId, zenthaOrderId = zenthaOrderId, date = date, clientId = clientId, clientName = clientName,
                     orderRef = orderRef, designs = designs, printPrice = printPrice, plotter = plotter,
                     paper = paper, protection = protection, paperWaste = paperWaste, fabricMode = fabricMode.name,
                     fabricId = fabricId, fabricUsed = fabricUsed, fabricWaste = fabricWaste, salePrice = salePrice,
@@ -156,7 +158,9 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
                 SectionTitle("Origine ordine")
                 OutlinedButton(onClick = { sourceDialog = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Link, null); Spacer(Modifier.width(6.dp)); Text(workOrderId?.let { id -> vm.state.workOrders.firstOrNull { it.id == id }?.let { "${it.title.ifBlank { it.orderCode }} • ${it.client}" } } ?: "Collega un ordine in processo (facoltativo)") }
                 if (workOrderId != null) { Spacer(Modifier.height(6.dp)); Text("Quando salvi, l'ordine viene trasferito automaticamente in produzione mantenendo lo stesso ID e lo storico.", color = p.success, fontSize = 11.sp) }
+                Spacer(Modifier.height(10.dp)); OutlinedButton(onClick = { zenthaDialog = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Link, null); Spacer(Modifier.width(6.dp)); Text(zenthaOrderId?.let { id -> vm.state.zenthaOrders.firstOrNull { it.id == id }?.let { "Zentha ${it.orderCode} • ${it.clientName}" } } ?: "Collega ordine Zentha (facoltativo)") }
                 Spacer(Modifier.height(12.dp)); WheelDateField("Data produzione", date, { date = it })
+                if (editing == null && date < LocalDate.now().toString()) { Spacer(Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Text("Bozza recuperata con data precedente", color = p.danger, modifier = Modifier.weight(1f)); TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Usa oggi") } } }
                 Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { clientDialog = true }, Modifier.fillMaxWidth()) { Text(clientName.ifBlank { "Scegli cliente" }) }
                 Spacer(Modifier.height(10.dp)); SpectroTextField("Cliente manuale", clientName, { clientName = it; clientId = null })
                 Spacer(Modifier.height(12.dp)); SpectroTextField("Rif. ordine", orderRef, { orderRef = it })
@@ -192,7 +196,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
             if (step > 1) OutlinedButton(onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Indietro") }
             if (step < 3) Button(onClick = { step++ }, modifier = Modifier.weight(1f)) { Text("Continua") }
             else Button(onClick = {
-                vm.saveProduction(ProductionRecord(id = editing?.id ?: 0L, type = RecordType.PRODUCTION, date = date, clientId = clientId, clientName = clientName.trim(), orderRef = orderRef.trim(), designs = designs.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }, printPricePerMeter = printPrice.toDoubleSafe(), plotter = plotter, printedPaperMeters = paper.toDoubleSafe(), protectionPaperMeters = protection.toDoubleSafe(), paperWasteMeters = paperWaste.toDoubleSafe(), fabricMode = fabricMode, fabricId = fabricId, fabricUsedMeters = fabricUsed.toDoubleSafe(), fabricWasteMeters = fabricWaste.toDoubleSafe(), fabricSalePricePerMeter = salePrice.toDoubleSafe(), manualFabricName = manualFabric.trim(), technicalNotes = notes.trim(), images = images, applyFixedCosts = true, workOrderId = workOrderId), allocations)
+                vm.saveProduction(ProductionRecord(id = editing?.id ?: 0L, type = RecordType.PRODUCTION, date = date, clientId = clientId, clientName = clientName.trim(), orderRef = orderRef.trim(), designs = designs.split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }, printPricePerMeter = printPrice.toDoubleSafe(), plotter = plotter, printedPaperMeters = paper.toDoubleSafe(), protectionPaperMeters = protection.toDoubleSafe(), paperWasteMeters = paperWaste.toDoubleSafe(), fabricMode = fabricMode, fabricId = fabricId, fabricUsedMeters = fabricUsed.toDoubleSafe(), fabricWasteMeters = fabricWaste.toDoubleSafe(), fabricSalePricePerMeter = salePrice.toDoubleSafe(), manualFabricName = manualFabric.trim(), technicalNotes = notes.trim(), images = images, applyFixedCosts = true, workOrderId = workOrderId, zenthaOrderId = zenthaOrderId), allocations)
                 DraftStore.clearProduction(context, draftKey)
                 onDone()
             }, modifier = Modifier.weight(1f)) { Icon(Icons.Rounded.CheckCircle, null); Spacer(Modifier.width(7.dp)); Text("Salva") }
@@ -200,13 +204,17 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     }
 
     if (sourceDialog) SelectionDialog("Ordini in processo", vm.inProcessOrders().map { "${it.title.ifBlank { it.orderCode }} • ${it.client} • ${meters(it.orderedMeters)}" to it.id }, onDismiss = { sourceDialog = false }) { id -> sourceDialog = false; applySource(vm.state.workOrders.firstOrNull { it.id == id }); allocations = emptyMap() }
+    if (zenthaDialog) SelectionDialog("Ordini Zentha", vm.state.zenthaOrders.filter { it.status !in setOf(ZenthaOrderStatus.CLOSED, ZenthaOrderStatus.CANCELLED) }.map { "${it.orderCode} • ${it.clientName}" to it.id }, onDismiss = { zenthaDialog = false }) { id ->
+        zenthaDialog = false
+        vm.state.zenthaOrders.firstOrNull { it.id == id }?.let { order -> zenthaOrderId = order.id; workOrderId = null; clientId = null; clientName = "Zentha"; orderRef = "${order.orderCode} • ${order.clientName}" }
+    }
     if (clientDialog) SelectionDialog("Scegli cliente", vm.state.clients.map { it.name to it.id }, onDismiss = { clientDialog = false }) { id -> clientDialog = false; vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name; printPrice = it.defaultPrintPrice.takeIf { v -> v > 0 }?.toString().orEmpty() } }
     if (fabricDialog) InventoryPickerDialog(
         title = "Scegli tessuto dal magazzino",
         inventoryItems = vm.state.inventory,
         initialOwner = clientName.takeIf { it.isNotBlank() },
         onDismiss = { fabricDialog = false },
-        onSelected = { item -> fabricDialog = false; fabricId = item.id; allocations = emptyMap() }
+        onSelected = { item -> fabricDialog = false; fabricId = item.id; if (item.ownerType == OwnerType.HOUSE && salePrice.isBlank() && item.defaultSalePricePerMeter > 0) salePrice = item.defaultSalePricePerMeter.toString(); allocations = emptyMap() }
     )
     if (rollDialog && fabricId != null) {
         val old = allocations
@@ -234,18 +242,21 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
     var printPrice by remember(editing?.id) { mutableStateOf(savedDraft?.printPrice?.takeIf { it.isNotBlank() } ?: editing?.printPricePerMeter?.takeIf { it > 0 }?.toString().orEmpty()) }
     var designCode by remember(editing?.id) { mutableStateOf(savedDraft?.designCode?.takeIf { it.isNotBlank() } ?: editing?.designCode.orEmpty()) }
     var fabricId by remember(editing?.id) { mutableStateOf(savedDraft?.fabricId ?: editing?.fabricInventoryId) }
+    var materialReceivedDate by remember(editing?.id) { mutableStateOf(savedDraft?.materialReceivedDate?.takeIf { it.isNotBlank() } ?: editing?.materialReceivedDate.orEmpty()) }
+    var materialReceiptNotes by remember(editing?.id) { mutableStateOf(savedDraft?.materialReceiptNotes?.takeIf { it.isNotBlank() } ?: editing?.materialReceiptNotes.orEmpty()) }
     var clientDialog by remember { mutableStateOf(false) }
     var fabricDialog by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 
-    LaunchedEffect(date, clientId, client, title, due, priority, blocker, status, description, images, orderedMeters, printPrice, designCode, fabricId) {
+    LaunchedEffect(date, clientId, client, title, due, priority, blocker, status, description, images, orderedMeters, printPrice, designCode, fabricId, materialReceivedDate, materialReceiptNotes) {
         DraftStore.setLastCreateMode(context, CreateMode.WORK.name)
         DraftStore.saveWork(
             context,
             WorkDraft(
                     date = date, clientId = clientId, client = client, title = title, due = due,
                     priority = priority.name, blocker = blocker.name, status = status.name, description = description,
-                images = images, orderedMeters = orderedMeters, printPrice = printPrice, designCode = designCode, fabricId = fabricId
+                images = images, orderedMeters = orderedMeters, printPrice = printPrice, designCode = designCode, fabricId = fabricId,
+                materialReceivedDate = materialReceivedDate, materialReceiptNotes = materialReceiptNotes
             ),
             draftKey
         )
@@ -254,6 +265,7 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
     SpectroCard(p = p) {
         if (editing?.orderCode?.isNotBlank() == true) { Text(editing.orderCode, fontWeight = FontWeight.Black, color = p.primary); Spacer(Modifier.height(10.dp)) }
         WheelDateField("Data ordine", date, { date = it })
+        if (editing == null && date < LocalDate.now().toString()) { Spacer(Modifier.height(8.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Text("Bozza recuperata con data precedente", color = p.danger, modifier = Modifier.weight(1f)); TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Usa oggi") } } }
         Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { clientDialog = true }, Modifier.fillMaxWidth()) { Text(client.ifBlank { "Scegli cliente" }) }
         Spacer(Modifier.height(8.dp)); SpectroTextField("Cliente manuale", client, { client = it; clientId = null })
         Spacer(Modifier.height(12.dp)); SpectroTextField("Titolo ordine", title, { title = it }, placeholder = "Es. Divise Sunrise")
@@ -261,6 +273,8 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
         Spacer(Modifier.height(12.dp)); SpectroTextField("Codice disegno", designCode, { designCode = it })
         Spacer(Modifier.height(12.dp)); val selectedFabric = vm.state.inventory.firstOrNull { it.id == fabricId }; OutlinedButton(onClick = { fabricDialog = true }, Modifier.fillMaxWidth()) { Text(selectedFabric?.let { "${it.ownerName} • ${it.fabricName} • ${meters(it.quantityMeters)}" } ?: "Tessuto da magazzino (facoltativo)") }
         Spacer(Modifier.height(12.dp)); WheelDateField("Data consegna", due, { due = it }, allowEmpty = true)
+        Spacer(Modifier.height(12.dp)); WheelDateField("Data ricezione materiale", materialReceivedDate, { materialReceivedDate = it }, allowEmpty = true)
+        Spacer(Modifier.height(8.dp)); SpectroTextField("Note consegna materiale", materialReceiptNotes, { materialReceiptNotes = it }, placeholder = "Es. pezzi tagliati consegnati dal cliente", singleLine = false)
         Spacer(Modifier.height(12.dp)); SimpleSelectField("Stato ordine", workStatusLabel(status), WorkStatus.entries.map { it to workStatusLabel(it) }) { status = it }
         Spacer(Modifier.height(12.dp)); SegmentedChoice(listOf("NORMAL" to "NORMALE", "HIGH" to "ALTA 🔥"), priority.name, p) { priority = Priority.valueOf(it) }
         Spacer(Modifier.height(12.dp)); SegmentedChoice(listOf("NONE" to "NESSUNO", "WAITING_CLIENT" to "CLIENTE", "WAITING_MATERIAL" to "TESSUTO"), blocker.name, p) { blocker = Blocker.valueOf(it) }
@@ -269,7 +283,7 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
         if (images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
         Spacer(Modifier.height(16.dp)); GradientButton(if (editing == null) "Salva ordine in processo" else "Salva modifiche", p) {
             if (client.isNotBlank() && title.isNotBlank()) {
-                vm.saveWorkOrder(WorkOrder(id = editing?.id ?: 0L, receivedDate = date, client = client.trim(), title = title.trim(), description = description.trim(), images = images, status = status, dueDate = due.trim(), priority = priority, blocker = blocker, clientId = clientId, orderCode = editing?.orderCode.orEmpty(), fabricInventoryId = fabricId, orderedMeters = orderedMeters.toDoubleSafe(), printPricePerMeter = printPrice.toDoubleSafe(), designCode = designCode.trim(), productionRecordId = editing?.productionRecordId, effectiveDeliveryDate = editing?.effectiveDeliveryDate.orEmpty(), cancelReason = editing?.cancelReason.orEmpty()))
+                vm.saveWorkOrder(WorkOrder(id = editing?.id ?: 0L, receivedDate = date, client = client.trim(), title = title.trim(), description = description.trim(), images = images, status = status, dueDate = due.trim(), priority = priority, blocker = blocker, clientId = clientId, orderCode = editing?.orderCode.orEmpty(), fabricInventoryId = fabricId, orderedMeters = orderedMeters.toDoubleSafe(), printPricePerMeter = printPrice.toDoubleSafe(), designCode = designCode.trim(), productionRecordId = editing?.productionRecordId, effectiveDeliveryDate = editing?.effectiveDeliveryDate.orEmpty(), cancelReason = editing?.cancelReason.orEmpty(), materialReceivedDate = materialReceivedDate.trim(), materialReceiptNotes = materialReceiptNotes.trim()))
                 DraftStore.clearWork(context, draftKey)
                 onDone()
             }

@@ -38,7 +38,7 @@ export function translateCode(value: unknown, fallback = '—') {
 export function moduleLabel(value: unknown) {
   const modules: Record<string, string> = {
     dashboard: 'Dashboard', clients: 'Clienti', orders: 'Ordini', production: 'Produzione', inventory: 'Magazzino',
-    issues: 'Timeline e criticità', cotton: 'Cotone', zentha: 'Zentha', finance: 'Economia', tasks: 'Attività',
+    issues: 'Timeline e criticità', cotton: 'Cotone', zentha: 'Zentha', finance: 'Ulteriori lavorazioni', tasks: 'Attività',
     settings: 'Impostazioni', reports: 'Report', backup: 'Backup', users: 'Utenti', audit: 'Registro attività', sync: 'Cloud'
   }
   const key = String(value ?? '').toLowerCase()

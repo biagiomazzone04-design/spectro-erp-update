@@ -387,6 +387,10 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun productionsForOrder(workOrderId: Long): List<ProductionRecord> = state.production
         .filter { it.workOrderId == workOrderId && it.type == RecordType.PRODUCTION }
         .sortedWith(compareBy<ProductionRecord> { it.date }.thenBy { it.id })
+    fun productionsForZenthaOrder(zenthaOrderId: Long): List<ProductionRecord> = state.production
+        .filter { it.zenthaOrderId == zenthaOrderId && it.type == RecordType.PRODUCTION }
+        .sortedWith(compareBy<ProductionRecord> { it.date }.thenBy { it.id })
+    fun zenthaPaperMeters(zenthaOrderId: Long): Double = productionsForZenthaOrder(zenthaOrderId).sumOf { it.printedPaperMeters }
     fun inProcessOrders(): List<WorkOrder> = state.workOrders.filter { it.status in listOf(WorkStatus.RECEIVED, WorkStatus.IN_PROCESS, WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.BLOCKED, WorkStatus.ON_HOLD) && productionsForOrder(it.id).isEmpty() }
 
     fun zenthaTotals(orderId: Long): ZenthaTotals {

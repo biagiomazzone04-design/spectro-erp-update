@@ -22,6 +22,16 @@ internal class SecureSessionStore(context: Context) {
             .put("expires_at", session.expiresAtEpochSeconds)
             .put("user_id", session.userId)
             .put("email", session.email)
+            .put("access", session.cachedAccess?.let { access ->
+                JSONObject()
+                    .put("user_id", access.userId)
+                    .put("email", access.email)
+                    .put("display_name", access.displayName)
+                    .put("organization_id", access.organizationId)
+                    .put("organization_name", access.organizationName)
+                    .put("role_name", access.roleName)
+                    .put("permissions", org.json.JSONArray(access.permissions.toList()))
+            } ?: JSONObject.NULL)
             .toString()
             .toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -42,12 +52,29 @@ internal class SecureSessionStore(context: Context) {
             GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP))
         )
         val json = JSONObject(String(cipher.doFinal(Base64.decode(payload, Base64.NO_WRAP)), Charsets.UTF_8))
+        val access = json.optJSONObject("access")?.let { cached ->
+            val permissionsJson = cached.optJSONArray("permissions")
+            UserAccess(
+                userId = cached.optString("user_id"),
+                email = cached.optString("email"),
+                displayName = cached.optString("display_name"),
+                organizationId = cached.optString("organization_id"),
+                organizationName = cached.optString("organization_name"),
+                roleName = cached.optString("role_name"),
+                permissions = buildSet {
+                    if (permissionsJson != null) for (index in 0 until permissionsJson.length()) {
+                        permissionsJson.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                    }
+                }
+            )
+        }
         AuthSession(
             accessToken = json.getString("access_token"),
             refreshToken = json.getString("refresh_token"),
             expiresAtEpochSeconds = json.getLong("expires_at"),
             userId = json.getString("user_id"),
-            email = json.optString("email")
+            email = json.optString("email"),
+            cachedAccess = access
         )
     }.getOrElse {
         clear()

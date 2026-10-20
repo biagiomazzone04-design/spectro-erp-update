@@ -25,6 +25,21 @@ class ProductionCalculatorTest {
         assertEquals(40.0, result.grossProfit, .001)
     }
 
+    @Test fun houseFabricUsesProcessingCostAndDefaultSalePrice() {
+        val fabric = InventoryItem(
+            id = 7, ownerType = OwnerType.HOUSE, ownerName = "Azienda", fabricName = "Poly",
+            quantityMeters = 100.0, purchasePricePerMeter = 1.5, createdDate = "2026-10-20",
+            processingCostPerMeter = .5, defaultSalePricePerMeter = 2.0
+        )
+        val result = ProductionCalculator.calculate(
+            ProductionRecord(date = "2026-10-20", clientName = "Adshape", fabricMode = FabricMode.INVENTORY, fabricId = 7, fabricUsedMeters = 26.0),
+            AppSettings(), fabric
+        )
+        assertEquals(52.0, result.grossRevenue, .001)
+        assertEquals(52.0, result.fabricUsedCost, .001)
+        assertEquals(2.0, result.fabricSalePricePerMeter, .001)
+    }
+
     @Test fun negativeEventProducesLoss() {
         val result = ProductionCalculator.calculate(
             ProductionRecord(type=RecordType.NEGATIVE, date="2026-09-04", refundCost=50.0, fabricLossCost=20.0), AppSettings(), null

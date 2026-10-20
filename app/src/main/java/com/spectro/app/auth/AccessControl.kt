@@ -53,5 +53,6 @@ internal data class AuthSession(
     val refreshToken: String,
     val expiresAtEpochSeconds: Long,
     val userId: String,
-    val email: String
+    val email: String,
+    val cachedAccess: UserAccess? = null
 )

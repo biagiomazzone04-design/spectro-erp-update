@@ -315,6 +315,8 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
     var variant by remember { mutableStateOf("") }
     var lot by remember { mutableStateOf("") }
     var cost by remember { mutableStateOf("") }
+    var processingCost by remember { mutableStateOf("") }
+    var salePrice by remember { mutableStateOf("") }
     var minimum by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var rolls by remember { mutableStateOf(listOf(NewRollDraft())) }
@@ -338,7 +340,15 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
                 item { SpectroTextField("Fornitore", supplier, { supplier = it }, placeholder = "Facoltativo") }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Composizione", composition, { composition = it }, Modifier.weight(1f)); SpectroTextField("Grammatura", weight, { weight = it }, Modifier.weight(1f)) } }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Variante", variant, { variant = it }, Modifier.weight(1f)); SpectroTextField("Lotto", lot, { lot = it }, Modifier.weight(1f)) } }
-                if (ownerType == OwnerType.HOUSE) item { SpectroTextField("Costo €/mt", cost, { cost = it }, numeric = true) }
+                if (ownerType == OwnerType.HOUSE) item {
+                    SpectroCard(p = p) {
+                        Text("Economia tessuto aziendale", fontWeight = FontWeight.Black)
+                        Spacer(Modifier.height(8.dp)); SpectroTextField("Costo acquisto €/mt", cost, { cost = it }, numeric = true)
+                        Spacer(Modifier.height(8.dp)); SpectroTextField("Lavorazioni aggiuntive €/mt", processingCost, { processingCost = it }, numeric = true)
+                        Spacer(Modifier.height(8.dp)); SpectroTextField("Prezzo vendita predefinito €/mt", salePrice, { salePrice = it }, numeric = true)
+                        Spacer(Modifier.height(6.dp)); Text("Costo effettivo: ${euro(cost.toDoubleSafe() + processingCost.toDoubleSafe())}/mt", color = p.primary, fontWeight = FontWeight.Bold)
+                    }
+                }
                 item { SpectroTextField("Soglia minima mt", minimum, { minimum = it }, numeric = true) }
                 item { WheelDateField("Data ingresso", date, { date = it }) }
                 item { SectionTitle("Colli", "+ Aggiungi") { rolls = rolls + NewRollDraft() } }
@@ -360,7 +370,7 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
             Button(onClick = {
                 if (fabric.isNotBlank() && ownerName.isNotBlank() && rolls.any { it.meters.toDoubleSafe() > 0 }) {
                     vm.createInventoryWithRolls(
-                        InventoryItem(ownerType = ownerType, ownerName = ownerName, fabricName = fabric.trim(), quantityMeters = 0.0, purchasePricePerMeter = cost.toDoubleSafe(), createdDate = date, minimumQuantityMeters = minimum.toDoubleSafe(), supplierName = supplier.trim(), composition = composition.trim(), weightGsm = weight.trim(), variant = variant.trim(), lotCode = lot.trim()),
+                        InventoryItem(ownerType = ownerType, ownerName = ownerName, fabricName = fabric.trim(), quantityMeters = 0.0, purchasePricePerMeter = cost.toDoubleSafe(), createdDate = date, minimumQuantityMeters = minimum.toDoubleSafe(), supplierName = supplier.trim(), composition = composition.trim(), weightGsm = weight.trim(), variant = variant.trim(), lotCode = lot.trim(), processingCostPerMeter = processingCost.toDoubleSafe(), defaultSalePricePerMeter = salePrice.toDoubleSafe()),
                         rolls.map { FabricRollInput(it.meters.toDoubleSafe(), it.images) }
                     ); onDismiss()
                 }
@@ -389,6 +399,19 @@ fun InventoryDetailSheet(vm: SpectroViewModel, p: SpectroPalette, item: Inventor
                         Metric("Giacenza", meters(current.quantityMeters), p.primary, Modifier.weight(1f))
                         Metric("Colli", rolls.count { it.availableMeters > 0 }.toString(), modifier = Modifier.weight(1f))
                         Metric("Lotto", current.lotCode.ifBlank { "-" }, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            if (current.ownerType == OwnerType.HOUSE && vm.can(com.spectro.app.auth.AppPermission.FINANCE_VIEW)) item {
+                SpectroCard(p = p) {
+                    Text("Economia tessuto", fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Acquisto", euro(current.purchasePricePerMeter) + "/mt", modifier = Modifier.weight(1f))
+                        Metric("Lavorazioni", euro(current.processingCostPerMeter) + "/mt", modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Costo effettivo", euro(current.actualCostPerMeter) + "/mt", p.primary, Modifier.weight(1f))
+                        Metric("Vendita", euro(current.defaultSalePricePerMeter) + "/mt", p.success, Modifier.weight(1f))
                     }
                 }
             }

@@ -36,7 +36,7 @@ fun EconomicWorkScreen(vm: SpectroViewModel, p: SpectroPalette) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Altri ricavi", fontSize = 28.sp, fontWeight = FontWeight.Black)
+                    Text("Ulteriori lavorazioni", fontSize = 28.sp, fontWeight = FontWeight.Black)
                     Text("Lavori economici, trasferimenti, materiali e ricavi non legati a una stampa Spectro.", color = p.textMuted)
                 }
                 FilledIconButton(onClick = { newOpen = true }) { Icon(Icons.Rounded.Add, "Nuovo lavoro") }
@@ -104,11 +104,12 @@ private fun EconomicWorkDialog(vm: SpectroViewModel, p: SpectroPalette, editing:
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (editing == null) "Nuovo lavoro economico" else "Modifica lavoro", fontWeight = FontWeight.Black) },
+        title = { Text(if (editing == null) "Nuova lavorazione" else "Modifica lavorazione", fontWeight = FontWeight.Black) },
         text = {
             LazyColumn(Modifier.heightIn(max = 650.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { WheelDateField("Data lavoro", date, { date = it }) }
                 item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente (facoltativo)" }, listOf(0L to "Nessun cliente") + vm.state.clients.map { it.id to it.name }) { id -> if (id == 0L) { clientId = null; clientName = "" } else vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
+                item { SpectroTextField("Cliente manuale", clientName, { clientName = it; clientId = null }, placeholder = "Società o destinatario non in rubrica") }
                 item { SpectroTextField("Nome lavoro", title, { title = it }, placeholder = "Es. Trasferiti 300 mt per Agostino") }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Quantità / mt", quantity, { quantity = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Prezzo unitario €", unitPrice, { unitPrice = it }, Modifier.weight(1f), numeric = true) } }
                 item { SpectroTextField("Fatturato lordo manuale €", manualGross, { manualGross = it }, numeric = true, placeholder = "Lascia vuoto per quantità × prezzo") }

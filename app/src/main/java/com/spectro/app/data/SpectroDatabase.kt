@@ -617,6 +617,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun getWorkOrders(db: SQLiteDatabase = readableDatabase): List<WorkOrder> = db.query("work_orders", null, null, null, null, null, "CASE status WHEN 'DELIVERED' THEN 1 WHEN 'COMPLETED' THEN 1 WHEN 'CLOSED' THEN 1 WHEN 'CANCELLED' THEN 1 ELSE 0 END, received_date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.workOrder()) } }
     fun getWorkOrderById(id: Long, db: SQLiteDatabase = readableDatabase): WorkOrder? = db.query("work_orders", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.workOrder() else null }
     fun insertWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("work_orders", null, item.workValues())
+    fun upsertCloudWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("work_orders", null, item.workValues(), SQLiteDatabase.CONFLICT_REPLACE)
     fun updateWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase) { db.update("work_orders", item.workValues(), "id=?", arrayOf(item.id.toString())) }
     fun deleteWorkOrder(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("work_orders", "id=?", arrayOf(id.toString())) }
 

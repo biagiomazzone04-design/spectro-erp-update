@@ -139,7 +139,7 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
       <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
       <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
-      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Dati protetti e sincronizzati</small></div></div>
+      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.3 · Build 13</small></div></div>
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">
@@ -615,6 +615,8 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
   await hydrateAttachmentUrls(records)
   updateNotificationCenter(records)
   const error = results.find(result => result.error)?.error
+  const isAdmin = /admin|amministratore/i.test(access.role_name || '')
+  const canManageModule = isAdmin || access.permissions.includes(`${module.key}.manage`)
   renderAnalyticalModule(
     host,
     module,
@@ -622,7 +624,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
     access.permissions.includes('finance.view'),
     () => { void renderWorkspace(user, access) },
     error?.message || '',
-    access.permissions.includes(`${module.key}.manage`),
+    canManageModule,
     access.permissions.includes('reports.export'),
     async (row, patch) => {
       if (!access.organization_id) return 'Organizzazione non disponibile.'
@@ -645,6 +647,18 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
       })
       if (createError) {
         if (/web_create_zentha_order|schema cache|function/i.test(createError.message)) return 'Aggiornamento cloud 007 non ancora installato su Supabase.'
+        return createError.message
+      }
+      await renderModule(user, access, module)
+      return null
+    } : undefined,
+    module.key === 'orders' ? async order => {
+      if (!access.organization_id) return 'Organizzazione non disponibile.'
+      const { error: createError } = await supabase.rpc('web_create_work_order', {
+        p_organization_id: access.organization_id, p_order: order
+      })
+      if (createError) {
+        if (/web_create_work_order|schema cache|function/i.test(createError.message)) return 'Aggiornamento cloud 008 non ancora installato su Supabase.'
         return createError.message
       }
       await renderModule(user, access, module)

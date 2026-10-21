@@ -84,13 +84,21 @@ class CloudSyncRepository(
     }
 
     suspend fun importPendingWebZentha(access: UserAccess): Int = try {
-        val response = auth.authenticatedRpc(
-            "get_web_pending_zentha_records",
-            JSONObject().put("p_organization_id", access.organizationId)
-        )
+        val response = try {
+            auth.authenticatedRpc(
+                "get_web_pending_records",
+                JSONObject().put("p_organization_id", access.organizationId)
+            )
+        } catch (t: Throwable) {
+            if (!t.message.orEmpty().contains("get_web_pending_records", ignoreCase = true)) throw t
+            auth.authenticatedRpc(
+                "get_web_pending_zentha_records",
+                JSONObject().put("p_organization_id", access.organizationId)
+            )
+        }
         repository.importPendingWebZentha(response.optJSONObject("result") ?: response)
     } catch (t: Throwable) {
-        // Compatibilità con progetti che non hanno ancora applicato la migrazione 007.
+        // Compatibilità con progetti che non hanno ancora applicato le migrazioni 007/008.
         if (t.message.orEmpty().contains("get_web_pending_zentha_records", ignoreCase = true)) 0 else throw t
     }
 
@@ -196,7 +204,12 @@ class CloudSyncRepository(
 
             val remote = parseRemote(response)
             runCatching {
-                auth.authenticatedRpc("ack_web_zentha_changes", JSONObject().put("p_organization_id", access.organizationId))
+                try {
+                    auth.authenticatedRpc("ack_web_changes", JSONObject().put("p_organization_id", access.organizationId))
+                } catch (t: Throwable) {
+                    if (!t.message.orEmpty().contains("ack_web_changes", ignoreCase = true)) throw t
+                    auth.authenticatedRpc("ack_web_zentha_changes", JSONObject().put("p_organization_id", access.organizationId))
+                }
             }
             val latestLocal = repository.localSyncState()
             val saved = latestLocal.copy(
@@ -374,6 +387,6 @@ class CloudSyncRepository(
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
         const val ATTACHMENT_MIRROR_VERSION = 1
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
-        const val RECORD_MIRROR_VERSION = 2
+        const val RECORD_MIRROR_VERSION = 3
     }
 }

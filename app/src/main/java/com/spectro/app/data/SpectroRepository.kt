@@ -397,6 +397,8 @@ class SpectroRepository(context: Context) {
      *  collidono con SQLite AUTOINCREMENT e vengono mantenuti nel mirror cloud. */
     fun importPendingWebZentha(payload: JSONObject): Int = db.transaction { sql ->
         val records = payload.optJSONArray("records") ?: return@transaction 0
+        val workOrders = mutableListOf<WorkOrder>()
+        val forcedWorkOrders = mutableSetOf<Long>()
         val orders = mutableListOf<ZenthaOrder>()
         val forcedOrders = mutableSetOf<Long>()
         val items = mutableListOf<ZenthaOrderItem>()
@@ -404,6 +406,26 @@ class SpectroRepository(context: Context) {
             val envelope = records.optJSONObject(index) ?: continue
             val raw = envelope.optJSONObject("payload") ?: continue
             when (envelope.optString("entity_type")) {
+                "work_order" -> {
+                    val legacyId = envelope.optLong("legacy_id")
+                    if (envelope.optBoolean("force_update")) forcedWorkOrders += legacyId
+                    workOrders += WorkOrder(
+                        id = legacyId, receivedDate = raw.optString("receivedDate"), client = raw.optString("client"),
+                        title = raw.optString("title"), description = raw.optString("description"),
+                        status = runCatching { WorkStatus.valueOf(raw.optString("status")) }.getOrDefault(WorkStatus.IN_PROCESS),
+                        dueDate = raw.optString("dueDate"),
+                        priority = runCatching { Priority.valueOf(raw.optString("priority")) }.getOrDefault(Priority.NORMAL),
+                        blocker = runCatching { Blocker.valueOf(raw.optString("blocker")) }.getOrDefault(Blocker.NONE),
+                        clientId = raw.optLong("clientId").takeIf { raw.has("clientId") && !raw.isNull("clientId") },
+                        orderCode = raw.optString("orderCode"),
+                        fabricInventoryId = raw.optLong("fabricInventoryId").takeIf { raw.has("fabricInventoryId") && !raw.isNull("fabricInventoryId") },
+                        orderedMeters = raw.optDouble("orderedMeters"), printPricePerMeter = raw.optDouble("printPricePerMeter"),
+                        designCode = raw.optString("designCode"),
+                        productionRecordId = raw.optLong("productionRecordId").takeIf { raw.has("productionRecordId") && !raw.isNull("productionRecordId") },
+                        effectiveDeliveryDate = raw.optString("effectiveDeliveryDate"), cancelReason = raw.optString("cancelReason"),
+                        materialReceivedDate = raw.optString("materialReceivedDate"), materialReceiptNotes = raw.optString("materialReceiptNotes")
+                    )
+                }
                 "zentha_order" -> {
                     val legacyId = envelope.optLong("legacy_id")
                     if (envelope.optBoolean("force_update")) forcedOrders += legacyId
@@ -428,6 +450,13 @@ class SpectroRepository(context: Context) {
             }
         }
         var imported = 0
+        workOrders.forEach { order ->
+            val existing = db.getWorkOrderById(order.id, sql)
+            if (existing == null || order.id in forcedWorkOrders) {
+                db.upsertCloudWorkOrder(order.copy(images = existing?.images ?: order.images, clientId = order.clientId ?: existing?.clientId), sql)
+                imported++
+            }
+        }
         orders.forEach { order ->
             val existing = db.getZenthaOrderById(order.id, sql)
             if (existing == null || order.id in forcedOrders) {

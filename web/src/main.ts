@@ -104,6 +104,25 @@ function allowedModules(access: AccessContext) {
   return modules.filter(module => access.permissions.includes(module.permission))
 }
 
+async function listCloudRecords(organizationId: string, module: string | null) {
+  if (!supabase) return { data: [] as CloudRecord[], error: null as { message: string } | null }
+  const all: CloudRecord[] = []
+  for (let offset = 0; offset < 10000; offset += 500) {
+    const result = await supabase.rpc('list_erp_records_safe_v2', { p_organization_id: organizationId, p_module: module, p_limit: 500, p_offset: offset })
+    if (result.error) {
+      if (offset === 0 && /list_erp_records_safe_v2|schema cache|function/i.test(result.error.message)) {
+        const fallback = await supabase.rpc('list_erp_records_safe', { p_organization_id: organizationId, p_module: module, p_limit: 500 })
+        return { data: (fallback.data || []) as CloudRecord[], error: fallback.error }
+      }
+      return { data: all, error: result.error }
+    }
+    const page = (result.data || []) as CloudRecord[]
+    all.push(...page)
+    if (page.length < 500) break
+  }
+  return { data: all, error: null }
+}
+
 function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
   document.body.classList.remove('drawer-open')
   activateScrollMemory(user.id, activeKey)
@@ -375,7 +394,7 @@ async function renderWorkspace(user: User, access: AccessContext) {
   mountShell(user, access, 'dashboard', '<div class="loader-shell"><div class="loader"></div></div>')
   let allRecords: CloudRecord[] = []
   if (supabase) {
-    const response = await supabase.rpc('list_erp_records_safe', { p_organization_id: access.organization_id, p_module: null, p_limit: 500 })
+    const response = await listCloudRecords(access.organization_id!, null)
     allRecords = recordsForAccess(response.data || [], access)
   }
   updateNotificationCenter(allRecords)
@@ -424,7 +443,7 @@ async function renderWorkspace(user: User, access: AccessContext) {
 async function renderGlobalSearch(user: User, access: AccessContext, query: string) {
   if (!supabase || !access.organization_id) return
   const host = mountShell(user, access, 'dashboard', '<div class="loader-shell"><div class="loader"></div></div>')
-  const { data, error } = await supabase.rpc('list_erp_records_safe', { p_organization_id: access.organization_id, p_module: null, p_limit: 500 })
+  const { data, error } = await listCloudRecords(access.organization_id, null)
   const term = query.toLocaleLowerCase('it-IT')
   const results = ((data || []) as CloudRecord[]).filter(row => JSON.stringify(row.payload).toLocaleLowerCase('it-IT').includes(term)).slice(0, 100)
   host.innerHTML = `<section class="search-results-page"><button id="search-back" class="back">← Dashboard</button><p class="kicker">RICERCA GLOBALE</p><h1>Risultati per “${escapeHtml(query)}”</h1><p>${results.length} elementi trovati nei moduli autorizzati.</p>${error ? `<p class="form-message">${escapeHtml(error.message)}</p>` : ''}<div class="global-results">${results.map(row => `<button data-result-module="${escapeHtml(row.module)}"><i>${moduleIcons[row.module] || '•'}</i><div><strong>${escapeHtml(String(row.payload.title || row.payload.name || row.payload.orderCode || row.payload.clientName || translateCode(row.entity_type)))}</strong><span>${escapeHtml(moduleLabel(row.module))} · ${escapeHtml(translateCode(row.entity_type))}</span></div><small>${formatItalianDate(row.updated_at, true)}</small><b>→</b></button>`).join('') || '<div class="empty-state"><h2>Nessun risultato</h2><p>Prova con cliente, codice ordine, tessuto o attività.</p></div>'}</div></section>`
@@ -591,9 +610,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
     const definition = modules.find(item => item.key === key)
     return definition ? access.permissions.includes(definition.permission) : true
   })
-  const results = await Promise.all(permitted.map(key => supabase.rpc('list_erp_records_safe', {
-    p_organization_id: access.organization_id, p_module: key, p_limit: 500
-  })))
+  const results = await Promise.all(permitted.map(key => listCloudRecords(access.organization_id!, key)))
   const records = recordsForAccess(results.flatMap(result => (result.data || []) as CloudRecord[]), access)
   await hydrateAttachmentUrls(records)
   updateNotificationCenter(records)
@@ -620,7 +637,19 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
       }
       await renderModule(user, access, module)
       return null
-    }
+    },
+    module.key === 'zentha' ? async (order, items) => {
+      if (!access.organization_id) return 'Organizzazione non disponibile.'
+      const { error: createError } = await supabase.rpc('web_create_zentha_order', {
+        p_organization_id: access.organization_id, p_order: order, p_items: items
+      })
+      if (createError) {
+        if (/web_create_zentha_order|schema cache|function/i.test(createError.message)) return 'Aggiornamento cloud 007 non ancora installato su Supabase.'
+        return createError.message
+      }
+      await renderModule(user, access, module)
+      return null
+    } : undefined
   )
   restoreRouteScroll()
 }

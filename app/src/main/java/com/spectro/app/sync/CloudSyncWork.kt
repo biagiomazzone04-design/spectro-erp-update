@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.spectro.app.auth.AppPermission
@@ -35,10 +37,10 @@ class CloudSyncWorker(
         val cloud = CloudSyncRepository(applicationContext, auth, repository)
         try {
             cloud.prepareAttachmentMirrorUpgrade()
-            if (!repository.localSyncState().pendingChanges) return@withLock Result.success()
-
             val signedIn = auth.restore() as? AuthState.SignedIn ?: return@withLock Result.success()
             if (!signedIn.access.can(AppPermission.SYNC_USE)) return@withLock Result.success()
+            cloud.importPendingWebZentha(signedIn.access)
+            if (!repository.localSyncState().pendingChanges) return@withLock Result.success()
 
             repeat(3) {
                 if (!repository.localSyncState().pendingChanges) return@withLock Result.success()
@@ -57,6 +59,7 @@ class CloudSyncWorker(
 
 object CloudSyncWork {
     private const val UNIQUE_NAME = "spectro-automatic-cloud-sync"
+    private const val PERIODIC_NAME = "spectro-periodic-cloud-pull"
 
     fun enqueue(context: Context, delayMillis: Long = 4_000) {
         val request = OneTimeWorkRequestBuilder<CloudSyncWorker>()
@@ -66,6 +69,17 @@ object CloudSyncWork {
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
             UNIQUE_NAME,
             ExistingWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    fun enqueuePeriodic(context: Context) {
+        val request = PeriodicWorkRequestBuilder<CloudSyncWorker>(15, TimeUnit.MINUTES)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
+            PERIODIC_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
             request
         )
     }

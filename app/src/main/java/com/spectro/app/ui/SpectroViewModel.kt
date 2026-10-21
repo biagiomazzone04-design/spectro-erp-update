@@ -361,8 +361,15 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun resumeAutomaticSync() {
+        val access = (authState as? AuthState.SignedIn)?.access ?: return
+        CloudSyncWork.enqueuePeriodic(getApplication())
         val pending = withContext(Dispatchers.IO) {
             cloudSyncRepository.prepareAttachmentMirrorUpgrade()
+            val imported = cloudSyncRepository.importPendingWebZentha(access)
+            if (imported > 0) {
+                val refreshed = repo.snapshot()
+                withContext(Dispatchers.Main) { state = refreshed.toUiState("$imported ordini Zentha creati dal web acquisiti.") }
+            }
             repo.localSyncState().pendingChanges
         }
         if (!pending) return

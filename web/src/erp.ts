@@ -394,7 +394,8 @@ export function renderAnalyticalModule(
   errorMessage = '',
   canManage = false,
   canExport = false,
-  onUpdate?: (row: CloudRecord, patch: Record<string, unknown>) => Promise<string | null>
+  onUpdate?: (row: CloudRecord, patch: Record<string, unknown>) => Promise<string | null>,
+  onCreateZentha?: (order: Record<string, unknown>, items: Array<Record<string, unknown>>) => Promise<string | null>
 ) {
   const types = primaryTypes[module.key] || []
   const primary = records.filter(row => types.includes(row.entity_type))
@@ -409,8 +410,13 @@ export function renderAnalyticalModule(
     zentha: 'Cerca ordine, cliente, articolo o codice…', finance: 'Cerca cliente, scadenza o lavorazione…',
     tasks: 'Cerca attività, cliente o descrizione…', issues: 'Cerca criticità, cliente o ordine…'
   }
+  let zenthaLineSequence = 0
+  const zenthaCreateLine = () => {
+    const index = zenthaLineSequence++
+    return `<article class="zentha-create-line" data-line="${index}"><div class="zentha-line-heading"><strong>Prodotto ${index + 1}</strong><button type="button" data-remove-zentha-line="${index}" aria-label="Rimuovi prodotto">×</button></div><label>Articolo<select name="productId" required><option value="">Seleziona prodotto…</option>${products.map(product => `<option value="${esc(product.id)}">${esc(text(p(product).sku, 'S/C'))} · ${esc(text(p(product).name, 'Prodotto'))}</option>`).join('')}</select></label><div class="edit-field-row"><label>Quantità<input name="quantity" type="number" min="1" step="1" value="1" required></label>${canFinance ? '<label>Prezzo unitario €<input name="unitPrice" type="number" min="0" step="0.01"></label><label>Costo unitario €<input name="unitCost" type="number" min="0" step="0.01"></label>' : ''}</div><div class="edit-field-row"><label>Variante<input name="variant" type="text" placeholder="Es. uomo double"></label><label>Colore<input name="color" type="text"></label></div><label>Taglie e quantità<input name="sizeBreakdown" type="text" placeholder="S×4, M×8, L×6…"></label><label>Personalizzazioni<textarea name="personalization" placeholder="Nomi, numeri, sponsor, loghi…"></textarea></label><label>Note produzione<textarea name="productionNotes" placeholder="Indicazioni per stampa e confezionamento"></textarea></label></article>`
+  }
   root.innerHTML = `<div class="analytical-page">
-    <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
+    <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${module.key === 'zentha' && canManage && onCreateZentha ? '<button id="new-zentha-order" class="primary compact-action">＋ Nuovo ordine</button>' : ''}${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
     ${errorMessage ? `<p class="form-message">${esc(errorMessage)}</p>` : ''}
     ${module.key === 'tasks' ? '<div id="task-focus"></div>' : ''}
     ${module.key === 'orders' ? '<div id="order-focus"></div>' : ''}
@@ -428,6 +434,7 @@ export function renderAnalyticalModule(
     <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><nav id="detail-tabs" class="dossier-tabs"></nav><div id="detail-actions" class="detail-actions"></div><div id="detail-content"></div></aside></div>
     <div id="export-overlay" class="export-overlay" hidden><button class="export-scrim" aria-label="Chiudi"></button><section class="export-center"><header><div><p class="kicker">CENTRO ESPORTAZIONI</p><h2>Prepara il documento</h2><p>Il report userà il periodo e i filtri attualmente selezionati.</p></div><button id="export-close" aria-label="Chiudi">×</button></header>${module.key === 'production' ? `<div class="export-options"><label class="export-choice"><input type="radio" name="report-profile" value="executive" checked><span><b>Report direzionale</b><small>KPI, metri per cliente, dati economici autorizzati e dettaglio produzioni.</small></span></label><label class="export-choice"><input type="radio" name="report-profile" value="operations"><span><b>Report operativo</b><small>Produzioni, ordini, disegni, carta, tessuto e note senza prezzi.</small></span></label><label class="export-choice"><input type="radio" name="report-profile" value="complete"><span><b>Analisi completa</b><small>Documento analitico con indicatori economici per amministrazione.</small></span></label></div>` : `<div class="export-options"><div class="export-choice static"><span><b>Elenco filtrato ${esc(module.title)}</b><small>${primary.length} elementi disponibili prima dei filtri.</small></span></div></div>`}<div class="export-summary"><span>Periodo</span><strong id="export-period-label">${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}</strong><span>Elementi</span><strong id="export-count-label">0</strong></div><footer><button id="export-csv" class="secondary">Scarica Excel / CSV</button><button id="generate-report" class="primary">${module.key === 'production' ? 'Apri PDF professionale' : 'Stampa elenco filtrato'}</button></footer></section></div>
     <div id="edit-overlay" class="export-overlay" hidden><button class="edit-scrim export-scrim" aria-label="Chiudi"></button><form id="edit-form" class="export-center edit-center"><header><div><p class="kicker">MODIFICA RECORD</p><h2 id="edit-title">Aggiorna dati</h2><p>La modifica viene salvata nel cloud come livello protetto.</p></div><button id="edit-close" type="button" aria-label="Chiudi">×</button></header><div id="edit-fields" class="edit-fields"></div><p id="edit-message" class="form-message" hidden></p><footer><button id="edit-cancel" type="button" class="secondary">Annulla</button><button id="edit-save" type="submit" class="primary">Salva modifiche</button></footer></form></div>
+    ${module.key === 'zentha' && canManage && onCreateZentha ? `<div id="zentha-create-overlay" class="export-overlay" hidden><button class="zentha-create-scrim export-scrim" aria-label="Chiudi"></button><form id="zentha-create-form" class="export-center edit-center zentha-create-center"><header><div><p class="kicker">NUOVO ORDINE ZENTHA</p><h2>Crea una commessa completa</h2><p>Il nuovo ordine sarà visibile subito sul web e acquisito automaticamente da Android.</p></div><button id="zentha-create-close" type="button" aria-label="Chiudi">×</button></header><div class="edit-fields"><div class="edit-field-row"><label>Cliente / società<input name="clientName" required placeholder="Nome cliente manuale"></label><label>Stato<select name="status"><option value="CONFIRMED">Confermato</option><option value="DRAFT">Bozza</option><option value="GRAPHICS">Grafica</option><option value="WAITING_APPROVAL">Attesa approvazione</option><option value="PRODUCTION">In produzione</option></select></label></div><div class="edit-field-row"><label>Data ordine<input name="orderDate" type="date" value="${today}" required></label><label>Consegna facoltativa<input name="dueDate" type="date"></label></div><label>Note ordine<textarea name="notes" placeholder="Riferimenti, richieste e indicazioni generali"></textarea></label>${canFinance ? '<div class="edit-field-row"><label>Quota A %<input name="splitPercentA" type="number" value="50" min="0" max="100" step="0.01"></label><label>Quota B %<input name="splitPercentB" type="number" value="50" min="0" max="100" step="0.01"></label><label>Tariffa Chromia €/m<input name="chromiaRatePerMeter" type="number" value="2.5" min="0" step="0.01"></label></div>' : ''}<div class="zentha-create-products"><div class="zentha-products-title"><div><p class="kicker">PRODOTTI</p><h3>Articoli dell’ordine</h3></div><button id="add-zentha-line" type="button" class="secondary">＋ Aggiungi prodotto</button></div><div id="zentha-create-lines">${zenthaCreateLine()}</div></div></div><p id="zentha-create-message" class="form-message" hidden></p><footer><button id="zentha-create-cancel" type="button" class="secondary">Continua più tardi</button><button id="zentha-create-save" type="submit" class="primary">Crea ordine Zentha</button></footer></form></div>` : ''}
   </div>`
   const body = root.querySelector<HTMLTableSectionElement>('#record-body')!
   const empty = root.querySelector<HTMLElement>('#record-empty')!
@@ -444,6 +451,33 @@ export function renderAnalyticalModule(
   let editingRow: CloudRecord | null = null
   const editOverlay = root.querySelector<HTMLElement>('#edit-overlay')!
   const closeEdit = () => { editOverlay.hidden = true; editingRow = null; document.body.classList.remove('drawer-open') }
+  const createOverlay = root.querySelector<HTMLElement>('#zentha-create-overlay')
+  const closeCreate = () => { if (createOverlay) createOverlay.hidden = true; document.body.classList.remove('drawer-open') }
+  const bindZenthaLineActions = () => root.querySelectorAll<HTMLButtonElement>('[data-remove-zentha-line]').forEach(button => button.onclick = () => {
+    const lines = root.querySelectorAll('.zentha-create-line'); if (lines.length > 1) button.closest('.zentha-create-line')?.remove()
+  })
+  root.querySelector('#new-zentha-order')?.addEventListener('click', () => { if (createOverlay) { createOverlay.hidden = false; document.body.classList.add('drawer-open') } })
+  root.querySelector('#zentha-create-close')?.addEventListener('click', closeCreate)
+  root.querySelector('#zentha-create-cancel')?.addEventListener('click', closeCreate)
+  root.querySelector('.zentha-create-scrim')?.addEventListener('click', closeCreate)
+  root.querySelector('#add-zentha-line')?.addEventListener('click', () => { root.querySelector('#zentha-create-lines')?.insertAdjacentHTML('beforeend', zenthaCreateLine()); bindZenthaLineActions() })
+  bindZenthaLineActions()
+  root.querySelector<HTMLFormElement>('#zentha-create-form')?.addEventListener('submit', async event => {
+    event.preventDefault(); if (!onCreateZentha) return
+    const formElement = event.currentTarget as HTMLFormElement
+    const form = new FormData(formElement)
+    const order: Record<string, unknown> = { clientName:String(form.get('clientName')||''), orderDate:String(form.get('orderDate')||today), dueDate:String(form.get('dueDate')||''), status:String(form.get('status')||'CONFIRMED'), notes:String(form.get('notes')||''), splitPercentA:Number(form.get('splitPercentA')||50), splitPercentB:Number(form.get('splitPercentB')||50), chromiaRatePerMeter:Number(form.get('chromiaRatePerMeter')||2.5) }
+    const items = [...root.querySelectorAll<HTMLElement>('.zentha-create-line')].map(line => {
+      const get = (name:string) => (line.querySelector<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>(`[name="${name}"]`)?.value || '')
+      const product = products.find(value => value.id === get('productId')); const productPayload = product ? p(product) : {}
+      return { productId:productPayload.id || null, productName:text(productPayload.name,''), quantity:Number(get('quantity')||0), unitPrice:canFinance ? Number(get('unitPrice') || productPayload.standardPrice || 0) : 0, unitCost:canFinance ? Number(get('unitCost') || productPayload.standardCost || 0) : 0, skuSnapshot:text(productPayload.sku,''), productDescriptionSnapshot:text(productPayload.description,''), variant:get('variant'), color:get('color'), sizeBreakdown:get('sizeBreakdown'), personalization:get('personalization'), productionNotes:get('productionNotes') }
+    })
+    const message = root.querySelector<HTMLElement>('#zentha-create-message')!; const save = root.querySelector<HTMLButtonElement>('#zentha-create-save')!
+    if (items.some(item => !item.productName || item.quantity <= 0)) { message.textContent='Seleziona un prodotto e una quantità valida per ogni riga.'; message.hidden=false; return }
+    if (canFinance && Math.abs(Number(order.splitPercentA)+Number(order.splitPercentB)-100) > .01) { message.textContent='Le quote A e B devono totalizzare 100%.'; message.hidden=false; return }
+    save.disabled=true; save.textContent='Creazione e sincronizzazione…'; const error = await onCreateZentha(order,items)
+    if (error) { message.textContent=error; message.hidden=false; save.disabled=false; save.textContent='Crea ordine Zentha' }
+  })
   const openEdit = (row: CloudRecord) => {
     const fields = editableFields(module.key, row)
     if (!fields.length || !onUpdate) return

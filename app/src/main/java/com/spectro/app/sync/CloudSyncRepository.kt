@@ -74,7 +74,19 @@ class CloudSyncRepository(
         return true
     }
 
+    suspend fun importPendingWebZentha(access: UserAccess): Int = try {
+        val response = auth.authenticatedRpc(
+            "get_web_pending_zentha_records",
+            JSONObject().put("p_organization_id", access.organizationId)
+        )
+        repository.importPendingWebZentha(response.optJSONObject("result") ?: response)
+    } catch (t: Throwable) {
+        // Compatibilità con progetti che non hanno ancora applicato la migrazione 007.
+        if (t.message.orEmpty().contains("get_web_pending_zentha_records", ignoreCase = true)) 0 else throw t
+    }
+
     suspend fun inspect(access: UserAccess): SyncInspection {
+        importPendingWebZentha(access)
         val local = localStateFor(access.organizationId)
         val remote = parseRemote(auth.authenticatedRpc(
             "get_workspace_sync_state",
@@ -89,6 +101,7 @@ class CloudSyncRepository(
     }
 
     suspend fun publish(access: UserAccess): SyncTransferResult {
+        importPendingWebZentha(access)
         val local = localStateFor(access.organizationId)
         // Claim the currently pending batch before taking its snapshot. Any edit made while
         // the upload is running sets this flag again and is sent in the following revision.
@@ -173,6 +186,9 @@ class CloudSyncRepository(
             }
 
             val remote = parseRemote(response)
+            runCatching {
+                auth.authenticatedRpc("ack_web_zentha_changes", JSONObject().put("p_organization_id", access.organizationId))
+            }
             val latestLocal = repository.localSyncState()
             val saved = latestLocal.copy(
                 baseRevision = remote.revision,

@@ -1,9 +1,9 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.2.1 Beta 11**.
-- versionCode 28
-- versionName `3.2.1-beta11`
+Base: **Spectro ERP 3.2.2 Beta 12**.
+- versionCode 29
+- versionName `3.2.2-beta12`
 - applicationId `com.spectro.app`
 - SQLite schema 10
 - backup formato v9 (import retrocompatibile)
@@ -47,6 +47,8 @@ Android Beta 9 forza una sola ripubblicazione degli allegati locali per le insta
 Android Beta 10 mantiene la sessione cifrata anche durante errori di rete temporanei, distingue data ordine, consegna materiale e consegna finale, amplia i costi dei tessuti aziendali e trasforma Economia in Ulteriori lavorazioni. Zentha dispone di cliente manuale, bozza persistente, aggiunta rapida dei prodotti, PDF chiaro/scuro e collegamento per ID alle produzioni: i metri carta e la voce contabile Chromia vengono calcolati dalle registrazioni produttive senza duplicare dati. Il portale mostra e modifica gli stessi campi; la migrazione cloud 006 protegge i nuovi valori economici dai ruoli privi di `finance.view`.
 
 Android Beta 11 rende la bozza Zentha sincrona e resistente anche alla chiusura immediata dell'app, mostra chiaramente quando una bozza è recuperabile e sposta l'editor ordine in una schermata mobile a tutto schermo. Tutti i selettori data mostrano `gg/mm/aaaa` senza spezzare il testo. Il portale aggiunge il primo piano Ordini, ordinato per ritardo e consegna, e un report PDF economico-produttivo generato dalla Dashboard sul periodo selezionato e nel rispetto dei permessi economici.
+
+La Beta 12 elimina il limite casuale dei 500 record tramite paginazione deterministica, riportando nel portale tutti gli ordini Zentha e le relative righe. L'amministratore può creare ordini Zentha completi dal web e modificare quelli esistenti; i nuovi ordini e gli aggiornamenti vengono acquisiti automaticamente da Android con ID locali negativi anticollisione e consolidati dalla pubblicazione successiva. Maria mantiene la sola lettura priva dei campi economici. La migrazione cloud 007 ripara inoltre i permessi dei ruoli amministratore preesistenti.
 
 Il frontend è predisposto per la migrazione indipendente su Cloudflare Workers: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT. La pubblicazione automatica usa la root `web`, il comando di build `npm run build` e il comando di deploy `npx wrangler deploy`.
 

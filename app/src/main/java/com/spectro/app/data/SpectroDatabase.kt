@@ -653,11 +653,13 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun getZenthaOrders(db: SQLiteDatabase = readableDatabase): List<ZenthaOrder> = db.query("zentha_orders", null, null, null, null, null, "order_date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.zenthaOrder()) } }
     fun getZenthaOrderById(id: Long, db: SQLiteDatabase = readableDatabase): ZenthaOrder? = db.query("zentha_orders", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.zenthaOrder() else null }
     fun insertZenthaOrder(item: ZenthaOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("zentha_orders", null, item.zenthaOrderValues(false))
+    fun upsertCloudZenthaOrder(item: ZenthaOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("zentha_orders", null, item.zenthaOrderValues(true), SQLiteDatabase.CONFLICT_REPLACE)
     fun updateZenthaOrder(item: ZenthaOrder, db: SQLiteDatabase = writableDatabase) { db.update("zentha_orders", item.zenthaOrderValues(false), "id=?", arrayOf(item.id.toString())) }
     fun deleteZenthaOrder(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("zentha_orders", "id=?", arrayOf(id.toString())) }
 
     fun getZenthaItems(db: SQLiteDatabase = readableDatabase): List<ZenthaOrderItem> = db.query("zentha_order_items", null, null, null, null, null, "order_id, id").use { c -> buildList { while (c.moveToNext()) add(c.zenthaItem()) } }
     fun insertZenthaItem(item: ZenthaOrderItem, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("zentha_order_items", null, item.zenthaItemValues(false))
+    fun upsertCloudZenthaItem(item: ZenthaOrderItem, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("zentha_order_items", null, item.zenthaItemValues(true), SQLiteDatabase.CONFLICT_REPLACE)
     fun deleteZenthaItems(orderId: Long, db: SQLiteDatabase = writableDatabase) { db.delete("zentha_order_items", "order_id=?", arrayOf(orderId.toString())) }
 
     fun getZenthaExtraCosts(db: SQLiteDatabase = readableDatabase): List<ZenthaExtraCost> = db.query("zentha_extra_costs", null, null, null, null, null, "order_id, id").use { c -> buildList { while (c.moveToNext()) add(c.zenthaExtraCost()) } }

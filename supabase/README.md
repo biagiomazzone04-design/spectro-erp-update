@@ -2,7 +2,7 @@
 
 Il progetto è predisposto per `https://fbfxtyowcxgagseqdlyz.supabase.co`.
 
-1. Aprire **Supabase → SQL Editor** ed eseguire nell’ordine le migrazioni `202610100001`, `202610100002`, `202610170003` e `202610170004`. Le ultime due sono ripetibili e riparano in sicurezza installazioni già avviate.
+1. Aprire **Supabase → SQL Editor** ed eseguire nell’ordine tutte le migrazioni da `202610100001` a `202610210007`. Sono additive e ripetibili: la `007` aggiunge paginazione completa e creazione/modifica degli ordini Zentha dal web con acquisizione automatica su Android.
 2. In **Authentication → Providers → Email** abilitare email/password. In produzione lasciare attiva la conferma email.
 3. Creare il primo account dall’app o dal portale desktop.
 4. Con quel primo account autenticato chiamare una sola volta l’RPC `bootstrap_spectro_organization('Spectro')`. La funzione è protetta da lock e smette di funzionare dopo la creazione della prima organizzazione.

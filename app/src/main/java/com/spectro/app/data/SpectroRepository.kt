@@ -2,6 +2,7 @@ package com.spectro.app.data
 
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
+import org.json.JSONObject
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
@@ -390,6 +391,58 @@ class SpectroRepository(context: Context) {
     fun deleteZenthaOrder(id: Long) = db.transaction { sql ->
         require(db.getZenthaPayments(sql).none { it.orderId == id }) { "L'ordine contiene pagamenti. Annullalo invece di eliminarlo." }
         db.deleteZenthaItems(id, sql); db.deleteZenthaExtraCosts(id, sql); db.deleteZenthaOrder(id, sql)
+    }
+
+    /** Import idempotente degli ordini creati dal portale. Gli ID negativi non
+     *  collidono con SQLite AUTOINCREMENT e vengono mantenuti nel mirror cloud. */
+    fun importPendingWebZentha(payload: JSONObject): Int = db.transaction { sql ->
+        val records = payload.optJSONArray("records") ?: return@transaction 0
+        val orders = mutableListOf<ZenthaOrder>()
+        val forcedOrders = mutableSetOf<Long>()
+        val items = mutableListOf<ZenthaOrderItem>()
+        for (index in 0 until records.length()) {
+            val envelope = records.optJSONObject(index) ?: continue
+            val raw = envelope.optJSONObject("payload") ?: continue
+            when (envelope.optString("entity_type")) {
+                "zentha_order" -> {
+                    val legacyId = envelope.optLong("legacy_id")
+                    if (envelope.optBoolean("force_update")) forcedOrders += legacyId
+                    orders += ZenthaOrder(
+                    id = legacyId, orderCode = raw.optString("orderCode"),
+                    clientId = raw.optLong("clientId").takeIf { raw.has("clientId") && !raw.isNull("clientId") },
+                    clientName = raw.optString("clientName"), orderDate = raw.optString("orderDate"), dueDate = raw.optString("dueDate"),
+                    status = runCatching { ZenthaOrderStatus.valueOf(raw.optString("status")) }.getOrDefault(ZenthaOrderStatus.CONFIRMED),
+                    notes = raw.optString("notes"), splitPercentA = raw.optDouble("splitPercentA", 50.0),
+                    splitPercentB = raw.optDouble("splitPercentB", 50.0), chromiaRatePerMeter = raw.optDouble("chromiaRatePerMeter", 2.5)
+                    )
+                }
+                "zentha_order_item" -> items += ZenthaOrderItem(
+                    id = envelope.optLong("legacy_id"), orderId = raw.optLong("orderId"),
+                    productId = raw.optLong("productId").takeIf { raw.has("productId") && !raw.isNull("productId") },
+                    productName = raw.optString("productName"), quantity = raw.optInt("quantity"),
+                    unitPrice = raw.optDouble("unitPrice"), unitCost = raw.optDouble("unitCost"),
+                    skuSnapshot = raw.optString("skuSnapshot"), productDescriptionSnapshot = raw.optString("productDescriptionSnapshot"),
+                    variant = raw.optString("variant"), color = raw.optString("color"), sizeBreakdown = raw.optString("sizeBreakdown"),
+                    personalization = raw.optString("personalization"), productionNotes = raw.optString("productionNotes")
+                )
+            }
+        }
+        var imported = 0
+        orders.forEach { order ->
+            val existing = db.getZenthaOrderById(order.id, sql)
+            if (existing == null || order.id in forcedOrders) {
+                db.upsertCloudZenthaOrder(order.copy(attachments = existing?.attachments ?: order.attachments, clientId = order.clientId ?: existing?.clientId), sql)
+                if (existing == null) {
+                items.filter { it.orderId == order.id }.forEach { db.upsertCloudZenthaItem(it, sql) }
+                }
+                imported++
+            }
+        }
+        if (imported > 0) {
+            val sync = db.getLocalSyncState(sql)
+            db.saveLocalSyncState(sync.copy(pendingChanges = true), sql)
+        }
+        imported
     }
     fun addZenthaPayment(item: ZenthaPayment): Long {
         require(db.getZenthaOrders().any { it.id == item.orderId }) { "Ordine Zentha non trovato." }

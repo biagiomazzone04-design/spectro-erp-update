@@ -1,4 +1,4 @@
-# Spectro ERP Native 3.2.1 Beta 11
+# Spectro ERP Native 3.2.2 Beta 12
 
 > Multiutente/cloud: vedere [SPECTRO_MULTIUSER_SETUP.md](SPECTRO_MULTIUSER_SETUP.md) per autenticazione Supabase, ruoli, portale Windows/Mac e attivazione sicura.
 
@@ -8,8 +8,8 @@ ERP Android nativo per produzione tessile, ordini, magazzino a colli, criticità
 - applicationId/package: `com.spectro.app`
 - minSdk: 26
 - compileSdk/targetSdk: 36
-- versionCode: 28
-- versionName: `3.2.1-beta11`
+- versionCode: 29
+- versionName: `3.2.2-beta12`
 - firma RELEASE: stesso secret GitHub `SPECTRO_SIGNING_BUNDLE_B64`
 
 ## Funzioni principali
@@ -36,6 +36,6 @@ Il database attuale usa schema 10. L'aggiornamento dalle Beta precedenti è non 
 Non è presente alcun reset automatico del database.
 
 ## Build
-Il workflow `.github/workflows/main.yml` compila `main` e `spectro-3.0-beta`, verifica la firma e pubblica l'artifact `SpectroERP-v3.2.1-BETA11-ZENTHA-SAFE-DRAFTS`.
+Il workflow `.github/workflows/main.yml` compila `main` e `spectro-3.0-beta`, verifica la firma e pubblica l'artifact `SpectroERP-v3.2.2-BETA12-ZENTHA-WEB-SYNC`.
 
 Prima di installare una nuova Beta creare sempre un backup dall'app attualmente funzionante e installare l'APK sopra l'app esistente, senza disinstallarla.

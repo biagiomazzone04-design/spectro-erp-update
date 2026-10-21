@@ -37,6 +37,7 @@ class CloudSyncWorker(
         val cloud = CloudSyncRepository(applicationContext, auth, repository)
         try {
             cloud.prepareAttachmentMirrorUpgrade()
+            cloud.prepareRecordMirrorUpgrade()
             val signedIn = auth.restore() as? AuthState.SignedIn ?: return@withLock Result.success()
             if (!signedIn.access.can(AppPermission.SYNC_USE)) return@withLock Result.success()
             cloud.importPendingWebZentha(signedIn.access)

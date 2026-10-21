@@ -365,6 +365,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         CloudSyncWork.enqueuePeriodic(getApplication())
         val pending = withContext(Dispatchers.IO) {
             cloudSyncRepository.prepareAttachmentMirrorUpgrade()
+            cloudSyncRepository.prepareRecordMirrorUpgrade()
             val imported = cloudSyncRepository.importPendingWebZentha(access)
             if (imported > 0) {
                 val refreshed = repo.snapshot()

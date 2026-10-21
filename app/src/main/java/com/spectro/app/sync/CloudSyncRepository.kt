@@ -74,6 +74,15 @@ class CloudSyncRepository(
         return true
     }
 
+    /** Forza una sola pubblicazione completa quando cambia la struttura del
+     * mirror consultabile dal web, anche se il workspace era già allineato. */
+    fun prepareRecordMirrorUpgrade(): Boolean {
+        if (syncPreferences.getInt(RECORD_MIRROR_VERSION_KEY, 0) >= RECORD_MIRROR_VERSION) return false
+        val state = repository.localSyncState()
+        if (!state.pendingChanges) repository.saveLocalSyncState(state.copy(pendingChanges = true))
+        return true
+    }
+
     suspend fun importPendingWebZentha(access: UserAccess): Int = try {
         val response = auth.authenticatedRpc(
             "get_web_pending_zentha_records",
@@ -200,6 +209,7 @@ class CloudSyncRepository(
             )
             repository.saveLocalSyncState(saved)
             syncPreferences.edit().putInt(ATTACHMENT_MIRROR_VERSION_KEY, ATTACHMENT_MIRROR_VERSION).apply()
+            syncPreferences.edit().putInt(RECORD_MIRROR_VERSION_KEY, RECORD_MIRROR_VERSION).apply()
             uploadedPaths.clear() // i file sono ora referenziati dalla revisione pubblicata
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
         } catch (t: Throwable) {
@@ -363,5 +373,7 @@ class CloudSyncRepository(
         const val MAX_WORKSPACE_BYTES = 1024L * 1024L * 1024L
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
         const val ATTACHMENT_MIRROR_VERSION = 1
+        const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
+        const val RECORD_MIRROR_VERSION = 2
     }
 }

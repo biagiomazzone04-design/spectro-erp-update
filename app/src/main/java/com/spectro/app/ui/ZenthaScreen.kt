@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -17,6 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.spectro.app.auth.AppPermission
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
@@ -26,6 +29,7 @@ import com.spectro.app.util.ReportExporter
 import com.spectro.app.util.ZenthaDraft
 import com.spectro.app.util.ZenthaExtraDraftData
 import com.spectro.app.util.ZenthaLineDraft
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 
 private data class ZenthaItemDraft(
@@ -52,6 +56,7 @@ fun ZenthaScreen(
     initialOpenOrderId: Long? = null,
     onOpenConsumed: () -> Unit = {}
 ) {
+    val context = LocalContext.current
     val canManage = vm.can(AppPermission.ZENTHA_MANAGE)
     val canFinance = vm.can(AppPermission.FINANCE_VIEW)
     var mode by remember { mutableStateOf("ORDERS") }
@@ -77,6 +82,10 @@ fun ZenthaScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("ZENTHA", fontSize = 28.sp, fontWeight = FontWeight.Black); Text(if (canFinance) "Ordini sportivi, catalogo, margini e pagamenti." else "Ordini sportivi, catalogo e dettagli di produzione.", color = p.textMuted) }
                 if (canManage) FilledIconButton(onClick = { if (mode == "ORDERS") newOrder = true else newProduct = true }) { Icon(Icons.Rounded.Add, null) }
+            }
+            if (mode == "ORDERS" && DraftStore.hasZentha(context)) {
+                Spacer(Modifier.height(10.dp))
+                AssistChip(onClick = { newOrder = true }, leadingIcon = { Icon(Icons.Rounded.CloudDone, null) }, label = { Text("Bozza ordine protetta · Tocca per riprendere", fontWeight = FontWeight.Bold) })
             }
             Spacer(Modifier.height(12.dp)); SegmentedChoice(listOf("ORDERS" to "ORDINI", "PRODUCTS" to "PRODOTTI"), mode, p) { mode = it }
             Spacer(Modifier.height(10.dp)); OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), leadingIcon = { Icon(Icons.Rounded.Search, null) }, placeholder = { Text(if (mode == "ORDERS") "Cliente o ordine…" else "Prodotto, SKU o categoria…") }, singleLine = true, shape = RoundedCornerShape(16.dp))
@@ -270,15 +279,19 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
             } ?: emptyList()
         )
     }
+    var orderSaved by remember(editing?.id) { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> attachments = attachments + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 
-    LaunchedEffect(clientId, clientName, date, due, status, notes, attachments, splitA, splitB, chromiaRate, drafts, extras) {
-        DraftStore.saveZentha(context, ZenthaDraft(
-            clientId = clientId, clientName = clientName, date = date, due = due, status = status.name, notes = notes,
-            attachments = attachments, splitA = splitA, splitB = splitB, chromiaRate = chromiaRate,
-            lines = drafts.map { ZenthaLineDraft(it.productId, it.productName, it.quantity, it.unitPrice, it.unitCost, it.skuSnapshot, it.productDescriptionSnapshot, it.variant, it.color, it.sizeBreakdown, it.personalization, it.productionNotes) },
-            extras = extras.map { ZenthaExtraDraftData(it.label, it.amount) }
-        ), draftKey)
+    val currentDraft = ZenthaDraft(
+        clientId = clientId, clientName = clientName, date = date, due = due, status = status.name, notes = notes,
+        attachments = attachments, splitA = splitA, splitB = splitB, chromiaRate = chromiaRate,
+        lines = drafts.map { ZenthaLineDraft(it.productId, it.productName, it.quantity, it.unitPrice, it.unitCost, it.skuSnapshot, it.productDescriptionSnapshot, it.variant, it.color, it.sizeBreakdown, it.personalization, it.productionNotes) },
+        extras = extras.map { ZenthaExtraDraftData(it.label, it.amount) }
+    )
+    val latestDraft by rememberUpdatedState(currentDraft)
+    LaunchedEffect(currentDraft) { delay(250); DraftStore.saveZentha(context, currentDraft, draftKey) }
+    DisposableEffect(draftKey) {
+        onDispose { if (!orderSaved) DraftStore.saveZentha(context, latestDraft, draftKey) }
     }
 
     val revenue = drafts.sumOf { it.quantity.toDoubleSafe() * it.unitPrice.toDoubleSafe() }
@@ -286,14 +299,33 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     val extraTotal = extras.sumOf { it.amount.toDoubleSafe() }
     val profit = revenue - costs - extraTotal
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (editing == null) "Nuovo ordine Zentha" else "Modifica ${editing.orderCode}", fontWeight = FontWeight.Black) },
-        text = {
-            LazyColumn(Modifier.heightIn(max = 680.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+          Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Continua più tardi") }
+                    Column(Modifier.weight(1f)) {
+                        Text(if (editing == null) "Nuovo ordine Zentha" else "Modifica ${editing.orderCode}", fontWeight = FontWeight.Black, fontSize = 21.sp)
+                        Text("Bozza protetta automaticamente sul dispositivo", color = p.success, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Icon(Icons.Rounded.CloudDone, null, tint = p.success)
+                }
+            }
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
                 item { SpectroTextField("Cliente manuale", clientName, { clientName = it; clientId = null }, placeholder = "Associazione o società non in rubrica") }
-                item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { WheelDateField("Data ordine", date, { date = it }, Modifier.weight(1f)); WheelDateField("Consegna", due, { due = it }, Modifier.weight(1f), allowEmpty = true) } }
+                item {
+                    BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        if (maxWidth < 560.dp) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            WheelDateField("Data ordine", date, { date = it }, Modifier.fillMaxWidth())
+                            WheelDateField("Data di consegna (facoltativa)", due, { due = it }, Modifier.fillMaxWidth(), allowEmpty = true)
+                        } else Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            WheelDateField("Data ordine", date, { date = it }, Modifier.weight(1f))
+                            WheelDateField("Data di consegna (facoltativa)", due, { due = it }, Modifier.weight(1f), allowEmpty = true)
+                        }
+                    }
+                }
                 if (editing == null && date < LocalDate.now().toString()) item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Bozza recuperata con data precedente", color = p.danger, modifier = Modifier.weight(1f)); TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Usa oggi") } } }
                 item { SimpleSelectField("Stato", zenthaStatusLabel(status), ZenthaOrderStatus.entries.map { it to zenthaStatusLabel(it) }) { status = it } }
                 item { SectionTitle("Prodotti", "+ Aggiungi") { drafts = drafts + ZenthaItemDraft() } }
@@ -334,9 +366,11 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 item { SpectroTextField("Tariffa Chromia €/mt carta", chromiaRate, { chromiaRate = it }, numeric = true); Text("I metri sono letti dalle produzioni collegate a questo ordine.", color = p.textMuted, fontSize = 11.sp) }
                 item { SpectroCard(p = p) { Text("Riepilogo", fontWeight = FontWeight.Black); Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(revenue), modifier = Modifier.weight(1f)); Metric("Costi", euro(costs + extraTotal), modifier = Modifier.weight(1f)); Metric("Utile", euro(profit), valueColor = if (profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(6.dp)); Text("Quota A ${euro(profit * splitA.toDoubleSafe() / 100)} • Quota B ${euro(profit * splitB.toDoubleSafe() / 100)}", color = p.textMuted) } }
             }
-        },
-        confirmButton = {
-            Button(onClick = {
+            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 12.dp) {
+              Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (editing != null) IconButton(onClick = { orderSaved = true; vm.deleteZenthaOrder(editing.id); DraftStore.clearZentha(context, draftKey); onDismiss() }) { Icon(Icons.Rounded.Delete, "Elimina", tint = p.danger) }
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Continua più tardi") }
+                Button(onClick = {
                 val a = splitA.toDoubleSafe(); val b = splitB.toDoubleSafe()
                 val items = drafts.filter { it.productName.isNotBlank() && it.quantity.toDoubleSafe() > 0 }.map {
                     ZenthaOrderItem(
@@ -358,13 +392,16 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 val extraRows = extras.filter { it.label.isNotBlank() && it.amount.toDoubleSafe() > 0 }.map { ZenthaExtraCost(orderId = editing?.id ?: 0, label = it.label.trim(), amount = it.amount.toDoubleSafe()) }
                 if (clientName.isNotBlank() && items.isNotEmpty() && kotlin.math.abs(a + b - 100.0) < .01) {
                     vm.saveZenthaOrder(ZenthaOrder(editing?.id ?: 0, editing?.orderCode.orEmpty(), clientId, clientName, date, due, status, notes.trim(), attachments, a, b, chromiaRate.toDoubleSafe()), items, extraRows)
+                    orderSaved = true
                     DraftStore.clearZentha(context, draftKey)
                     onDismiss()
                 }
-            }) { Text("Salva ordine") }
-        },
-        dismissButton = { Row { if (editing != null) TextButton(onClick = { vm.deleteZenthaOrder(editing.id); onDismiss() }) { Text("Elimina", color = p.danger) }; TextButton(onClick = onDismiss) { Text("Annulla") } } }
-    )
+                }, modifier = Modifier.weight(1.25f)) { Text("Salva ordine") }
+              }
+            }
+          }
+        }
+    }
 }
 
 @Composable

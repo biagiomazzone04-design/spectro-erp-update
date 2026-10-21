@@ -196,6 +196,31 @@ function taskFocusBoard(rows: CloudRecord[], canManage: boolean) {
   </section>`
 }
 
+function orderFocusBoard(rows: CloudRecord[]) {
+  const today = new Date().toISOString().slice(0, 10)
+  const dueOf = (row: CloudRecord) => isoDate(p(row).dueDate || p(row).expectedDeliveryDate)
+  const active = rows.filter(row => !terminalStatus.test(String(p(row).status || ''))).sort((a,b) => {
+    const aDue = dueOf(a); const bDue = dueOf(b)
+    const aLate = aDue && aDue < today ? 0 : 1; const bLate = bDue && bDue < today ? 0 : 1
+    return aLate - bLate || (aDue || '9999-12-31').localeCompare(bDue || '9999-12-31') || b.updated_at.localeCompare(a.updated_at)
+  })
+  const completed = rows.filter(row => terminalStatus.test(String(p(row).status || ''))).sort((a,b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 6)
+  const card = (row: CloudRecord) => {
+    const x = p(row); const due = dueOf(row); const overdue = Boolean(due && due < today)
+    return `<button class="focus-task-card order-focus-card ${overdue ? 'overdue' : ''}" data-order="${esc(row.id)}">
+      <span class="task-card-top"><b>${esc(label(x.status || 'OPEN'))}</b><i>${overdue ? 'In ritardo' : due === today ? 'Consegna oggi' : due ? `Consegna ${date(due)}` : 'Senza scadenza'}</i></span>
+      <strong>${esc(text(x.client, 'Cliente non indicato'))}</strong>
+      <span class="task-client">${esc(text(x.orderCode || x.title, 'Commessa senza riferimento'))}</span>
+      <small>${esc(text(x.designCode || x.description, 'Nessuna indicazione tecnica'))}</small>
+      <span class="task-card-footer"><b>${num(x.orderedMeters)} m ordinati</b><i>Apri dossier →</i></span>
+    </button>`
+  }
+  return `<section class="task-focus-board order-focus-board">
+    <header><div><p class="kicker">ORDINI IN PRIMO PIANO</p><h2>Commesse da portare a termine</h2><p>Prima gli ordini in ritardo, poi le consegne più vicine. Apri una scheda per controllare produzione, note e allegati.</p></div><span><b>${active.length}</b> ordini operativi</span></header>
+    <div class="task-focus-columns"><article class="task-focus-column work"><div class="task-column-heading"><span><i></i><strong>In lavorazione</strong><small>Ordini che richiedono attenzione</small></span><b>${active.length}</b></div><div class="task-card-list">${active.slice(0, 9).map(card).join('') || '<div class="task-column-empty">Nessun ordine operativo: tutto completato</div>'}</div></article><article class="task-focus-column completed"><div class="task-column-heading"><span><i></i><strong>Evasi di recente</strong><small>Ultime commesse concluse</small></span><b>${completed.length}</b></div><div class="task-card-list">${completed.map(card).join('') || '<div class="task-column-empty">Nessun ordine archiviato</div>'}</div></article></div>
+  </section>`
+}
+
 function productionAnalytics(rows: CloudRecord[]) {
   const clientMeters = new Map<string, number>()
   const plotters = new Map<string, { count: number; paper: number }>()
@@ -323,6 +348,26 @@ function printProductionReport(rows: CloudRecord[], from: string, to: string, pr
   page.document.close()
 }
 
+export function printDashboardReport(records: CloudRecord[], from: string, to: string, canFinance: boolean) {
+  const inRange = records.filter(row => { const value = moduleDate(row); return value && value >= from && value <= to })
+  const productions = inRange.filter(row => row.entity_type === 'production_record')
+  const orders = inRange.filter(row => row.entity_type === 'work_order')
+  const otherWorks = inRange.filter(row => row.entity_type === 'economic_work')
+  const paper = productions.reduce((sum,row) => sum + Number(p(row).printedPaperMeters || 0), 0)
+  const fabric = productions.reduce((sum,row) => sum + Number(p(row).fabricUsedMeters || 0), 0)
+  const productionRevenue = productions.reduce((sum,row) => sum + Number(p(row).grossRevenue || 0), 0)
+  const otherRevenue = otherWorks.reduce((sum,row) => sum + (Number(p(row).manualGrossRevenue || 0) || Number(p(row).quantity || 0) * Number(p(row).unitPrice || 0)), 0)
+  const costs = productions.reduce((sum,row) => sum + Number(p(row).materialCostTotal || 0), 0) + otherWorks.reduce((sum,row) => sum + Number(p(row).totalCosts || p(row).materialCosts || 0), 0)
+  const revenue = productionRevenue + otherRevenue
+  const byClient = new Map<string,{paper:number,fabric:number,revenue:number,count:number}>()
+  productions.forEach(row => { const x=p(row); const name=text(x.clientName,'Senza cliente'); const value=byClient.get(name)||{paper:0,fabric:0,revenue:0,count:0}; value.paper+=Number(x.printedPaperMeters||0); value.fabric+=Number(x.fabricUsedMeters||0); value.revenue+=Number(x.grossRevenue||0); value.count++; byClient.set(name,value) })
+  const clients = [...byClient.entries()].sort((a,b) => b[1].paper-a[1].paper)
+  const page = window.open('', '_blank', 'width=1100,height=800')
+  if (!page) return
+  page.document.write(`<!doctype html><html lang="it"><head><meta charset="utf-8"><title>Report economico produttivo Spectro</title><style>*{box-sizing:border-box}body{margin:0;background:#fff;color:#15151a;font:13px Arial,sans-serif}.page{width:210mm;min-height:297mm;margin:auto;padding:14mm}.brand{color:#d31587;font-weight:900;letter-spacing:.12em}header{display:flex;justify-content:space-between;align-items:end;border-top:7px solid #ff7818;border-bottom:2px solid #e819a7;padding:17px 0}h1{margin:4px 0;font-size:29px}h2{margin:25px 0 12px}.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}.kpi,.panel{border:1px solid #dfe0e5;border-radius:14px;padding:15px}.kpi small{display:block;color:#696b75;text-transform:uppercase}.kpi strong{display:block;margin-top:9px;font-size:24px}.pink{color:#d31587}.cyan{color:#078ca4}.green{color:#138f54}.orange{color:#d26400}table{width:100%;border-collapse:collapse}th,td{padding:10px 8px;border-bottom:1px solid #e4e4e8;text-align:left}th{font-size:10px;letter-spacing:.08em;color:#747681;text-transform:uppercase}td:last-child,th:last-child{text-align:right}.footer{margin-top:22px;padding-top:10px;border-top:1px solid #ddd;color:#777;display:flex;justify-content:space-between}@media print{@page{size:A4;margin:0}.page{margin:0}}</style></head><body><main class="page"><header><div><div class="brand">SPECTRO ERP · REPORT DIREZIONALE</div><h1>Situazione economica e produttiva</h1><span>Documento riepilogativo della dashboard</span></div><b>${formatItalianDate(from)} – ${formatItalianDate(to)}</b></header><section class="kpis"><article class="kpi"><small>Ordini</small><strong>${orders.length}</strong></article><article class="kpi"><small>Carta stampata</small><strong class="cyan">${num(paper)} m</strong></article><article class="kpi"><small>Tessuto lavorato</small><strong class="pink">${num(fabric)} m</strong></article>${canFinance ? `<article class="kpi"><small>Fatturato totale</small><strong class="green">${euro(revenue)}</strong></article><article class="kpi"><small>Costi rilevati</small><strong class="orange">${euro(costs)}</strong></article><article class="kpi"><small>Margine rilevato</small><strong class="green">${euro(revenue-costs)}</strong></article>` : ''}</section><section class="panel"><h2>Analisi per cliente</h2><table><thead><tr><th>Cliente</th><th>Produzioni</th><th>Carta</th><th>Tessuto</th>${canFinance?'<th>Fatturato</th>':''}</tr></thead><tbody>${clients.map(([name,value]) => `<tr><td><b>${esc(name)}</b></td><td>${value.count}</td><td>${num(value.paper)} m</td><td>${num(value.fabric)} m</td>${canFinance?`<td>${euro(value.revenue)}</td>`:''}</tr>`).join('') || '<tr><td colspan="5">Nessun dato nel periodo.</td></tr>'}</tbody></table></section>${canFinance?`<section class="panel"><h2>Composizione economica</h2><table><tbody><tr><td>Fatturato produzioni</td><td>${euro(productionRevenue)}</td></tr><tr><td>Ulteriori lavorazioni</td><td>${euro(otherRevenue)}</td></tr><tr><td>Costi rilevati</td><td>${euro(costs)}</td></tr><tr><td><b>Risultato lordo rilevato</b></td><td><b>${euro(revenue-costs)}</b></td></tr></tbody></table></section>`:''}<div class="footer"><span>Spectro ERP · generato dal portale cloud</span><span>${new Date().toLocaleString('it-IT')}</span></div></main><script>window.onload=()=>window.print()<\/script></body></html>`)
+  page.document.close()
+}
+
 type EditableField = { key: string; label: string; kind?: 'text'|'number'|'date'|'textarea' }
 function editableFields(module: string, row: CloudRecord): EditableField[] {
   if (row.entity_type === 'zentha_product') return [{key:'sku',label:'Codice articolo'},{key:'name',label:'Nome prodotto'},{key:'category',label:'Categoria'},{key:'description',label:'Descrizione',kind:'textarea'},{key:'standardCost',label:'Costo standard',kind:'number'},{key:'standardPrice',label:'Prezzo listino',kind:'number'},{key:'priceListName',label:'Nome listino'}]
@@ -368,6 +413,7 @@ export function renderAnalyticalModule(
     <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
     ${errorMessage ? `<p class="form-message">${esc(errorMessage)}</p>` : ''}
     ${module.key === 'tasks' ? '<div id="task-focus"></div>' : ''}
+    ${module.key === 'orders' ? '<div id="order-focus"></div>' : ''}
     <section class="metric-grid" id="module-metrics">${statistics(module.key, primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd), records, canFinance)}</section>
     <div id="module-insights">${moduleInsights(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>
     ${module.key === 'production' ? `<div id="production-analysis">${productionAnalytics(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>` : ''}
@@ -447,6 +493,13 @@ export function renderAnalyticalModule(
           column.addEventListener('drop', async event => { event.preventDefault(); column.classList.remove('drop-target'); const id = event.dataTransfer?.getData('text/plain'); const row = records.find(item => item.id === id); if (row) await onUpdate(row,{status:column.dataset.dropState}) })
         })
       }
+    }
+    if (module.key === 'orders') {
+      const focusRows = primary.filter(row => JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || String(p(row).status || 'OPEN') === selected))
+      root.querySelector<HTMLElement>('#order-focus')!.innerHTML = orderFocusBoard(focusRows)
+      root.querySelectorAll<HTMLButtonElement>('[data-order]').forEach(button => button.addEventListener('click', () => {
+        const row = records.find(item => item.id === button.dataset.order); if (row) openRecord(row)
+      }))
     }
     const periodRows = primary.filter(row => { const value = moduleDate(row); return value && value >= rangeStart && value <= rangeEnd })
     root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)

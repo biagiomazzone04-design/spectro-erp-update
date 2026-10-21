@@ -216,14 +216,18 @@ fun WheelDateField(
     allowEmpty: Boolean = false
 ) {
     var open by remember { mutableStateOf(false) }
+    val displayValue = remember(value) {
+        runCatching { LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) }
+            .getOrDefault(value)
+    }
     Column(modifier) {
         if (label.isNotBlank()) {
             Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
             Spacer(Modifier.height(7.dp))
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { open = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 15.dp)) {
-                Icon(Icons.Rounded.CalendarMonth, null); Spacer(Modifier.width(9.dp)); Text(value.ifBlank { if (allowEmpty) "Nessuna data" else "Seleziona data" }, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.weight(1f).heightIn(min = 54.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
+                Icon(Icons.Rounded.CalendarMonth, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(displayValue.ifBlank { if (allowEmpty) "Nessuna data" else "Seleziona data" }, modifier = Modifier.weight(1f), maxLines = 1, softWrap = false, fontSize = 14.sp)
             }
             if (allowEmpty && value.isNotBlank()) { Spacer(Modifier.width(6.dp)); IconButton(onClick = { onValueChange("") }) { Icon(Icons.Rounded.Close, null) } }
         }

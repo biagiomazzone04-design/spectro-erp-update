@@ -101,7 +101,8 @@ object DraftStore {
         put("notes", d.notes); put("attachments", JSONArray(d.attachments)); put("splitA", d.splitA); put("splitB", d.splitB); put("chromiaRate", d.chromiaRate)
         put("lines", JSONArray().apply { d.lines.forEach { line -> put(JSONObject().apply { putNullable("productId", line.productId); put("productName", line.productName); put("quantity", line.quantity); put("unitPrice", line.unitPrice); put("unitCost", line.unitCost); put("sku", line.sku); put("description", line.description); put("variant", line.variant); put("color", line.color); put("sizes", line.sizes); put("personalization", line.personalization); put("productionNotes", line.productionNotes) }) } })
         put("extras", JSONArray().apply { d.extras.forEach { extra -> put(JSONObject().put("label", extra.label).put("amount", extra.amount)) } })
-    }.toString()).apply()
+        put("savedAt", System.currentTimeMillis())
+    }.toString()).commit()
     fun loadZentha(context: Context, key: String = "new"): ZenthaDraft? = raw(context, scoped("zentha", key), null)?.let { o ->
         ZenthaDraft(
             clientId = o.nullableLong("clientId"), clientName = o.optString("clientName"), date = o.optString("date"), due = o.optString("due"), status = o.optString("status", "CONFIRMED"),
@@ -110,7 +111,8 @@ object DraftStore {
             extras = o.optJSONArray("extras").objects().map { extra -> ZenthaExtraDraftData(extra.optString("label"), extra.optString("amount")) }
         )
     }
-    fun clearZentha(context: Context, key: String = "new") = prefs(context).edit().remove(scoped("zentha", key)).apply()
+    fun clearZentha(context: Context, key: String = "new") = prefs(context).edit().remove(scoped("zentha", key)).commit()
+    fun hasZentha(context: Context, key: String = "new") = prefs(context).contains(scoped("zentha", key))
 
     fun saveCotton(context: Context, d: CottonDraft, key: String = "new") = prefs(context).edit().putString(scoped("cotton", key), JSONObject().apply {
         put("title", d.title); putNullable("clientId", d.clientId); put("clientName", d.clientName); put("date", d.date); put("due", d.due); put("fabric", d.fabric); put("printType", d.printType)

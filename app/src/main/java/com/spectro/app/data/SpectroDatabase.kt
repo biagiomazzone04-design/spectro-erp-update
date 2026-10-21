@@ -611,6 +611,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun getProduction(db: SQLiteDatabase = readableDatabase): List<ProductionRecord> = db.query("production", null, null, null, null, null, "date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.production()) } }
     fun getProductionById(id: Long, db: SQLiteDatabase = readableDatabase): ProductionRecord? = db.query("production", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.production() else null }
     fun insertProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("production", null, record.productionValues(false))
+    fun upsertCloudProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("production", null, record.productionValues(false), SQLiteDatabase.CONFLICT_REPLACE)
     fun updateProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase) { db.update("production", record.productionValues(false), "id=?", arrayOf(record.id.toString())) }
     fun deleteProduction(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("production", "id=?", arrayOf(id.toString())) }
 

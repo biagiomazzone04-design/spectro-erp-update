@@ -399,6 +399,8 @@ class SpectroRepository(context: Context) {
         val records = payload.optJSONArray("records") ?: return@transaction 0
         val workOrders = mutableListOf<WorkOrder>()
         val forcedWorkOrders = mutableSetOf<Long>()
+        val productionRecords = mutableListOf<ProductionRecord>()
+        val forcedProductionRecords = mutableSetOf<Long>()
         val orders = mutableListOf<ZenthaOrder>()
         val forcedOrders = mutableSetOf<Long>()
         val items = mutableListOf<ZenthaOrderItem>()
@@ -424,6 +426,38 @@ class SpectroRepository(context: Context) {
                         productionRecordId = raw.optLong("productionRecordId").takeIf { raw.has("productionRecordId") && !raw.isNull("productionRecordId") },
                         effectiveDeliveryDate = raw.optString("effectiveDeliveryDate"), cancelReason = raw.optString("cancelReason"),
                         materialReceivedDate = raw.optString("materialReceivedDate"), materialReceiptNotes = raw.optString("materialReceiptNotes")
+                    )
+                }
+                "production_record" -> {
+                    val legacyId = envelope.optLong("legacy_id")
+                    if (envelope.optBoolean("force_update")) forcedProductionRecords += legacyId
+                    val designs = raw.optJSONArray("designs")?.let { values ->
+                        buildList { for (itemIndex in 0 until values.length()) add(values.optString(itemIndex)) }
+                    } ?: emptyList()
+                    val images = raw.optJSONArray("images")?.let { values ->
+                        buildList { for (itemIndex in 0 until values.length()) add(values.optString(itemIndex)) }
+                    } ?: emptyList()
+                    productionRecords += ProductionRecord(
+                        id = legacyId,
+                        type = runCatching { RecordType.valueOf(raw.optString("type")) }.getOrDefault(RecordType.PRODUCTION),
+                        date = raw.optString("date"),
+                        clientId = raw.optLong("clientId").takeIf { raw.has("clientId") && !raw.isNull("clientId") },
+                        clientName = raw.optString("clientName"), orderRef = raw.optString("orderRef"), designs = designs,
+                        printPricePerMeter = raw.optDouble("printPricePerMeter"), plotter = raw.optString("plotter", "X1"),
+                        printedPaperMeters = raw.optDouble("printedPaperMeters"), protectionPaperMeters = raw.optDouble("protectionPaperMeters"),
+                        paperWasteMeters = raw.optDouble("paperWasteMeters"),
+                        fabricMode = runCatching { FabricMode.valueOf(raw.optString("fabricMode")) }.getOrDefault(FabricMode.NONE),
+                        fabricId = raw.optLong("fabricId").takeIf { raw.has("fabricId") && !raw.isNull("fabricId") },
+                        fabricUsedMeters = raw.optDouble("fabricUsedMeters"), fabricWasteMeters = raw.optDouble("fabricWasteMeters"),
+                        fabricSalePricePerMeter = raw.optDouble("fabricSalePricePerMeter"), manualFabricName = raw.optString("manualFabricName"),
+                        fabricDisplayName = raw.optString("fabricDisplayName", "Nessuno"), technicalNotes = raw.optString("technicalNotes"),
+                        images = images, refundCost = raw.optDouble("refundCost"), fabricLossCost = raw.optDouble("fabricLossCost"),
+                        applyFixedCosts = raw.optBoolean("applyFixedCosts", true), paperPrintCost = raw.optDouble("paperPrintCost"),
+                        protectionPaperCost = raw.optDouble("protectionPaperCost"), fabricUsedCost = raw.optDouble("fabricUsedCost"),
+                        materialCostTotal = raw.optDouble("materialCostTotal"), grossRevenue = raw.optDouble("grossRevenue"),
+                        grossProfit = raw.optDouble("grossProfit"),
+                        workOrderId = raw.optLong("workOrderId").takeIf { raw.has("workOrderId") && !raw.isNull("workOrderId") },
+                        zenthaOrderId = raw.optLong("zenthaOrderId").takeIf { raw.has("zenthaOrderId") && !raw.isNull("zenthaOrderId") }
                     )
                 }
                 "zentha_order" -> {
@@ -454,6 +488,13 @@ class SpectroRepository(context: Context) {
             val existing = db.getWorkOrderById(order.id, sql)
             if (existing == null || order.id in forcedWorkOrders) {
                 db.upsertCloudWorkOrder(order.copy(images = existing?.images ?: order.images, clientId = order.clientId ?: existing?.clientId), sql)
+                imported++
+            }
+        }
+        productionRecords.forEach { production ->
+            val existing = db.getProductionById(production.id, sql)
+            if (existing == null || production.id in forcedProductionRecords) {
+                db.upsertCloudProduction(production.copy(images = if (production.images.isNotEmpty()) production.images else existing?.images.orEmpty()), sql)
                 imported++
             }
         }

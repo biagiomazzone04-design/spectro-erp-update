@@ -387,6 +387,6 @@ class CloudSyncRepository(
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
         const val ATTACHMENT_MIRROR_VERSION = 1
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
-        const val RECORD_MIRROR_VERSION = 3
+        const val RECORD_MIRROR_VERSION = 4
     }
 }

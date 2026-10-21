@@ -139,7 +139,7 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
       <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
       <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
-      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.3 · Build 13</small></div></div>
+      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.4 · Build 14</small></div></div>
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">
@@ -257,6 +257,7 @@ const financeFields = new Set(['amount','dailyFixedCost','defaultPrintPrice','fa
 
 function recordsForAccess(records: CloudRecord[], access: AccessContext) {
   const visibleModules = new Set(allowedModules(access).map(module => module.key))
+  if (access.permissions.includes('settings.manage')) visibleModules.add('settings')
   return records.filter(row => visibleModules.has(row.module)).map(row => {
     if (access.permissions.includes('finance.view')) return row
     return { ...row, payload: Object.fromEntries(Object.entries(row.payload).filter(([key]) => !financeFields.has(key))) }
@@ -602,8 +603,8 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
   if (!supabase) return
   const host = mountShell(user, access, module.key, '<div class="loader-shell"><div class="loader"></div></div>')
   const relatedModules: Record<string, string[]> = {
-    orders: ['orders', 'production', 'issues'], clients: ['clients', 'orders', 'production', 'tasks'],
-    inventory: ['inventory'], zentha: ['zentha', 'production'], production: ['production'], cotton: ['cotton'],
+    orders: ['orders', 'production', 'issues', 'clients'], clients: ['clients', 'orders', 'production', 'tasks'],
+    inventory: ['inventory'], zentha: ['zentha', 'production'], production: ['production', 'clients', 'orders'], cotton: ['cotton'],
     finance: ['finance'], tasks: ['tasks'], issues: ['issues']
   }
   const permitted = (relatedModules[module.key] || [module.key]).filter(key => {
@@ -659,6 +660,18 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
       })
       if (createError) {
         if (/web_create_work_order|schema cache|function/i.test(createError.message)) return 'Aggiornamento cloud 008 non ancora installato su Supabase.'
+        return createError.message
+      }
+      await renderModule(user, access, module)
+      return null
+    } : undefined,
+    module.key === 'production' ? async production => {
+      if (!access.organization_id) return 'Organizzazione non disponibile.'
+      const { error: createError } = await supabase.rpc('web_create_production_record', {
+        p_organization_id: access.organization_id, p_record: production
+      })
+      if (createError) {
+        if (/web_create_production_record|schema cache|function/i.test(createError.message)) return 'Aggiornamento cloud 009 non ancora installato su Supabase.'
         return createError.message
       }
       await renderModule(user, access, module)

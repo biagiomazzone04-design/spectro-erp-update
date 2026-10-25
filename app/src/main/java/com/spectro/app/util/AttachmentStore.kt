@@ -6,6 +6,8 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 object AttachmentStore {
+    data class CameraTarget(val uri: Uri, val path: String)
+
     fun importToPrivateStorage(context: Context, uri: Uri): String {
         val dir = File(context.filesDir, "attachments").apply { mkdirs() }
         val ext = context.contentResolver.getType(uri)?.substringAfter('/')?.takeIf { it.length <= 6 } ?: "jpg"
@@ -20,5 +22,20 @@ object AttachmentStore {
     fun shareUri(context: Context, path: String): Uri {
         val file = File(path)
         return FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+    }
+
+    fun createCameraTarget(context: Context): CameraTarget {
+        val dir = File(context.filesDir, "attachments").apply { mkdirs() }
+        val file = File(dir, "camera_${System.currentTimeMillis()}_${(1000..9999).random()}.jpg")
+        return CameraTarget(FileProvider.getUriForFile(context, "${context.packageName}.files", file), file.absolutePath)
+    }
+
+    fun exportToUri(context: Context, sourcePath: String, destination: Uri) {
+        val source = File(sourcePath)
+        require(source.isFile) { "Immagine non disponibile sul dispositivo." }
+        context.contentResolver.openOutputStream(destination).use { output ->
+            requireNotNull(output) { "Impossibile salvare l'immagine." }
+            source.inputStream().use { input -> input.copyTo(output) }
+        }
     }
 }

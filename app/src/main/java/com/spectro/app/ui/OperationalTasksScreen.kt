@@ -83,7 +83,6 @@ private fun OperationalTaskDialog(vm: SpectroViewModel, p: SpectroPalette, editi
     var priority by remember(editing?.id) { mutableStateOf(editing?.priority ?: Priority.NORMAL) }
     var status by remember(editing?.id) { mutableStateOf(editing?.status ?: OperationalTaskStatus.TODO) }
     var images by remember(editing?.id) { mutableStateOf(editing?.images ?: emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     val model = OperationalTask(editing?.id ?: 0L, created, due, clientId, clientName.trim(), workId, title.trim(), type, description.trim(), priority, status, images)
 
     AlertDialog(
@@ -98,7 +97,7 @@ private fun OperationalTaskDialog(vm: SpectroViewModel, p: SpectroPalette, editi
             item { SegmentedChoice(listOf("NORMAL" to "NORMALE", "HIGH" to "URGENTE"), priority.name, p) { priority = Priority.valueOf(it) } }
             item { SimpleSelectField("Stato", operationalTaskStatusLabel(status), OperationalTaskStatus.entries.map { it to operationalTaskStatusLabel(it) }) { status = it } }
             item { SpectroTextField("Descrizione / istruzioni", description, { description = it }, singleLine = false) }
-            item { OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Allega immagini") } }
+            item { AttachmentSourceButtons(onImported = { images = (images + it).distinct() }) }
             if (images.isNotEmpty()) item { ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
         } },
         confirmButton = { Button(onClick = { if (model.title.isNotBlank()) { vm.saveOperationalTask(model); onDismiss() } }) { Text("Salva") } },

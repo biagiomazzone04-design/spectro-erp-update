@@ -92,9 +92,6 @@ private fun EconomicWorkDialog(vm: SpectroViewModel, p: SpectroPalette, editing:
     var status by remember(editing?.id) { mutableStateOf(editing?.status ?: EconomicWorkStatus.OPEN) }
     var images by remember(editing?.id) { mutableStateOf(editing?.images ?: emptyList()) }
     var materials by remember(editing?.id) { mutableStateOf<List<MaterialDraft>>(editing?.materials?.map { MaterialDraft(it.name, it.quantity.toString(), it.unitCost.toString()) } ?: emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }
-    }
     val model = EconomicWork(
         id = editing?.id ?: 0L, date = date, clientId = clientId, clientName = clientName.trim(), title = title.trim(),
         quantity = quantity.toDoubleSafe(), unitPrice = unitPrice.toDoubleSafe(), manualGrossRevenue = manualGross.toDoubleSafe(),
@@ -135,7 +132,7 @@ private fun EconomicWorkDialog(vm: SpectroViewModel, p: SpectroPalette, editing:
                 item { SpectroTextField("Altri costi €", otherCosts, { otherCosts = it }, numeric = true) }
                 item { SimpleSelectField("Stato", economicWorkStatusLabel(status), EconomicWorkStatus.entries.map { it to economicWorkStatusLabel(it) }) { status = it } }
                 item { SpectroTextField("Note", notes, { notes = it }, singleLine = false) }
-                item { OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Allega immagini") } }
+                item { AttachmentSourceButtons(onImported = { images = (images + it).distinct() }) }
                 if (images.isNotEmpty()) item { ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
                 item {
                     SpectroCard(p = p) {

@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 10) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 11) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -58,7 +58,8 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 variant TEXT NOT NULL DEFAULT '',
                 lot_code TEXT NOT NULL DEFAULT '',
                 processing_cost_m REAL NOT NULL DEFAULT 0,
-                default_sale_price_m REAL NOT NULL DEFAULT 0
+                default_sale_price_m REAL NOT NULL DEFAULT 0,
+                archived INTEGER NOT NULL DEFAULT 0
             )
         """.trimIndent())
         db.execSQL("""
@@ -208,7 +209,34 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             safeAlter(db, "ALTER TABLE zentha_orders ADD COLUMN chromia_rate_m REAL NOT NULL DEFAULT 2.5")
             safeAlter(db, "ALTER TABLE settings ADD COLUMN chromia_rate_m REAL NOT NULL DEFAULT 2.5")
         }
+        if (oldVersion < 11) {
+            safeAlter(db, "ALTER TABLE inventory ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+            deduplicateWebWorkOrders(db)
+        }
         createIndexes(db)
+    }
+
+    /** Ripara una sola volta le copie create dalle vecchie importazioni web.
+     *  Mantiene il record più antico e riallaccia tutte le relazioni prima di
+     *  rimuovere le copie, così produzione, timeline e consumi non si perdono. */
+    private fun deduplicateWebWorkOrders(db: SQLiteDatabase) {
+        val duplicateCodes = db.rawQuery(
+            "SELECT order_code FROM work_orders WHERE order_code LIKE 'SPE-WEB-%' GROUP BY order_code HAVING COUNT(*) > 1",
+            null
+        ).use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getString(0)) } }
+        duplicateCodes.forEach { code ->
+            val ids = db.query("work_orders", arrayOf("id"), "order_code=?", arrayOf(code), null, null, "id ASC")
+                .use { cursor -> buildList { while (cursor.moveToNext()) add(cursor.getLong(0)) } }
+            val keeper = ids.firstOrNull() ?: return@forEach
+            ids.drop(1).forEach { duplicate ->
+                db.execSQL("UPDATE production SET work_order_id=? WHERE work_order_id=?", arrayOf(keeper, duplicate))
+                db.execSQL("UPDATE order_timeline SET work_order_id=? WHERE work_order_id=?", arrayOf(keeper, duplicate))
+                db.execSQL("UPDATE operational_tasks SET work_order_id=? WHERE work_order_id=?", arrayOf(keeper, duplicate))
+                db.execSQL("UPDATE roll_usages SET order_id=? WHERE order_kind='WORK' AND order_id=?", arrayOf(keeper, duplicate))
+                db.execSQL("UPDATE stock_movements SET order_id=? WHERE order_kind='WORK' AND order_id=?", arrayOf(keeper, duplicate))
+                db.delete("work_orders", "id=?", arrayOf(duplicate.toString()))
+            }
+        }
     }
 
     private fun safeAlter(db: SQLiteDatabase, sql: String) { runCatching { db.execSQL(sql) } }
@@ -593,6 +621,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun insertInventory(item: InventoryItem, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("inventory", null, item.inventoryValues(false))
     fun updateInventory(item: InventoryItem, db: SQLiteDatabase = writableDatabase) { db.update("inventory", item.inventoryValues(false), "id=?", arrayOf(item.id.toString())) }
     fun deleteInventory(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("inventory", "id=?", arrayOf(id.toString())) }
+    fun setInventoryArchived(id: Long, archived: Boolean, db: SQLiteDatabase = writableDatabase) { db.update("inventory", ContentValues().apply { put("archived", if (archived) 1 else 0) }, "id=?", arrayOf(id.toString())) }
     fun setInventoryQuantity(id: Long, quantity: Double, db: SQLiteDatabase = writableDatabase) { db.update("inventory", ContentValues().apply { put("quantity_m", quantity) }, "id=?", arrayOf(id.toString())) }
 
     fun getFabricRolls(db: SQLiteDatabase = readableDatabase): List<FabricRoll> = db.query("fabric_rolls", null, null, null, null, null, "inventory_id, id").use { c -> buildList { while (c.moveToNext()) add(c.fabricRoll()) } }
@@ -611,15 +640,25 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun getProduction(db: SQLiteDatabase = readableDatabase): List<ProductionRecord> = db.query("production", null, null, null, null, null, "date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.production()) } }
     fun getProductionById(id: Long, db: SQLiteDatabase = readableDatabase): ProductionRecord? = db.query("production", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.production() else null }
     fun insertProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("production", null, record.productionValues(false))
-    fun upsertCloudProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("production", null, record.productionValues(false), SQLiteDatabase.CONFLICT_REPLACE)
+    fun upsertCloudProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("production", null, record.productionValues(true), SQLiteDatabase.CONFLICT_REPLACE)
     fun updateProduction(record: ProductionRecord, db: SQLiteDatabase = writableDatabase) { db.update("production", record.productionValues(false), "id=?", arrayOf(record.id.toString())) }
     fun deleteProduction(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("production", "id=?", arrayOf(id.toString())) }
 
     fun getWorkOrders(db: SQLiteDatabase = readableDatabase): List<WorkOrder> = db.query("work_orders", null, null, null, null, null, "CASE status WHEN 'DELIVERED' THEN 1 WHEN 'COMPLETED' THEN 1 WHEN 'CLOSED' THEN 1 WHEN 'CANCELLED' THEN 1 ELSE 0 END, received_date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.workOrder()) } }
     fun getWorkOrderById(id: Long, db: SQLiteDatabase = readableDatabase): WorkOrder? = db.query("work_orders", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.workOrder() else null }
-    fun insertWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("work_orders", null, item.workValues())
-    fun upsertCloudWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("work_orders", null, item.workValues(), SQLiteDatabase.CONFLICT_REPLACE)
-    fun updateWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase) { db.update("work_orders", item.workValues(), "id=?", arrayOf(item.id.toString())) }
+    fun getWorkOrderByCode(code: String, db: SQLiteDatabase = readableDatabase): WorkOrder? = db.query("work_orders", null, "order_code=?", arrayOf(code), null, null, "id ASC", "1").use { c -> if (c.moveToFirst()) c.workOrder() else null }
+    fun insertWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("work_orders", null, item.workValues(false))
+    fun upsertCloudWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("work_orders", null, item.workValues(true), SQLiteDatabase.CONFLICT_REPLACE)
+    fun updateWorkOrder(item: WorkOrder, db: SQLiteDatabase = writableDatabase) { db.update("work_orders", item.workValues(false), "id=?", arrayOf(item.id.toString())) }
+    fun adoptCloudWorkOrderId(existingId: Long, cloudId: Long, db: SQLiteDatabase = writableDatabase) {
+        if (existingId == cloudId || getWorkOrderById(cloudId, db) != null) return
+        db.execSQL("UPDATE production SET work_order_id=? WHERE work_order_id=?", arrayOf(cloudId, existingId))
+        db.execSQL("UPDATE order_timeline SET work_order_id=? WHERE work_order_id=?", arrayOf(cloudId, existingId))
+        db.execSQL("UPDATE operational_tasks SET work_order_id=? WHERE work_order_id=?", arrayOf(cloudId, existingId))
+        db.execSQL("UPDATE roll_usages SET order_id=? WHERE order_kind='WORK' AND order_id=?", arrayOf(cloudId, existingId))
+        db.execSQL("UPDATE stock_movements SET order_id=? WHERE order_kind='WORK' AND order_id=?", arrayOf(cloudId, existingId))
+        db.execSQL("UPDATE work_orders SET id=? WHERE id=?", arrayOf(cloudId, existingId))
+    }
     fun deleteWorkOrder(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("work_orders", "id=?", arrayOf(id.toString())) }
 
     fun getTimelineEvents(db: SQLiteDatabase = readableDatabase): List<OrderTimelineEvent> = db.query("order_timeline", null, null, null, null, null, "event_date DESC, event_time DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.timelineEvent()) } }
@@ -737,7 +776,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
             snapshot.clients.forEach { c -> insertOrThrow("clients", null, ContentValues().apply { put("id", c.id); put("name", c.name); put("default_print_price", c.defaultPrintPrice) }) }
             snapshot.inventory.forEach { insertOrThrow("inventory", null, it.inventoryValues(true)) }
             snapshot.production.forEach { insertOrThrow("production", null, it.productionValues(true)) }
-            snapshot.workOrders.forEach { insertOrThrow("work_orders", null, it.workValues().apply { put("id", it.id) }) }
+            snapshot.workOrders.forEach { insertOrThrow("work_orders", null, it.workValues(true)) }
             snapshot.clientIssues.forEach { insertOrThrow("client_issues", null, it.issueValues(true)) }
             snapshot.issueUpdates.forEach { insertOrThrow("issue_updates", null, it.issueUpdateValues(true)) }
             snapshot.payments.forEach { insertOrThrow("payments", null, it.paymentValues(true)) }
@@ -767,7 +806,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     private inline fun <T> SQLiteDatabase.runInTransaction(block: SQLiteDatabase.() -> T): T { beginTransaction(); try { val r = block(); setTransactionSuccessful(); return r } finally { endTransaction() } }
 
     private fun Cursor.client() = Client(long("id"), string("name"), double("default_print_price"))
-    private fun Cursor.inventory() = InventoryItem(long("id"), enumValueOrDefault(string("owner_type"), OwnerType.CLIENT), string("owner_name"), string("fabric_name"), double("quantity_m"), double("purchase_price_m"), string("created_date"), string("images_json").toStringList(), optionalDouble("minimum_quantity_m"), optionalString("supplier_name"), optionalString("composition"), optionalString("weight_gsm"), optionalString("variant"), optionalString("lot_code"), optionalDouble("processing_cost_m"), optionalDouble("default_sale_price_m"))
+    private fun Cursor.inventory() = InventoryItem(long("id"), enumValueOrDefault(string("owner_type"), OwnerType.CLIENT), string("owner_name"), string("fabric_name"), double("quantity_m"), double("purchase_price_m"), string("created_date"), string("images_json").toStringList(), optionalDouble("minimum_quantity_m"), optionalString("supplier_name"), optionalString("composition"), optionalString("weight_gsm"), optionalString("variant"), optionalString("lot_code"), optionalDouble("processing_cost_m"), optionalDouble("default_sale_price_m"), optionalInt("archived") == 1)
     private fun Cursor.fabricRoll() = FabricRoll(long("id"), long("inventory_id"), string("roll_code"), double("initial_m"), double("available_m"), string("created_date"), string("note"), enumValueOrDefault(string("status"), RollStatus.OPEN), optionalString("images_json").toStringList())
     private fun Cursor.stockMovement() = StockMovement(long("id"), long("inventory_id"), long("roll_id"), enumValueOrDefault(string("type"), StockMovementType.ADJUSTMENT), string("date_time"), double("meters"), nullableString("order_kind")?.let { enumValueOrDefault(it, OrderKind.WORK) }, nullableLong("order_id"), string("order_ref"), string("note"))
     private fun Cursor.rollUsage() = RollUsage(long("id"), enumValueOrDefault(string("order_kind"), OrderKind.WORK), long("order_id"), string("order_ref"), long("inventory_id"), long("roll_id"), double("meters"), string("created_at"))
@@ -818,7 +857,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         images = string("images_json").toStringList()
     )
 
-    private fun InventoryItem.inventoryValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("owner_type", ownerType.name); put("owner_name", ownerName); put("fabric_name", fabricName); put("quantity_m", quantityMeters); put("purchase_price_m", purchasePricePerMeter); put("created_date", createdDate); put("images_json", images.toJsonArrayString()); put("minimum_quantity_m", minimumQuantityMeters); put("supplier_name", supplierName); put("composition", composition); put("weight_gsm", weightGsm); put("variant", variant); put("lot_code", lotCode); put("processing_cost_m", processingCostPerMeter); put("default_sale_price_m", defaultSalePricePerMeter) }
+    private fun InventoryItem.inventoryValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("owner_type", ownerType.name); put("owner_name", ownerName); put("fabric_name", fabricName); put("quantity_m", quantityMeters); put("purchase_price_m", purchasePricePerMeter); put("created_date", createdDate); put("images_json", images.toJsonArrayString()); put("minimum_quantity_m", minimumQuantityMeters); put("supplier_name", supplierName); put("composition", composition); put("weight_gsm", weightGsm); put("variant", variant); put("lot_code", lotCode); put("processing_cost_m", processingCostPerMeter); put("default_sale_price_m", defaultSalePricePerMeter); put("archived", if (archived) 1 else 0) }
     private fun FabricRoll.fabricRollValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_code", rollCode); put("initial_m", initialMeters); put("available_m", availableMeters); put("created_date", createdDate); put("note", note); put("status", status.name); put("images_json", images.toJsonArrayString()) }
     private fun StockMovement.stockMovementValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("inventory_id", inventoryId); put("roll_id", rollId); put("type", type.name); put("date_time", dateTime); put("meters", meters); if (orderKind == null) putNull("order_kind") else put("order_kind", orderKind.name); if (orderId == null) putNull("order_id") else put("order_id", orderId); put("order_ref", orderRef); put("note", note) }
     private fun RollUsage.rollUsageValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_kind", orderKind.name); put("order_id", orderId); put("order_ref", orderRef); put("inventory_id", inventoryId); put("roll_id", rollId); put("meters", meters); put("created_at", createdAt) }
@@ -828,7 +867,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         put("fabric_used_m", fabricUsedMeters); put("fabric_waste_m", fabricWasteMeters); put("fabric_sale_price_m", fabricSalePricePerMeter); put("manual_fabric_name", manualFabricName); put("fabric_display_name", fabricDisplayName); put("technical_notes", technicalNotes); put("images_json", images.toJsonArrayString())
         put("refund_cost", refundCost); put("fabric_loss_cost", fabricLossCost); put("apply_fixed_costs", if (applyFixedCosts) 1 else 0); put("paper_print_cost", paperPrintCost); put("protection_paper_cost", protectionPaperCost); put("fabric_used_cost", fabricUsedCost); put("material_cost_total", materialCostTotal); put("gross_revenue", grossRevenue); put("gross_profit", grossProfit); if (workOrderId == null) putNull("work_order_id") else put("work_order_id", workOrderId); if (zenthaOrderId == null) putNull("zentha_order_id") else put("zentha_order_id", zenthaOrderId)
     }
-    private fun WorkOrder.workValues() = ContentValues().apply { put("received_date", receivedDate); put("client", client); put("title", title); put("description", description); put("images_json", images.toJsonArrayString()); put("status", status.name); put("due_date", dueDate); put("priority", priority.name); put("blocker", blocker.name); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("order_code", orderCode); if (fabricInventoryId == null) putNull("fabric_inventory_id") else put("fabric_inventory_id", fabricInventoryId); put("ordered_m", orderedMeters); put("print_price_m", printPricePerMeter); put("design_code", designCode); if (productionRecordId == null) putNull("production_record_id") else put("production_record_id", productionRecordId); put("effective_delivery_date", effectiveDeliveryDate); put("cancel_reason", cancelReason); put("material_received_date", materialReceivedDate); put("material_receipt_notes", materialReceiptNotes) }
+    private fun WorkOrder.workValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("received_date", receivedDate); put("client", client); put("title", title); put("description", description); put("images_json", images.toJsonArrayString()); put("status", status.name); put("due_date", dueDate); put("priority", priority.name); put("blocker", blocker.name); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("order_code", orderCode); if (fabricInventoryId == null) putNull("fabric_inventory_id") else put("fabric_inventory_id", fabricInventoryId); put("ordered_m", orderedMeters); put("print_price_m", printPricePerMeter); put("design_code", designCode); if (productionRecordId == null) putNull("production_record_id") else put("production_record_id", productionRecordId); put("effective_delivery_date", effectiveDeliveryDate); put("cancel_reason", cancelReason); put("material_received_date", materialReceivedDate); put("material_receipt_notes", materialReceiptNotes) }
     private fun OrderTimelineEvent.timelineValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("work_order_id", workOrderId); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("event_date", date); put("event_time", time); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("title", title); put("description", description); put("old_due_date", oldDueDate); put("new_due_date", newDueDate); put("images_json", images.toJsonArrayString()); put("resolution_note", resolutionNote); put("resolved_date", resolvedDate) }
     private fun ClientIssue.issueValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_ref", orderRef); put("title", title); put("category", category.name); put("responsibility", responsibility.name); put("severity", severity.name); put("status", status.name); put("opened_date", openedDate); put("expected_delivery_date", expectedDeliveryDate); put("revised_delivery_date", revisedDeliveryDate); put("delay_days", delayDays); put("description", description); put("internal_notes", internalNotes); put("evidence_images_json", evidenceImages.toJsonArrayString()) }
     private fun IssueUpdate.issueUpdateValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("issue_id", issueId); put("date", date); put("note", note); put("images_json", images.toJsonArrayString()) }

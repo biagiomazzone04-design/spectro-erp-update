@@ -70,7 +70,8 @@ data class InventoryItem(
     val variant: String = "",
     val lotCode: String = "",
     val processingCostPerMeter: Double = 0.0,
-    val defaultSalePricePerMeter: Double = 0.0
+    val defaultSalePricePerMeter: Double = 0.0,
+    val archived: Boolean = false
 ) {
     val actualCostPerMeter: Double get() = purchasePricePerMeter + processingCostPerMeter
 }

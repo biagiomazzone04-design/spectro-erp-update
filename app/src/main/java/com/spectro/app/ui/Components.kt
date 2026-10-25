@@ -2,6 +2,8 @@ package com.spectro.app.ui
 
 import android.graphics.BitmapFactory
 import android.widget.NumberPicker
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -21,11 +23,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
@@ -40,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.data.InventoryItem
 import com.spectro.app.data.OwnerType
+import com.spectro.app.util.AttachmentStore
 import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
@@ -157,6 +162,10 @@ fun PrivateImage(path: String, modifier: Modifier = Modifier, contentScale: Cont
 
 @Composable
 private fun FullScreenImage(path: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val saveImage = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { uri ->
+        if (uri != null) runCatching { AttachmentStore.exportToUri(context, path, uri) }
+    }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = .96f)).clickable(onClick = onDismiss),
@@ -168,7 +177,39 @@ private fun FullScreenImage(path: String, onDismiss: () -> Unit) {
                 modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(18.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = .15f), contentColor = Color.White)
             ) { Icon(Icons.Rounded.Close, contentDescription = "Chiudi") }
+            FilledTonalButton(
+                onClick = { saveImage.launch(File(path).name.ifBlank { "immagine_spectro.jpg" }) },
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp)
+            ) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(8.dp)); Text("Salva sul dispositivo") }
         }
+    }
+}
+
+@Composable
+fun AttachmentSourceButtons(
+    onImported: (List<String>) -> Unit,
+    modifier: Modifier = Modifier,
+    galleryLabel: String = "Galleria"
+) {
+    val context = LocalContext.current
+    var pendingCameraPath by rememberSaveable { mutableStateOf("") }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val imported = uris.mapNotNull { uri -> runCatching { AttachmentStore.importToPrivateStorage(context, uri) }.getOrNull() }
+        if (imported.isNotEmpty()) onImported(imported)
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val path = pendingCameraPath
+        if (success && path.isNotBlank() && File(path).isFile) onImported(listOf(path))
+        else if (path.isNotBlank()) File(path).delete()
+        pendingCameraPath = ""
+    }
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = {
+            val target = AttachmentStore.createCameraTarget(context)
+            pendingCameraPath = target.path
+            camera.launch(target.uri)
+        }, Modifier.weight(1f)) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Fotocamera") }
+        OutlinedButton(onClick = { gallery.launch("image/*") }, Modifier.weight(1f)) { Icon(Icons.Rounded.PhotoLibrary, null); Spacer(Modifier.width(6.dp)); Text(galleryLabel) }
     }
 }
 

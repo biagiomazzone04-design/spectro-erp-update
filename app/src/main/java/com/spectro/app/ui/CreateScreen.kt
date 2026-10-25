@@ -1,7 +1,5 @@
 package com.spectro.app.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,7 +17,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
-import com.spectro.app.util.AttachmentStore
 import com.spectro.app.util.DraftStore
 import com.spectro.app.util.ProductionDraft
 import com.spectro.app.util.WorkDraft
@@ -124,7 +121,6 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
         )
     }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     val consumeMeters = fabricUsed.toDoubleSafe() + fabricWaste.toDoubleSafe()
 
     LaunchedEffect(step, workOrderId, zenthaOrderId, date, clientId, clientName, orderRef, designs, printPrice, plotter, paper, protection, paperWaste, fabricMode, fabricId, fabricUsed, fabricWaste, salePrice, manualFabric, notes, images, allocations) {
@@ -188,7 +184,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
                 Spacer(Modifier.height(10.dp)); Metric("Tessuto", when (fabricMode) { FabricMode.INVENTORY -> vm.state.inventory.firstOrNull { it.id == fabricId }?.fabricName ?: "Non selezionato"; FabricMode.MANUAL -> manualFabric; else -> "Nessuno" })
                 if (allocations.isNotEmpty()) { Spacer(Modifier.height(8.dp)); Text("Colli: ${allocations.entries.joinToString { (id, m) -> "${vm.state.fabricRolls.firstOrNull { it.id == id }?.rollCode ?: id}: ${meters(m)}" }}", color = p.textMuted, fontSize = 11.sp) }
                 Spacer(Modifier.height(14.dp)); SpectroTextField("Note tecniche", notes, { notes = it }, singleLine = false)
-                Spacer(Modifier.height(14.dp)); OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("Allega foto") }
+                Spacer(Modifier.height(14.dp)); AttachmentSourceButtons(onImported = { images = (images + it).distinct() })
                 if (images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
             }
         }
@@ -211,7 +207,7 @@ private fun ProductionForm(vm: SpectroViewModel, p: SpectroPalette, editing: Pro
     if (clientDialog) SelectionDialog("Scegli cliente", vm.state.clients.map { it.name to it.id }, onDismiss = { clientDialog = false }) { id -> clientDialog = false; vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name; printPrice = it.defaultPrintPrice.takeIf { v -> v > 0 }?.toString().orEmpty() } }
     if (fabricDialog) InventoryPickerDialog(
         title = "Scegli tessuto dal magazzino",
-        inventoryItems = vm.state.inventory,
+        inventoryItems = vm.activeInventory(),
         initialOwner = clientName.takeIf { it.isNotBlank() },
         onDismiss = { fabricDialog = false },
         onSelected = { item -> fabricDialog = false; fabricId = item.id; if (item.ownerType == OwnerType.HOUSE && salePrice.isBlank() && item.defaultSalePricePerMeter > 0) salePrice = item.defaultSalePricePerMeter.toString(); allocations = emptyMap() }
@@ -246,7 +242,6 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
     var materialReceiptNotes by remember(editing?.id) { mutableStateOf(savedDraft?.materialReceiptNotes?.takeIf { it.isNotBlank() } ?: editing?.materialReceiptNotes.orEmpty()) }
     var clientDialog by remember { mutableStateOf(false) }
     var fabricDialog by remember { mutableStateOf(false) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 
     LaunchedEffect(date, clientId, client, title, due, priority, blocker, status, description, images, orderedMeters, printPrice, designCode, fabricId, materialReceivedDate, materialReceiptNotes) {
         DraftStore.setLastCreateMode(context, CreateMode.WORK.name)
@@ -279,7 +274,7 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
         Spacer(Modifier.height(12.dp)); SegmentedChoice(listOf("NORMAL" to "NORMALE", "HIGH" to "ALTA 🔥"), priority.name, p) { priority = Priority.valueOf(it) }
         Spacer(Modifier.height(12.dp)); SegmentedChoice(listOf("NONE" to "NESSUNO", "WAITING_CLIENT" to "CLIENTE", "WAITING_MATERIAL" to "TESSUTO"), blocker.name, p) { blocker = Blocker.valueOf(it) }
         Spacer(Modifier.height(12.dp)); SpectroTextField("Descrizione / note", description, { description = it }, singleLine = false)
-        Spacer(Modifier.height(14.dp)); OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("Allega foto") }
+        Spacer(Modifier.height(14.dp)); AttachmentSourceButtons(onImported = { images = (images + it).distinct() })
         if (images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
         Spacer(Modifier.height(16.dp)); GradientButton(if (editing == null) "Salva ordine in processo" else "Salva modifiche", p) {
             if (client.isNotBlank() && title.isNotBlank()) {
@@ -292,7 +287,7 @@ private fun WorkForm(vm: SpectroViewModel, p: SpectroPalette, editing: WorkOrder
     if (clientDialog) SelectionDialog("Scegli cliente", vm.state.clients.map { it.name to it.id }, onDismiss = { clientDialog = false }) { id -> clientDialog = false; vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; client = it.name; printPrice = it.defaultPrintPrice.takeIf { v -> v > 0 }?.toString().orEmpty() } }
     if (fabricDialog) InventoryPickerDialog(
         title = "Scegli tessuto dal magazzino",
-        inventoryItems = vm.state.inventory,
+        inventoryItems = vm.activeInventory(),
         initialOwner = client.takeIf { it.isNotBlank() },
         onDismiss = { fabricDialog = false },
         onSelected = { item -> fabricDialog = false; fabricId = item.id }
@@ -308,7 +303,6 @@ private fun NegativeForm(vm: SpectroViewModel, p: SpectroPalette, editing: Produ
     var fabricCost by remember(editing?.id) { mutableStateOf(editing?.fabricLossCost?.takeIf { it > 0 }?.toString().orEmpty()) }
     var fixed by remember(editing?.id) { mutableStateOf(editing?.applyFixedCosts ?: true) }
     var images by remember(editing?.id) { mutableStateOf(editing?.images ?: emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     SpectroCard(p = p) {
         Text("Evento negativo", color = p.danger, fontWeight = FontWeight.Black, fontSize = 20.sp)
         Spacer(Modifier.height(14.dp)); WheelDateField("Data evento", date, { date = it })
@@ -316,7 +310,7 @@ private fun NegativeForm(vm: SpectroViewModel, p: SpectroPalette, editing: Produ
         Spacer(Modifier.height(12.dp)); SpectroTextField("Rimborso / extra €", refund, { refund = it }, numeric = true)
         Spacer(Modifier.height(12.dp)); SpectroTextField("Costo tessuto buttato €", fabricCost, { fabricCost = it }, numeric = true)
         Spacer(Modifier.height(12.dp)); Row(verticalAlignment = Alignment.CenterVertically) { Text("Includi costi fissi?", Modifier.weight(1f), fontWeight = FontWeight.Bold); Switch(fixed, { fixed = it }) }
-        Spacer(Modifier.height(14.dp)); OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("Allega prova") }
+        Spacer(Modifier.height(14.dp)); AttachmentSourceButtons(onImported = { images = (images + it).distinct() }, galleryLabel = "Prova esistente")
         if (images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
         Spacer(Modifier.height(16.dp)); GradientButton("Registra perdita / evento", p) { vm.saveProduction(ProductionRecord(id = editing?.id ?: 0L, type = RecordType.NEGATIVE, date = date, clientName = "EVENTO NEGATIVO", technicalNotes = description.trim(), images = images, refundCost = refund.toDoubleSafe(), fabricLossCost = fabricCost.toDoubleSafe(), applyFixedCosts = fixed)); onDone() }
     }

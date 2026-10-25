@@ -134,9 +134,6 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var inventoryDialog by remember { mutableStateOf(false) }
     var allocations by remember(editing?.id) { mutableStateOf<Map<Long, Double>>(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }
-    }
     val inventory = vm.state.inventory.firstOrNull { it.id == inventoryId }
     val calc = CottonOrder(
         id = editing?.id ?: 0, orderCode = editing?.orderCode.orEmpty(), clientId = clientId, clientName = clientName,
@@ -181,7 +178,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Prodotti mt", produced, { produced = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Consegnati mt", delivered, { delivered = it }, Modifier.weight(1f), numeric = true) } }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Difettosi", defective, { defective = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Campioni", samples, { samples = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Avanzati", leftover, { leftover = it }, Modifier.weight(1f), numeric = true) } }
                 item { SimpleSelectField("Stato", workStatusLabel(status), WorkStatus.entries.map { it to workStatusLabel(it) }) { status = it } }
-                item { OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Allega immagini ordine") } }
+                item { AttachmentSourceButtons(onImported = { images = (images + it).distinct() }) }
                 if (images.isNotEmpty()) item { ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
                 item { SpectroTextField("Note", notes, { notes = it }, singleLine = false) }
                 item { SpectroCard(p = p) { Text("Riepilogo economico", fontWeight = FontWeight.Black); Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Ricavo", euro(calc.grossRevenue), modifier = Modifier.weight(1f)); Metric("Costi", euro(calc.totalCost), modifier = Modifier.weight(1f)); Metric("Margine", euro(calc.margin), valueColor = if (calc.margin >= 0) p.success else p.danger, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(5.dp)); Text("Margine ${"%.2f".format(calc.marginPercent)}%", color = p.textMuted) } }
@@ -208,7 +205,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     if (inventoryDialog) {
         InventoryPickerDialog(
             title = "Scegli tessuto aziendale",
-            inventoryItems = vm.state.inventory,
+            inventoryItems = vm.activeInventory(),
             ownerTypeFilter = OwnerType.HOUSE,
             initialOwner = "AZIENDA",
             onDismiss = { inventoryDialog = false },

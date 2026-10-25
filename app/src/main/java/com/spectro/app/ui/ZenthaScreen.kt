@@ -359,7 +359,8 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 }
                 item { SectionTitle("Costi extra", "+ Aggiungi") { extras = extras + ZenthaExtraDraft() } }
                 items(extras.size) { index -> val e = extras[index]; Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Voce", e.label, { v -> extras = extras.toMutableList().also { it[index] = e.copy(label = v) } }, Modifier.weight(1.4f)); SpectroTextField("Importo €", e.amount, { v -> extras = extras.toMutableList().also { it[index] = e.copy(amount = v) } }, Modifier.weight(1f), numeric = true); IconButton(onClick = { extras = extras.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) } } }
-                item { OutlinedButton(onClick = { picker.launch("*/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AttachFile, null); Spacer(Modifier.width(6.dp)); Text("Allega PDF o immagine ordine") } }
+                item { AttachmentSourceButtons(onImported = { attachments = (attachments + it).distinct() }) }
+                item { OutlinedButton(onClick = { picker.launch("application/pdf") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AttachFile, null); Spacer(Modifier.width(6.dp)); Text("Allega documento PDF") } }
                 if (attachments.isNotEmpty()) item { Text("${attachments.size} allegati salvati", color = p.textMuted, fontWeight = FontWeight.Bold) }
                 item { SpectroTextField("Note", notes, { notes = it }, singleLine = false) }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Quota A %", splitA, { splitA = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Quota B %", splitB, { splitB = it }, Modifier.weight(1f), numeric = true) } }

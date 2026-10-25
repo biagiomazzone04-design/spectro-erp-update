@@ -91,10 +91,13 @@ class SpectroRepository(context: Context) {
     }
 
     fun deleteInventory(id: Long) {
-        require(db.getProduction().none { it.fabricId == id } && db.getCottonOrders().none { it.inventoryId == id }) { "Questo tessuto è collegato allo storico. Non può essere eliminato." }
-        require(db.getRollUsages().none { it.inventoryId == id }) { "Questo tessuto ha movimenti collegati a ordini. Imposta la giacenza a zero invece di eliminarlo." }
-        db.transaction { sql -> db.getFabricRolls(sql).filter { it.inventoryId == id }.forEach { db.deleteFabricRoll(it.id, sql) }; db.deleteInventory(id, sql) }
+        require(db.getInventoryById(id) != null) { "Tessuto non trovato." }
+        // L'eliminazione operativa è un archivio: scompare dal magazzino attuale,
+        // ma colli, movimenti, costi e collegamenti produttivi restano consultabili.
+        db.setInventoryArchived(id, true)
     }
+
+    fun restoreInventory(id: Long) = db.setInventoryArchived(id, false)
 
     fun saveSettings(settings: AppSettings) {
         require(settings.dailyFixedCost >= 0 && settings.plotterX1Cost >= 0 && settings.plotterX2Cost >= 0 && settings.protectionPaperCost >= 0) { "I parametri di costo non possono essere negativi." }
@@ -485,7 +488,15 @@ class SpectroRepository(context: Context) {
         }
         var imported = 0
         workOrders.forEach { order ->
-            val existing = db.getWorkOrderById(order.id, sql)
+            var existing = db.getWorkOrderById(order.id, sql)
+            if (existing == null && order.orderCode.isNotBlank()) {
+                existing = db.getWorkOrderByCode(order.orderCode, sql)
+                if (existing != null && order.id < 0) {
+                    db.adoptCloudWorkOrderId(existing.id, order.id, sql)
+                    existing = db.getWorkOrderById(order.id, sql)
+                    imported++
+                }
+            }
             if (existing == null || order.id in forcedWorkOrders) {
                 db.upsertCloudWorkOrder(order.copy(images = existing?.images ?: order.images, clientId = order.clientId ?: existing?.clientId), sql)
                 imported++

@@ -170,7 +170,6 @@ private fun IssueEditorSheet(vm: SpectroViewModel, p: SpectroPalette, editing: C
     var description by remember(editing?.id) { mutableStateOf(editing?.description.orEmpty()) }
     var internalNotes by remember(editing?.id) { mutableStateOf(editing?.internalNotes.orEmpty()) }
     var images by remember(editing?.id) { mutableStateOf(editing?.evidenceImages ?: emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -192,7 +191,7 @@ private fun IssueEditorSheet(vm: SpectroViewModel, p: SpectroPalette, editing: C
             }
             item { SpectroTextField("Descrizione / fatti", description, { description = it }, placeholder = "Cosa è successo, cosa è stato richiesto, cosa mancava…", singleLine = false) }
             item { SpectroTextField("Note interne", internalNotes, { internalNotes = it }, placeholder = "Informazioni solo per uso interno", singleLine = false) }
-            item { OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("Aggiungi foto / screenshot come prova") }; if (images.isNotEmpty()) { Spacer(Modifier.height(10.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } } }
+            item { AttachmentSourceButtons(onImported = { images = (images + it).distinct() }, galleryLabel = "Prova esistente"); if (images.isNotEmpty()) { Spacer(Modifier.height(10.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } } }
             item { GradientButton("Salva criticità", p, icon = Icons.Rounded.VerifiedUser) { vm.saveClientIssue(ClientIssue(editing?.id ?: 0L, clientId, clientName.trim(), orderRef.trim(), title.trim(), category, responsibility, severity, status, opened, expected, revised, delay.toIntOrNull() ?: 0, description.trim(), internalNotes.trim(), images)); onDismiss() } }
         }
     }
@@ -236,13 +235,12 @@ private fun IssueUpdateSheet(vm: SpectroViewModel, p: SpectroPalette, issue: Cli
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var note by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         Column(Modifier.fillMaxWidth().padding(20.dp).navigationBarsPadding()) {
             Text("Aggiorna cronologia", fontSize = 24.sp, fontWeight = FontWeight.Black); Text(issue.title, color = p.textMuted)
             Spacer(Modifier.height(14.dp)); WheelDateField("Data", date, { date = it })
             Spacer(Modifier.height(12.dp)); SpectroTextField("Nota evento", note, { note = it }, placeholder = "Es. cliente ha inviato il nuovo file alle 16:20", singleLine = false)
-            Spacer(Modifier.height(12.dp)); OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("Aggiungi nuova prova") }
+            Spacer(Modifier.height(12.dp)); AttachmentSourceButtons(onImported = { images = (images + it).distinct() }, galleryLabel = "Prova esistente")
             if (images.isNotEmpty()) { Spacer(Modifier.height(10.dp)); ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } } }
             Spacer(Modifier.height(16.dp)); GradientButton("Aggiungi alla timeline", p) { vm.addIssueUpdate(IssueUpdate(issueId = issue.id, date = date, note = note.trim(), images = images)); onDismiss() }
         }

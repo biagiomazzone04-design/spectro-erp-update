@@ -280,7 +280,6 @@ private fun AddTimelineEventDialog(vm: SpectroViewModel, p: SpectroPalette, orde
     var description by remember(order.id) { mutableStateOf(draft?.description.orEmpty()) }
     var newDue by remember(order.id) { mutableStateOf(draft?.newDue.orEmpty()) }
     var images by remember(order.id) { mutableStateOf(draft?.images ?: emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
 
     LaunchedEffect(date, category, responsibility, severity, title, description, newDue, images) {
         DraftStore.saveTimeline(context, order.id, TimelineDraft(date, category.name, responsibility.name, severity.name, title, description, newDue, images))
@@ -299,7 +298,7 @@ private fun AddTimelineEventDialog(vm: SpectroViewModel, p: SpectroPalette, orde
                 item { SpectroTextField("Titolo", title, { title = it }, placeholder = "Es. File DXF differente") }
                 item { SpectroTextField("Descrizione dettagliata", description, { description = it }, singleLine = false) }
                 item { WheelDateField("Nuova consegna (se varia)", newDue, { newDue = it }, allowEmpty = true) }
-                item { OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Allega immagini") } }
+                item { AttachmentSourceButtons(onImported = { images = (images + it).distinct() }) }
                 if (images.isNotEmpty()) item { ImageStrip(images) { i -> images = images.filterIndexed { idx, _ -> idx != i } } }
             }
         },

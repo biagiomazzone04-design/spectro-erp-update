@@ -205,7 +205,8 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     fun createInventoryWithRolls(v: InventoryItem, rolls: List<FabricRollInput>) = runWrite(AppPermission.INVENTORY_MANAGE, "Carico tessuto salvato") { repo.createInventoryWithRolls(v, rolls) }
     fun addRoll(inventoryId: Long, code: String, meters: Double, note: String = "", images: List<String> = emptyList()) = runWrite(AppPermission.INVENTORY_MANAGE, "Collo aggiunto") { repo.addRoll(inventoryId, code, meters, note, images) }
     fun adjustRoll(rollId: Long, newMeters: Double, note: String) = runWrite(AppPermission.INVENTORY_MANAGE, "Giacenza collo rettificata") { repo.adjustRoll(rollId, newMeters, note) }
-    fun deleteInventory(id: Long) = runWrite(AppPermission.INVENTORY_MANAGE, "Tessuto eliminato") { repo.deleteInventory(id) }
+    fun deleteInventory(id: Long) = runWrite(AppPermission.INVENTORY_MANAGE, "Tessuto archiviato: lo trovi nello Storico") { repo.deleteInventory(id) }
+    fun restoreInventory(id: Long) = runWrite(AppPermission.INVENTORY_MANAGE, "Tessuto ripristinato nel magazzino") { repo.restoreInventory(id) }
 
     fun saveProduction(v: ProductionRecord, rollAllocations: Map<Long, Double> = emptyMap()) = runWrite(AppPermission.PRODUCTION_MANAGE, "Registrazione produttiva salvata") { repo.saveProduction(v, rollAllocations) }
     fun deleteProduction(id: Long) = runWrite(AppPermission.PRODUCTION_MANAGE, "Registrazione eliminata e magazzino riallineato") { repo.deleteProduction(id) }
@@ -388,7 +389,9 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
     )
 
     fun rollsForInventory(inventoryId: Long): List<FabricRoll> = state.fabricRolls.filter { it.inventoryId == inventoryId }.sortedBy { it.id }
-    fun activeInventory(): List<InventoryItem> = state.inventory.filter { it.quantityMeters > .0001 }
+    fun activeRollsForInventory(inventoryId: Long): List<FabricRoll> = rollsForInventory(inventoryId).filter { it.availableMeters > .0001 }
+    fun depletedRollsForInventory(inventoryId: Long): List<FabricRoll> = rollsForInventory(inventoryId).filter { it.availableMeters <= .0001 }
+    fun activeInventory(): List<InventoryItem> = state.inventory.filter { !it.archived && it.quantityMeters > .0001 }
     fun inventoryHistory(): List<InventoryItem> = state.inventory.sortedWith(compareByDescending<InventoryItem> { it.createdDate }.thenByDescending { it.id })
     fun movementsForRoll(rollId: Long): List<StockMovement> = state.stockMovements.filter { it.rollId == rollId }.sortedByDescending { it.dateTime }
     fun timelineForOrder(workOrderId: Long): List<OrderTimelineEvent> = state.timelineEvents.filter { it.workOrderId == workOrderId }.sortedWith(compareBy<OrderTimelineEvent> { it.date }.thenBy { it.time }.thenBy { it.id })

@@ -89,7 +89,7 @@ function cells(module: string, row: CloudRecord, records: CloudRecord[]) {
         `<strong>${esc(text(x.ownerName))}</strong><small>${esc(label(x.ownerType))}</small>`,
         `<strong>${num(x.quantityMeters)} m</strong><small>Soglia ${num(x.minimumQuantityMeters)} m</small>`,
         `<strong>${esc(text(x.lotCode))}</strong><small>${related(records, 'fabric_roll', 'inventoryId', x.id).length} colli</small>`,
-        low ? '<span class="status danger">Sotto soglia</span>' : '<span class="status ok">Disponibile</span>']
+        x.archived === true ? '<span class="status neutral">In archivio</span>' : low ? '<span class="status danger">Sotto soglia</span>' : '<span class="status ok">Disponibile</span>']
     }
     case 'clients': {
       const id = x.id
@@ -300,7 +300,9 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
   }
   if (module === 'inventory') {
     const rolls = related(records, 'fabric_roll', 'inventoryId', x.id)
-    relatedHtml = `<section class="detail-section"><h3>Colli e disponibilità <span>${rolls.length}</span></h3>${rolls.map(item => `<div class="linked-row"><b>${esc(text(p(item).rollCode))}</b><span>${num(p(item).availableMeters)} m disponibili su ${num(p(item).initialMeters)} m · ${esc(label(p(item).status))}</span></div>`).join('') || '<p class="muted">Nessun collo collegato.</p>'}</section>`
+    const activeRolls = rolls.filter(item => Number(p(item).availableMeters || 0) > .0001)
+    const depletedRolls = rolls.filter(item => Number(p(item).availableMeters || 0) <= .0001)
+    relatedHtml = `<section class="detail-section"><h3>Colli disponibili <span>${activeRolls.length}</span></h3>${activeRolls.map(item => `<div class="linked-row"><b>${esc(text(p(item).rollCode))}</b><span>${num(p(item).availableMeters)} m disponibili su ${num(p(item).initialMeters)} m · ${esc(label(p(item).status))}</span></div>`).join('') || '<p class="muted">Nessun collo attivo: il materiale resta consultabile nello storico.</p>'}</section>${depletedRolls.length ? `<section class="detail-section inventory-history"><details><summary>Storico colli esauriti <span>${depletedRolls.length}</span></summary>${depletedRolls.map(item => `<div class="linked-row"><b>${esc(text(p(item).rollCode))}</b><span>0 m disponibili su ${num(p(item).initialMeters)} m · Esaurito</span></div>`).join('')}</details></section>` : ''}`
   }
   if (module === 'production') {
     const designs = Array.isArray(x.designs) ? x.designs : String(x.designs || '').split(',').map(value => value.trim()).filter(Boolean)
@@ -438,6 +440,7 @@ export function renderAnalyticalModule(
 ) {
   const types = primaryTypes[module.key] || []
   const primary = records.filter(row => types.includes(row.entity_type))
+  const rowStatus = (row: CloudRecord) => p(row).archived === true ? 'ARCHIVED' : String(p(row).status || (p(row).paid === true ? 'PAID' : 'OPEN'))
   const products = module.key === 'zentha' ? records.filter(row => row.entity_type === 'zentha_product') : []
   const clients = records.filter(row => row.entity_type === 'client').sort((a,b) => text(p(a).name).localeCompare(text(p(b).name),'it'))
   const workOrders = records.filter(row => row.entity_type === 'work_order' && !terminalStatus.test(String(p(row).status || '')))
@@ -466,7 +469,7 @@ export function renderAnalyticalModule(
     ${module.key === 'production' ? `<div id="production-analysis">${productionAnalytics(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>` : ''}
     ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
     <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">${module.key === 'tasks' ? 'ARCHIVIO E PIANIFICAZIONE' : 'CENTRO OPERATIVO'}</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
-      <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(String(p(row).status || ''))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || p(row).status))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(String(p(row).status || ''))).length}</b></button></div>
+      <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(rowStatus(row))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus(row)))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(rowStatus(row))).length}</b></button></div>
       <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="sort-filter" aria-label="Ordina risultati"><option value="date_desc">Data: più recenti prima</option><option value="date_asc">Data: meno recenti prima</option><option value="updated_desc">Ultima modifica</option><option value="client_asc">Cliente: A–Z</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table class="module-table ${esc(module.key)}"><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
@@ -651,11 +654,11 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#module-insights')!.innerHTML = moduleInsights(periodRows)
     if (module.key === 'production') root.querySelector<HTMLElement>('#production-analysis')!.innerHTML = productionAnalytics(periodRows)
     visibleRows = periodRows.filter(row => {
-      const rowStatus = String(p(row).status || (p(row).paid ? 'PAID' : 'OPEN'))
-      const viewMatch = currentView === 'all' || (currentView === 'operative' && !terminalStatus.test(rowStatus)) ||
-        (currentView === 'archive' && terminalStatus.test(rowStatus)) ||
-        (currentView === 'attention' && (isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus))))
-      return viewMatch && JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || rowStatus === selected)
+      const effectiveStatus = rowStatus(row)
+      const viewMatch = currentView === 'all' || (currentView === 'operative' && !terminalStatus.test(effectiveStatus)) ||
+        (currentView === 'archive' && terminalStatus.test(effectiveStatus)) ||
+        (currentView === 'attention' && (isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || effectiveStatus))))
+      return viewMatch && JSON.stringify(p(row)).toLowerCase().includes(term) && (!selected || effectiveStatus === selected)
     }).sort((a,b) => {
       if (sort.value === 'date_asc') return moduleDate(a).localeCompare(moduleDate(b)) || a.updated_at.localeCompare(b.updated_at)
       if (sort.value === 'updated_desc') return b.updated_at.localeCompare(a.updated_at)

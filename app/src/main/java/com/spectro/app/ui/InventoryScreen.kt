@@ -1,7 +1,5 @@
 package com.spectro.app.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,13 +10,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
-import com.spectro.app.util.AttachmentStore
 import java.time.LocalDate
 
 private data class NewRollDraft(
@@ -102,7 +98,7 @@ fun InventoryScreen(vm: SpectroViewModel, p: SpectroPalette) {
             if (groups.isEmpty()) item { EmptyState(Icons.Rounded.Inventory2, "Nessun tessuto disponibile", "I tessuti esauriti vengono spostati automaticamente nello Storico") }
 
             items(groups, key = { it.first }) { (owner, fabrics) ->
-                val rolls = fabrics.flatMap { vm.rollsForInventory(it.id) }
+                val rolls = fabrics.flatMap { vm.activeRollsForInventory(it.id) }
                 SpectroCard(p = p, onClick = { selectedOwner = owner }) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(Modifier.size(46.dp), contentAlignment = Alignment.Center) {
@@ -193,7 +189,7 @@ private fun InventoryOwnerSheet(
         .sortedWith(compareBy<InventoryItem> { it.fabricName.lowercase() }.thenBy { it.variant.lowercase() })
     val groups = fabrics.groupBy { it.fabricName.trim().uppercase() }.toList().sortedBy { it.first }
     val totalMeters = fabrics.sumOf { it.quantityMeters }
-    val rolls = fabrics.flatMap { vm.rollsForInventory(it.id) }
+    val rolls = fabrics.flatMap { vm.activeRollsForInventory(it.id) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -249,7 +245,7 @@ private fun InventoryFabricGroupSheet(
     val entries = vm.state.inventory.filter { it.id in ids }.sortedByDescending { it.createdDate }
     val fabricName = entries.firstOrNull()?.fabricName?.uppercase() ?: initialItems.firstOrNull()?.fabricName?.uppercase().orEmpty()
     val ownerName = entries.firstOrNull()?.ownerName ?: initialItems.firstOrNull()?.ownerName.orEmpty()
-    val allRolls = entries.flatMap { vm.rollsForInventory(it.id) }
+    val allRolls = entries.flatMap { vm.activeRollsForInventory(it.id) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -268,7 +264,7 @@ private fun InventoryFabricGroupSheet(
             }
             item { SectionTitle("Carichi, lotti e colli") }
             items(entries, key = { it.id }) { item ->
-                val rolls = vm.rollsForInventory(item.id)
+                val rolls = vm.activeRollsForInventory(item.id)
                 SpectroCard(p = p) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -305,7 +301,6 @@ private fun InventoryFabricGroupSheet(
 
 @Composable
 private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit) {
-    val context = LocalContext.current
     var ownerType by remember { mutableStateOf(OwnerType.CLIENT) }
     var clientId by remember { mutableStateOf<Long?>(null) }
     var fabric by remember { mutableStateOf("") }
@@ -320,14 +315,7 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
     var minimum by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var rolls by remember { mutableStateOf(listOf(NewRollDraft())) }
-    var imageTarget by remember { mutableStateOf<Int?>(null) }
     val ownerName = if (ownerType == OwnerType.HOUSE) "AZIENDA" else vm.state.clients.firstOrNull { it.id == clientId }?.name.orEmpty()
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
-        val index = imageTarget ?: return@rememberLauncherForActivityResult
-        val imported = uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() }
-        if (imported.isNotEmpty() && index in rolls.indices) rolls = rolls.toMutableList().also { list -> list[index] = list[index].copy(images = list[index].images + imported) }
-        imageTarget = null
-    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -359,7 +347,7 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
                             if (rolls.size > 1) IconButton(onClick = { rolls = rolls.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
                         }
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(onClick = { imageTarget = index; picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Foto del collo") }
+                        AttachmentSourceButtons(onImported = { imported -> rolls = rolls.toMutableList().also { list -> list[index] = list[index].copy(images = (list[index].images + imported).distinct()) } })
                         if (rolls[index].images.isNotEmpty()) { Spacer(Modifier.height(8.dp)); ImageStrip(rolls[index].images) { removeIndex -> rolls = rolls.toMutableList().also { list -> list[index] = list[index].copy(images = list[index].images.filterIndexed { i, _ -> i != removeIndex }) } } }
                     }
                 }
@@ -385,13 +373,23 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
 fun InventoryDetailSheet(vm: SpectroViewModel, p: SpectroPalette, item: InventoryItem, onDismiss: () -> Unit) {
     var addRoll by remember { mutableStateOf(false) }
     var adjust by remember { mutableStateOf<FabricRoll?>(null) }
+    var editOpen by remember { mutableStateOf(false) }
+    var archiveConfirm by remember { mutableStateOf(false) }
+    var showDepleted by remember { mutableStateOf(false) }
     val current = vm.state.inventory.firstOrNull { it.id == item.id } ?: item
-    val rolls = vm.rollsForInventory(current.id)
+    val rolls = vm.activeRollsForInventory(current.id)
+    val depletedRolls = vm.depletedRollsForInventory(current.id)
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp, 0.dp, 20.dp, 48.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Text(current.fabricName.uppercase(), fontSize = 25.sp, fontWeight = FontWeight.Black, color = p.text)
                 Text(current.ownerName, color = p.textMuted)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { editOpen = true }, Modifier.weight(1f)) { Icon(Icons.Rounded.Edit, null); Spacer(Modifier.width(6.dp)); Text("Modifica") }
+                    if (current.archived) OutlinedButton(onClick = { vm.restoreInventory(current.id); onDismiss() }, Modifier.weight(1f)) { Icon(Icons.Rounded.Restore, null); Spacer(Modifier.width(6.dp)); Text("Ripristina") }
+                    else OutlinedButton(onClick = { archiveConfirm = true }, Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = p.danger)) { Icon(Icons.Rounded.Archive, null); Spacer(Modifier.width(6.dp)); Text("Archivia") }
+                }
             }
             item {
                 SpectroCard(p = p) {
@@ -416,6 +414,7 @@ fun InventoryDetailSheet(vm: SpectroViewModel, p: SpectroPalette, item: Inventor
                 }
             }
             item { SectionTitle("Colli caricati") }
+            if (rolls.isEmpty()) item { Text("Nessun collo attivo. I colli esauriti sono conservati nello storico sottostante.", color = p.textMuted) }
             items(rolls, key = { it.id }) { roll ->
                 SpectroCard(p = p) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -428,27 +427,82 @@ fun InventoryDetailSheet(vm: SpectroViewModel, p: SpectroPalette, item: Inventor
                     Spacer(Modifier.height(8.dp)); OutlinedButton(onClick = { adjust = roll }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Tune, null); Spacer(Modifier.width(6.dp)); Text("Rettifica / inventario") }
                 }
             }
-            item { OutlinedButton(onClick = { addRoll = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi collo") } }
+            if (depletedRolls.isNotEmpty()) item {
+                OutlinedButton(onClick = { showDepleted = !showDepleted }, Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.History, null); Spacer(Modifier.width(6.dp)); Text(if (showDepleted) "Nascondi colli esauriti" else "Storico colli esauriti (${depletedRolls.size})")
+                }
+            }
+            if (showDepleted) items(depletedRolls, key = { "depleted-${it.id}" }) { roll ->
+                SpectroCard(p = p) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { Text(roll.rollCode, fontWeight = FontWeight.Black); Text("Esaurito • iniziali ${meters(roll.initialMeters)}", color = p.textMuted, fontSize = 12.sp) }
+                        AssistChip(onClick = {}, label = { Text("0 mt") })
+                    }
+                    val moves = vm.movementsForRoll(roll.id)
+                    if (moves.isNotEmpty()) { Spacer(Modifier.height(8.dp)); moves.take(6).forEach { movement -> Text("${movement.dateTime.take(16).replace('T',' ')}  ${movement.meters} mt  ${movement.orderRef}", color = p.textMuted, fontSize = 11.sp) } }
+                }
+            }
+            if (!current.archived) item { OutlinedButton(onClick = { addRoll = true }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi collo") } }
         }
     }
     if (addRoll) AddRollDialog(vm, current.id) { addRoll = false }
     adjust?.let { roll -> AdjustRollDialog(vm, roll) { adjust = null } }
+    if (editOpen) EditInventoryDialog(vm, current) { editOpen = false }
+    if (archiveConfirm) AlertDialog(
+        onDismissRequest = { archiveConfirm = false },
+        title = { Text("Archivia tessuto") },
+        text = { Text("Scomparirà dal magazzino attuale, ma carichi, colli, consumi, immagini e costi resteranno nello Storico.") },
+        confirmButton = { TextButton(onClick = { vm.deleteInventory(current.id); archiveConfirm = false; onDismiss() }) { Text("Archivia", color = p.danger) } },
+        dismissButton = { TextButton(onClick = { archiveConfirm = false }) { Text("Annulla") } }
+    )
+}
+
+@Composable
+private fun EditInventoryDialog(vm: SpectroViewModel, item: InventoryItem, onDismiss: () -> Unit) {
+    var ownerName by remember(item.id) { mutableStateOf(item.ownerName) }
+    var fabricName by remember(item.id) { mutableStateOf(item.fabricName) }
+    var supplier by remember(item.id) { mutableStateOf(item.supplierName) }
+    var composition by remember(item.id) { mutableStateOf(item.composition) }
+    var variant by remember(item.id) { mutableStateOf(item.variant) }
+    var lot by remember(item.id) { mutableStateOf(item.lotCode) }
+    var purchase by remember(item.id) { mutableStateOf(item.purchasePricePerMeter.toString()) }
+    var processing by remember(item.id) { mutableStateOf(item.processingCostPerMeter.toString()) }
+    var sale by remember(item.id) { mutableStateOf(item.defaultSalePricePerMeter.toString()) }
+    var minimum by remember(item.id) { mutableStateOf(item.minimumQuantityMeters.toString()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Modifica tessuto", fontWeight = FontWeight.Black) },
+        text = { LazyColumn(Modifier.heightIn(max = 620.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item { SpectroTextField("Proprietario", ownerName, { ownerName = it }) }
+            item { SpectroTextField("Nome tessuto", fabricName, { fabricName = it }) }
+            item { SpectroTextField("Fornitore", supplier, { supplier = it }) }
+            item { SpectroTextField("Composizione", composition, { composition = it }) }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Variante", variant, { variant = it }, Modifier.weight(1f)); SpectroTextField("Lotto", lot, { lot = it }, Modifier.weight(1f)) } }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Acquisto €/mt", purchase, { purchase = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Lavorazioni €/mt", processing, { processing = it }, Modifier.weight(1f), numeric = true) } }
+            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Vendita €/mt", sale, { sale = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Soglia mt", minimum, { minimum = it }, Modifier.weight(1f), numeric = true) } }
+        } },
+        confirmButton = { Button(onClick = {
+            if (ownerName.isNotBlank() && fabricName.isNotBlank()) {
+                vm.saveInventory(item.copy(ownerName = ownerName.trim(), fabricName = fabricName.trim(), supplierName = supplier.trim(), composition = composition.trim(), variant = variant.trim(), lotCode = lot.trim(), purchasePricePerMeter = purchase.toDoubleSafe(), processingCostPerMeter = processing.toDoubleSafe(), defaultSalePricePerMeter = sale.toDoubleSafe(), minimumQuantityMeters = minimum.toDoubleSafe()))
+                onDismiss()
+            }
+        }) { Text("Salva") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } }
+    )
 }
 
 @Composable
 private fun AddRollDialog(vm: SpectroViewModel, inventoryId: Long, onDismiss: () -> Unit) {
-    val context = LocalContext.current
     var code by remember { mutableStateOf("") }
     var meters by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var images by remember { mutableStateOf<List<String>>(emptyList()) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris -> images = images + uris.mapNotNull { runCatching { AttachmentStore.importToPrivateStorage(context, it) }.getOrNull() } }
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Aggiungi collo") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SpectroTextField("Codice collo", code, { code = it }, placeholder = "Automatico se vuoto")
             SpectroTextField("Metri", meters, { meters = it }, numeric = true)
             SpectroTextField("Nota", note, { note = it })
-            OutlinedButton(onClick = { picker.launch("image/*") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi immagini") }
+            AttachmentSourceButtons(onImported = { images = (images + it).distinct() })
             if (images.isNotEmpty()) ImageStrip(images) { idx -> images = images.filterIndexed { i, _ -> i != idx } }
         }
     }, confirmButton = { Button(onClick = { if (meters.toDoubleSafe() > 0) { vm.addRoll(inventoryId, code, meters.toDoubleSafe(), note, images); onDismiss() } }) { Text("Aggiungi") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annulla") } })

@@ -111,12 +111,12 @@ class SupabaseAuthRepository(context: Context) {
         request("/rest/v1/rpc/$functionName", "POST", body, session.accessToken)
     }
 
-    suspend fun uploadStorageObject(bucket: String, path: String, source: File) = withContext(Dispatchers.IO) {
+    suspend fun uploadStorageObject(bucket: String, path: String, source: File, upsert: Boolean = false) = withContext(Dispatchers.IO) {
         require(source.isFile) { "File di sincronizzazione non trovato." }
         val session = validSession() ?: throw IllegalStateException("Sessione scaduta. Accedi di nuovo.")
         val connection = storageConnection(bucket, path, "POST", session.accessToken).apply {
             setRequestProperty("Content-Type", "application/octet-stream")
-            setRequestProperty("x-upsert", "false")
+            setRequestProperty("x-upsert", upsert.toString())
             setFixedLengthStreamingMode(source.length())
             doOutput = true
         }
@@ -140,6 +140,38 @@ class SupabaseAuthRepository(context: Context) {
         val session = validSession() ?: return@withContext
         val connection = storageConnection(bucket, path, "DELETE", session.accessToken)
         try { ensureSuccess(connection) } finally { connection.disconnect() }
+    }
+
+    /** Deletes obsolete objects in bounded batches through the Storage API.
+     * Database metadata is never deleted directly, avoiding orphaned files in
+     * the underlying object store. */
+    suspend fun deleteStorageObjects(bucket: String, paths: Collection<String>) = withContext(Dispatchers.IO) {
+        require(bucket.matches(Regex("[a-z0-9_-]+"))) { "Bucket non valido." }
+        val safePaths = paths.distinct().filter { path ->
+            path.isNotBlank() && !path.startsWith('/') && path.split('/').none { it.isBlank() || it == "." || it == ".." }
+        }
+        if (safePaths.isEmpty()) return@withContext
+        val session = validSession() ?: return@withContext
+        safePaths.chunked(100).forEach { batch ->
+            val connection = (URL("$projectUrl/storage/v1/object/$bucket").openConnection() as HttpURLConnection).apply {
+                requestMethod = "DELETE"
+                connectTimeout = 20_000
+                readTimeout = 120_000
+                setRequestProperty("apikey", anonKey)
+                setRequestProperty("Authorization", "Bearer ${session.accessToken}")
+                setRequestProperty("Accept", "application/json")
+                setRequestProperty("Content-Type", "application/json")
+                doOutput = true
+            }
+            try {
+                val body = JSONObject().put("prefixes", JSONArray(batch)).toString().toByteArray(Charsets.UTF_8)
+                connection.setFixedLengthStreamingMode(body.size)
+                connection.outputStream.use { it.write(body) }
+                ensureSuccess(connection)
+            } finally {
+                connection.disconnect()
+            }
+        }
     }
 
     private fun validSession(): AuthSession? {

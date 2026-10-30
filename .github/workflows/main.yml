@@ -170,7 +170,7 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v3.2.5-BETA15-SYNC-INVENTORY-CAMERA
+          name: SpectroERP-v3.2.6-BETA16-CLOUD-STORAGE-GUARD
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

@@ -51,6 +51,21 @@ class CloudSyncStateTest {
     fun existingAttachmentsForceOnlyOneMirrorUpgrade() {
         assertTrue(requiresAttachmentMirrorUpgrade(currentVersion = 0, hasLocalAttachments = true))
         assertFalse(requiresAttachmentMirrorUpgrade(currentVersion = 0, hasLocalAttachments = false))
-        assertFalse(requiresAttachmentMirrorUpgrade(currentVersion = 1, hasLocalAttachments = true))
+        assertTrue(requiresAttachmentMirrorUpgrade(currentVersion = 1, hasLocalAttachments = true))
+        assertFalse(requiresAttachmentMirrorUpgrade(currentVersion = 2, hasLocalAttachments = true))
+    }
+
+    @Test
+    fun attachmentsUseOneStablePathPerBinaryDigest() {
+        val digest = "ab".repeat(32)
+        val first = contentAddressedAttachmentPath("org-1", digest)
+        val second = contentAddressedAttachmentPath("org-1", digest)
+        assertEquals("org-1/attachments/by-sha256/$digest", first)
+        assertEquals(first, second)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun invalidAttachmentDigestCannotBecomeAStoragePath() {
+        contentAddressedAttachmentPath("org-1", "not-a-sha256")
     }
 }

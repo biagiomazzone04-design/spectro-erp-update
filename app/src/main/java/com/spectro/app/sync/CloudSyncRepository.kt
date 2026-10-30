@@ -50,7 +50,13 @@ internal fun expectedCloudChunkCount(sizeBytes: Long, chunkBytes: Long): Int {
 }
 
 internal fun requiresAttachmentMirrorUpgrade(currentVersion: Int, hasLocalAttachments: Boolean): Boolean =
-    currentVersion < 1 && hasLocalAttachments
+    currentVersion < 2 && hasLocalAttachments
+
+internal fun contentAddressedAttachmentPath(organizationId: String, sha256: String): String {
+    require(organizationId.isNotBlank() && !organizationId.contains('/'))
+    require(sha256.matches(Regex("[0-9a-f]{64}")))
+    return "$organizationId/attachments/by-sha256/$sha256"
+}
 
 class CloudSyncRepository(
     context: Context,
@@ -125,16 +131,29 @@ class CloudSyncRepository(
         repository.saveLocalSyncState(local.copy(pendingChanges = false))
         val snapshot = repository.snapshot()
         val recovery = BackupManager.createRecoveryBackup(appContext, snapshot, "prima_pubblicazione_cloud")
-        val transfer = BackupManager.createCloudTransferBackup(appContext, snapshot)
+        var transfer: File? = null
         val temporaryFiles = mutableListOf<File>()
         val uploadedPaths = mutableListOf<String>()
         try {
-            require(transfer.length() <= MAX_WORKSPACE_BYTES) {
+            val cloudAttachments = linkedMapOf<String, String>()
+            BackupManager.attachmentPaths(snapshot).forEach { localPath ->
+                val source = File(localPath)
+                if (!source.isFile) return@forEach
+                val remotePath = contentAddressedAttachmentPath(access.organizationId, source.sha256())
+                // An identical binary always has the same path. Upsert makes
+                // retries idempotent and never creates a second stored copy.
+                auth.uploadStorageObject(BUCKET, remotePath, source, upsert = true)
+                cloudAttachments[localPath] = remotePath
+            }
+
+            val cloudTransfer = BackupManager.createCloudTransferBackup(appContext, snapshot, cloudAttachments)
+            transfer = cloudTransfer
+            require(cloudTransfer.length() <= MAX_WORKSPACE_BYTES) {
                 "Il workspace supera 1 GB. Esporta un backup manuale e contatta l’assistenza prima della sincronizzazione."
             }
-            val digest = transfer.sha256()
+            val digest = cloudTransfer.sha256()
             val transferId = UUID.randomUUID().toString()
-            val chunks = splitIntoChunks(transfer, transferId).also(temporaryFiles::addAll)
+            val chunks = splitIntoChunks(cloudTransfer, transferId).also(temporaryFiles::addAll)
             val chunkEntries = JSONArray()
             chunks.forEachIndexed { index, chunk ->
                 val path = "${access.organizationId}/workspaces/$transferId-${(index + 1).toString().padStart(4, '0')}.spectrochunk"
@@ -153,7 +172,7 @@ class CloudSyncRepository(
                 writeText(
                     JSONObject()
                         .put("format_version", CHUNKED_FORMAT_VERSION)
-                        .put("size_bytes", transfer.length())
+                        .put("size_bytes", cloudTransfer.length())
                         .put("sha256", digest)
                         .put("chunks", chunkEntries)
                         .toString(),
@@ -165,33 +184,32 @@ class CloudSyncRepository(
             uploadedPaths += manifestPath
             auth.uploadStorageObject(BUCKET, manifestPath, manifest)
 
-            val cloudAttachments = linkedMapOf<String, String>()
-            BackupManager.attachmentPaths(snapshot).forEachIndexed { index, localPath ->
-                val source = File(localPath)
-                if (!source.isFile) return@forEachIndexed
-                val safeName = source.name.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                val remotePath = "${access.organizationId}/attachments/$transferId/${index.toString().padStart(4, '0')}_$safeName"
-                auth.uploadStorageObject(BUCKET, remotePath, source)
-                uploadedPaths += remotePath
-                cloudAttachments[localPath] = remotePath
-            }
-
             val response = try {
-                auth.authenticatedRpc(
-                    "publish_workspace_snapshot_v2",
-                    JSONObject()
+                val commonBody = JSONObject()
                         .put("p_organization_id", access.organizationId)
                         .put("p_expected_revision", local.baseRevision)
                         .put("p_manifest_path", manifestPath)
                         .put("p_manifest_sha256", manifest.sha256())
                         .put("p_manifest_size_bytes", manifest.length())
                         .put("p_archive_sha256", digest)
-                        .put("p_archive_size_bytes", transfer.length())
+                        .put("p_archive_size_bytes", cloudTransfer.length())
                         .put("p_chunk_paths", JSONArray(chunkPaths))
                         .put("p_record_count", snapshot.recordCount)
                         .put("p_device_id", local.deviceId)
                         .put("p_records", BackupManager.toCloudRecords(snapshot, cloudAttachments))
-                )
+                try {
+                    auth.authenticatedRpc(
+                        "publish_workspace_snapshot_v3",
+                        JSONObject(commonBody.toString())
+                            .put("p_attachment_paths", JSONArray(cloudAttachments.values.distinct()))
+                    )
+                } catch (t: Throwable) {
+                    if (t.message.orEmpty().contains("SYNC_CONFLICT")) throw t
+                    if (!t.message.orEmpty().contains("publish_workspace_snapshot_v3", ignoreCase = true)) throw t
+                    // The compact format is already safe without migration 011;
+                    // only automatic removal of old objects waits for v3.
+                    auth.authenticatedRpc("publish_workspace_snapshot_v2", commonBody)
+                }
             } catch (t: Throwable) {
                 if (t.message.orEmpty().contains("SYNC_CONFLICT")) {
                     throw CloudSyncConflictException("Il cloud contiene una revisione più recente. Scaricala prima di pubblicare: nessun dato è stato sovrascritto.")
@@ -203,6 +221,15 @@ class CloudSyncRepository(
             }
 
             val remote = parseRemote(response)
+            val cleanupPaths = response.optJSONArray("cleanup_paths")?.let { paths ->
+                List(paths.length()) { paths.optString(it) }.filter {
+                    it.startsWith("${access.organizationId}/workspaces/") ||
+                        it.startsWith("${access.organizationId}/attachments/")
+                }
+            }.orEmpty()
+            // Cleanup is best-effort and happens only after the new revision
+            // was atomically accepted. A cleanup failure never invalidates it.
+            runCatching { auth.deleteStorageObjects(BUCKET, cleanupPaths) }
             runCatching {
                 try {
                     auth.authenticatedRpc("ack_web_changes", JSONObject().put("p_organization_id", access.organizationId))
@@ -223,7 +250,7 @@ class CloudSyncRepository(
             repository.saveLocalSyncState(saved)
             syncPreferences.edit().putInt(ATTACHMENT_MIRROR_VERSION_KEY, ATTACHMENT_MIRROR_VERSION).apply()
             syncPreferences.edit().putInt(RECORD_MIRROR_VERSION_KEY, RECORD_MIRROR_VERSION).apply()
-            uploadedPaths.clear() // i file sono ora referenziati dalla revisione pubblicata
+            uploadedPaths.clear() // manifest e blocchi sono ora referenziati dalla revisione pubblicata
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
         } catch (t: Throwable) {
             val latestLocal = repository.localSyncState()
@@ -235,7 +262,7 @@ class CloudSyncRepository(
             uploadedPaths.asReversed().forEach { path -> runCatching { auth.deleteStorageObject(BUCKET, path) } }
             throw t
         } finally {
-            transfer.delete()
+            transfer?.delete()
             temporaryFiles.forEach(File::delete)
         }
     }
@@ -253,7 +280,7 @@ class CloudSyncRepository(
             }
             require(transfer.length() == remote.sizeBytes) { "Download incompleto: dimensione del backup cloud non valida." }
             require(transfer.sha256().equals(remote.sha256, ignoreCase = true)) { "Controllo integrità non superato: il backup cloud non verrà applicato." }
-            val incoming = BackupManager.readBackupFile(appContext, transfer)
+            val incoming = materializeCloudAttachments(access, BackupManager.readBackupFile(appContext, transfer))
             require(incoming.recordCount == remote.recordCount) { "Il contenuto cloud non corrisponde al riepilogo pubblicato." }
 
             val recovery = BackupManager.createRecoveryBackup(appContext, repository.snapshot(), "prima_download_cloud")
@@ -349,6 +376,36 @@ class CloudSyncRepository(
     private fun workspaceChunkPath(organizationId: String) =
         Regex("^${Regex.escape(organizationId)}/workspaces/[0-9a-f-]+-[0-9]{4}\\.spectrochunk$")
 
+    private suspend fun materializeCloudAttachments(access: UserAccess, snapshot: SpectroSnapshot): SpectroSnapshot {
+        val prefix = "${access.organizationId}/attachments/"
+        val localByRemote = linkedMapOf<String, String>()
+        BackupManager.attachmentPaths(snapshot).filter { it.startsWith(prefix) }.distinct().forEach { remotePath ->
+            require(remotePath.split('/').none { it.isBlank() || it == "." || it == ".." }) {
+                "Percorso allegato cloud non valido."
+            }
+            val remoteDigest = remotePath.substringAfterLast('/').takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+            val pathDigest = MessageDigest.getInstance("SHA-256")
+                .digest(remotePath.toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+            val target = File(appContext.filesDir, "attachments/cloud_$pathDigest")
+            if (!target.isFile || (remoteDigest != null && !target.sha256().equals(remoteDigest, true))) {
+                val temporary = File(appContext.cacheDir, "cloud-sync/attachment_${UUID.randomUUID()}.tmp")
+                try {
+                    auth.downloadStorageObject(BUCKET, remotePath, temporary)
+                    if (remoteDigest != null) require(temporary.sha256().equals(remoteDigest, true)) {
+                        "Integrità non valida per un allegato cloud."
+                    }
+                    target.parentFile?.mkdirs()
+                    if (!temporary.renameTo(target)) temporary.copyTo(target, overwrite = true)
+                } finally {
+                    temporary.delete()
+                }
+            }
+            localByRemote[remotePath] = target.absolutePath
+        }
+        return BackupManager.remapAttachments(snapshot) { localByRemote[it] ?: it }
+    }
+
     private fun parseRemote(json: JSONObject): RemoteWorkspace {
         val exists = json.optBoolean("exists", json.optLong("revision", 0) > 0)
         return RemoteWorkspace(
@@ -385,7 +442,7 @@ class CloudSyncRepository(
         const val MAX_CHUNKS = 24
         const val MAX_WORKSPACE_BYTES = 1024L * 1024L * 1024L
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
-        const val ATTACHMENT_MIRROR_VERSION = 1
+        const val ATTACHMENT_MIRROR_VERSION = 2
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
         const val RECORD_MIRROR_VERSION = 5
     }

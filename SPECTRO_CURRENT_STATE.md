@@ -1,9 +1,9 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.2.2 Beta 12**.
-- versionCode 29
-- versionName `3.2.2-beta12`
+Base: **Spectro ERP 3.2.6 Beta 16**.
+- versionCode 33
+- versionName `3.2.6-beta16`
 - applicationId `com.spectro.app`
 - SQLite schema 10
 - backup formato v9 (import retrocompatibile)
@@ -49,6 +49,8 @@ Android Beta 10 mantiene la sessione cifrata anche durante errori di rete tempor
 Android Beta 11 rende la bozza Zentha sincrona e resistente anche alla chiusura immediata dell'app, mostra chiaramente quando una bozza è recuperabile e sposta l'editor ordine in una schermata mobile a tutto schermo. Tutti i selettori data mostrano `gg/mm/aaaa` senza spezzare il testo. Il portale aggiunge il primo piano Ordini, ordinato per ritardo e consegna, e un report PDF economico-produttivo generato dalla Dashboard sul periodo selezionato e nel rispetto dei permessi economici.
 
 La Beta 12 elimina il limite casuale dei 500 record tramite paginazione deterministica, riportando nel portale tutti gli ordini Zentha e le relative righe. L'amministratore può creare ordini Zentha completi dal web e modificare quelli esistenti; i nuovi ordini e gli aggiornamenti vengono acquisiti automaticamente da Android con ID locali negativi anticollisione e consolidati dalla pubblicazione successiva. La prima apertura forza una sola ripubblicazione completa del mirror per recuperare anche eventuali ordini precedentemente omessi. Maria mantiene la sola lettura priva dei campi economici. La migrazione cloud 007 ripara inoltre i permessi dei ruoli amministratore preesistenti.
+
+La Beta 16 elimina la crescita incontrollata dello Storage cloud: gli allegati vengono salvati una sola volta per contenuto tramite SHA-256, mentre il workspace contiene soltanto dati e riferimenti. La migrazione cloud 011 restituisce all'app esclusivamente manifest, blocchi e allegati obsoleti della stessa organizzazione; la rimozione fisica avviene via Storage API solo dopo il commit atomico della nuova revisione. I backup manuali e di recupero restano completi e retrocompatibili, mentre il download cloud ricostruisce e verifica gli allegati locali. La prima sincronizzazione con Beta 16 converte automaticamente il workspace e libera le vecchie copie ridondanti.
 
 Il frontend è predisposto per la migrazione indipendente su Cloudflare Workers: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT. La pubblicazione automatica usa la root `web`, il comando di build `npm run build` e il comando di deploy `npx wrangler deploy`.
 

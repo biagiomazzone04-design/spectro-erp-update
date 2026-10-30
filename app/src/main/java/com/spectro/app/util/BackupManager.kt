@@ -30,9 +30,27 @@ object BackupManager {
         return writePortableBackup(context, snapshot, File(dir, "Spectro_Recovery_${safeReason}_${System.currentTimeMillis()}.spectrobackup"))
     }
 
-    fun createCloudTransferBackup(context: Context, snapshot: SpectroSnapshot): File {
+    /**
+     * Cloud workspaces contain only the database snapshot. Attachments are
+     * content-addressed Storage objects and are referenced by their remote
+     * paths, so every synchronization does not duplicate all binary files.
+     * Manual and recovery backups still use [writePortableBackup] and remain
+     * fully self-contained.
+     */
+    fun createCloudTransferBackup(
+        context: Context,
+        snapshot: SpectroSnapshot,
+        cloudAttachments: Map<String, String>
+    ): File {
         val dir = File(context.cacheDir, "cloud-sync").apply { mkdirs() }
-        return writePortableBackup(context, snapshot, File(dir, "workspace_${System.currentTimeMillis()}.spectrobackup"))
+        val file = File(dir, "workspace_${System.currentTimeMillis()}.spectrobackup")
+        val cloudSnapshot = remapAttachments(snapshot) { cloudAttachments[it] ?: it }
+        ZipOutputStream(FileOutputStream(file)).use { zip ->
+            zip.putNextEntry(ZipEntry(DATA_ENTRY))
+            zip.write(cloudSnapshot.toJson().toString(2).toByteArray(Charsets.UTF_8))
+            zip.closeEntry()
+        }
+        return file
     }
 
     fun writePortableBackup(context: Context, snapshot: SpectroSnapshot, file: File): File {
@@ -49,7 +67,7 @@ object BackupManager {
                 replacements[path] = ATTACHMENT_PREFIX + entryName
                 zip.putNextEntry(ZipEntry(entryName)); source.inputStream().use { it.copyTo(zip) }; zip.closeEntry()
             }
-            val portable = snapshot.mapAttachments { replacements[it] ?: it }
+            val portable = remapAttachments(snapshot) { replacements[it] ?: it }
             zip.putNextEntry(ZipEntry(DATA_ENTRY)); zip.write(portable.toJson().toString(2).toByteArray(Charsets.UTF_8)); zip.closeEntry()
         }
         return file
@@ -149,22 +167,22 @@ object BackupManager {
                 zip.closeEntry(); entry = zip.nextEntry
             }
         }
-        return JSONObject(requireNotNull(jsonText) { "Backup Spectro non valido: manca data.json." }).toSnapshot().mapAttachments { restoredPaths[it] ?: it }
+        return remapAttachments(JSONObject(requireNotNull(jsonText) { "Backup Spectro non valido: manca data.json." }).toSnapshot()) { restoredPaths[it] ?: it }
     }
 
-    private fun SpectroSnapshot.mapAttachments(transform: (String) -> String) = copy(
-        inventory = inventory.map { it.copy(images = it.images.map(transform)) },
-        fabricRolls = fabricRolls.map { it.copy(images = it.images.map(transform)) },
-        production = production.map { it.copy(images = it.images.map(transform)) },
-        workOrders = workOrders.map { it.copy(images = it.images.map(transform)) },
-        clientIssues = clientIssues.map { it.copy(evidenceImages = it.evidenceImages.map(transform)) },
-        issueUpdates = issueUpdates.map { it.copy(images = it.images.map(transform)) },
-        timelineEvents = timelineEvents.map { it.copy(images = it.images.map(transform)) },
-        cottonOrders = cottonOrders.map { it.copy(images = it.images.map(transform)) },
-        zenthaProducts = zenthaProducts.map { it.copy(imagePath = it.imagePath.takeIf { path -> path.isNotBlank() }?.let(transform).orEmpty()) },
-        zenthaOrders = zenthaOrders.map { it.copy(attachments = it.attachments.map(transform)) },
-        economicWorks = economicWorks.map { it.copy(images = it.images.map(transform)) },
-        operationalTasks = operationalTasks.map { it.copy(images = it.images.map(transform)) }
+    fun remapAttachments(snapshot: SpectroSnapshot, transform: (String) -> String) = snapshot.copy(
+        inventory = snapshot.inventory.map { it.copy(images = it.images.map(transform)) },
+        fabricRolls = snapshot.fabricRolls.map { it.copy(images = it.images.map(transform)) },
+        production = snapshot.production.map { it.copy(images = it.images.map(transform)) },
+        workOrders = snapshot.workOrders.map { it.copy(images = it.images.map(transform)) },
+        clientIssues = snapshot.clientIssues.map { it.copy(evidenceImages = it.evidenceImages.map(transform)) },
+        issueUpdates = snapshot.issueUpdates.map { it.copy(images = it.images.map(transform)) },
+        timelineEvents = snapshot.timelineEvents.map { it.copy(images = it.images.map(transform)) },
+        cottonOrders = snapshot.cottonOrders.map { it.copy(images = it.images.map(transform)) },
+        zenthaProducts = snapshot.zenthaProducts.map { it.copy(imagePath = it.imagePath.takeIf { path -> path.isNotBlank() }?.let(transform).orEmpty()) },
+        zenthaOrders = snapshot.zenthaOrders.map { it.copy(attachments = it.attachments.map(transform)) },
+        economicWorks = snapshot.economicWorks.map { it.copy(images = it.images.map(transform)) },
+        operationalTasks = snapshot.operationalTasks.map { it.copy(images = it.images.map(transform)) }
     )
 
     private fun SpectroSnapshot.toJson() = JSONObject().apply {

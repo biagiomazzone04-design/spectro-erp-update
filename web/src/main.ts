@@ -139,7 +139,7 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
       <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
       <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
-      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.5 · Build 15</small></div></div>
+      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.6 · Build 16</small></div></div>
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">

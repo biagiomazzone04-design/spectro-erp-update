@@ -68,4 +68,12 @@ class CloudSyncStateTest {
     fun invalidAttachmentDigestCannotBecomeAStoragePath() {
         contentAddressedAttachmentPath("org-1", "not-a-sha256")
     }
+
+    @Test
+    fun interruptedCommitFromSameDeviceCanRebaseSafely() {
+        val local = LocalSyncState(baseRevision = 20, deviceId = "phone-a", pendingChanges = true)
+        assertTrue(canRebaseOwnCommittedRevision(local, RemoteWorkspace(exists = true, revision = 21, deviceId = "phone-a")))
+        assertFalse(canRebaseOwnCommittedRevision(local, RemoteWorkspace(exists = true, revision = 21, deviceId = "phone-b")))
+        assertFalse(canRebaseOwnCommittedRevision(local, RemoteWorkspace(exists = true, revision = 20, deviceId = "phone-a")))
+    }
 }

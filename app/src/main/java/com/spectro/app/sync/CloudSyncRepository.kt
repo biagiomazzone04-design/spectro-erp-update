@@ -58,6 +58,10 @@ internal fun contentAddressedAttachmentPath(organizationId: String, sha256: Stri
     return "$organizationId/attachments/by-sha256/$sha256"
 }
 
+internal fun canRebaseOwnCommittedRevision(local: LocalSyncState, remote: RemoteWorkspace): Boolean =
+    remote.exists && remote.revision > local.baseRevision &&
+        remote.deviceId.isNotBlank() && remote.deviceId == local.deviceId
+
 class CloudSyncRepository(
     context: Context,
     private val auth: SupabaseAuthRepository,
@@ -125,7 +129,29 @@ class CloudSyncRepository(
 
     suspend fun publish(access: UserAccess): SyncTransferResult {
         importPendingWebZentha(access)
-        val local = localStateFor(access.organizationId)
+        var local = localStateFor(access.organizationId)
+        val currentRemote = parseRemote(
+            auth.authenticatedRpc(
+                "get_workspace_sync_state",
+                JSONObject().put("p_organization_id", access.organizationId)
+            )
+        )
+        if (currentRemote.revision != local.baseRevision) {
+            if (!canRebaseOwnCommittedRevision(local, currentRemote)) {
+                throw CloudSyncConflictException(
+                    "Il cloud contiene una revisione di un altro dispositivo. Verifica lo stato cloud prima di pubblicare: nessun dato è stato sovrascritto."
+                )
+            }
+            // The server committed a previous upload from this installation,
+            // but Android was interrupted before persisting its revision. Move
+            // the optimistic base forward and publish the current local state.
+            local = local.copy(
+                baseRevision = currentRemote.revision,
+                lastSeenRemoteRevision = currentRemote.revision,
+                lastError = "",
+                pendingChanges = true
+            ).also(repository::saveLocalSyncState)
+        }
         // Claim the currently pending batch before taking its snapshot. Any edit made while
         // the upload is running sets this flag again and is sent in the following revision.
         repository.saveLocalSyncState(local.copy(pendingChanges = false))
@@ -444,6 +470,6 @@ class CloudSyncRepository(
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
         const val ATTACHMENT_MIRROR_VERSION = 2
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
-        const val RECORD_MIRROR_VERSION = 5
+        const val RECORD_MIRROR_VERSION = 6
     }
 }

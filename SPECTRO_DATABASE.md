@@ -32,6 +32,10 @@ Tutte le nuove entità devono entrare nel backup/restore.
 
 La migrazione Supabase `202610300011_deduplicated_storage_retention.sql` è additiva: memorizza nel riepilogo workspace i blocchi e gli allegati attivi e introduce `publish_workspace_snapshot_v3`. Gli allegati usano percorsi content-addressed `attachments/by-sha256/<digest>`, quindi lo stesso file fisico non viene duplicato tra record o revisioni. La funzione non cancella direttamente `storage.objects`: restituisce all'app solo i percorsi obsoleti della stessa organizzazione e la rimozione avviene tramite Storage API dopo il commit riuscito.
 
+### Cloud 012 — recupero sincronizzazione e overlay
+
+La migrazione `202611030012_sync_recovery_and_overlay_cleanup.sql` rimuove esclusivamente gli overlay già confermati come incorporati nel payload Android e fa sì che le letture sicure considerino solo modifiche web ancora pendenti. Le funzioni di conferma consumano l'overlay applicato, evitando che uno stato vecchio ricompaia sopra una successiva modifica mobile.
+
 ### Schema 7 — catalogo e documenti Zentha
 
 Migrazione esclusivamente additiva:

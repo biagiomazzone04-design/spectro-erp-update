@@ -24,6 +24,9 @@ type AccessContext = {
 let adminPreview: { user: User; access: AccessContext } | null = null
 let activeUserId: string | null = null
 let activeScrollKey = ''
+let activePortalUser: User | null = null
+let portalRefreshRunning = false
+let lastPortalRefreshAt = 0
 
 const saveCurrentScroll = () => { if (activeScrollKey) sessionStorage.setItem(activeScrollKey, String(window.scrollY)) }
 const activateScrollMemory = (userId: string, route: string) => { saveCurrentScroll(); activeScrollKey = `spectro-scroll:${userId}:${route}` }
@@ -139,12 +142,12 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
       <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
       <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
-      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.6 · Build 16</small></div></div>
+      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.7 · Build 17</small></div></div>
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">
       ${access.preview_name ? `<div class="preview-banner"><strong>Anteprima utente: ${escapeHtml(access.preview_name)}</strong><span>Stai vedendo Spectro con i permessi di ${escapeHtml(access.preview_role || 'questo utente')}.</span><button id="exit-preview">Torna ad amministratore</button></div>` : ''}
-      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><button class="global-search command-trigger" id="open-command" type="button">⌕<span>Cerca o apri un modulo…</span><kbd>Ctrl K</kbd></button><div class="topbar-actions"><button id="open-notifications" title="Notifiche" aria-label="Notifiche">♢<i id="notification-count" hidden>0</i></button><button id="open-customization" title="Personalizza interfaccia" aria-label="Personalizza interfaccia">◐</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
+      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><button class="global-search command-trigger" id="open-command" type="button">⌕<span>Cerca o apri un modulo…</span><kbd>Ctrl K</kbd></button><div class="topbar-actions"><button id="refresh-cloud-data" title="Aggiorna dati cloud" aria-label="Aggiorna dati cloud">↻</button><button id="open-notifications" title="Notifiche" aria-label="Notifiche">♢<i id="notification-count" hidden>0</i></button><button id="open-customization" title="Personalizza interfaccia" aria-label="Personalizza interfaccia">◐</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
       <main class="content control-content" id="view-host">${content}</main>
       <div id="notification-panel" class="ui-panel" hidden><button class="ui-panel-scrim" data-close-panel aria-label="Chiudi"></button><aside><header><div><p class="kicker">CENTRO NOTIFICHE</p><h2>Attenzione richiesta</h2></div><button data-close-panel>×</button></header><div id="notification-list" class="notification-center"><p class="muted">Caricamento notifiche…</p></div></aside></div>
       <div id="customization-panel" class="ui-panel" hidden><button class="ui-panel-scrim" data-close-panel aria-label="Chiudi"></button><aside class="customization-drawer"><header><div><p class="kicker">SOLO SU QUESTO DISPOSITIVO</p><h2>Personalizza Spectro</h2></div><button data-close-panel>×</button></header><div class="customization-content">
@@ -157,6 +160,7 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
     </div>
   </div>`
   document.querySelector('#logout')?.addEventListener('click', () => supabase?.auth.signOut())
+  document.querySelector('#refresh-cloud-data')?.addEventListener('click', () => { void refreshActivePortal(true) })
   document.querySelector('#exit-preview')?.addEventListener('click', () => {
     const original = adminPreview
     adminPreview = null
@@ -697,6 +701,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
 }
 
 async function renderForUser(user: User) {
+  activePortalUser = user
   activeUserId = user.id
   app.innerHTML = '<main class="center"><div class="loader"></div></main>'
   try {
@@ -715,6 +720,20 @@ async function renderForUser(user: User) {
   }
 }
 
+async function refreshActivePortal(force = false) {
+  if (!activePortalUser || portalRefreshRunning || document.visibilityState !== 'visible') return
+  if (document.body.classList.contains('drawer-open')) return
+  if (!force && Date.now() - lastPortalRefreshAt < 20_000) return
+  portalRefreshRunning = true
+  lastPortalRefreshAt = Date.now()
+  try {
+    saveCurrentScroll()
+    await renderForUser(activePortalUser)
+  } finally {
+    portalRefreshRunning = false
+  }
+}
+
 async function start() {
   installInteractiveMotion()
   if (!supabase) return renderSetup()
@@ -722,9 +741,12 @@ async function start() {
   if (data.session?.user) { activeUserId = data.session.user.id; await renderForUser(data.session.user) }
   else renderLogin()
   supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_OUT') { activeUserId = null; renderLogin() }
+    if (event === 'SIGNED_OUT') { activeUserId = null; activePortalUser = null; renderLogin() }
     if (event === 'SIGNED_IN' && session?.user && session.user.id !== activeUserId) { activeUserId = session.user.id; void renderForUser(session.user) }
   })
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void refreshActivePortal() })
+  window.addEventListener('focus', () => { void refreshActivePortal() })
+  window.setInterval(() => { void refreshActivePortal() }, 60_000)
   if ('serviceWorker' in navigator) window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
 }
 

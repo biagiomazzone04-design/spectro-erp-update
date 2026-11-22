@@ -31,9 +31,24 @@ const p = (row: CloudRecord) => row.payload
 const has = (row: CloudRecord, key: string) => Object.prototype.hasOwnProperty.call(row.payload, key)
 const terminalStatus = /(CLOSED|DELIVERED|COMPLETED|DONE|CANCELLED|PAID|RESOLVED|ARCHIVED)/
 
-const moduleDate = (row: CloudRecord) => isoDate(
-  p(row).date || p(row).dueDate || p(row).orderDate || p(row).receivedDate || p(row).createdDate || p(row).openedDate || row.updated_at
-)
+// Data di riferimento per periodo, ordinamento e statistiche. Gli ordini usano
+// la data di ricezione/inserimento: la consegna è quasi sempre futura e, se
+// usata come riferimento, escludeva i nuovi ordini da tutti i periodi
+// predefiniti (che terminano oggi), rendendoli invisibili nel portale.
+const referenceDateKeys: Record<string, string[]> = {
+  zentha_order: ['orderDate', 'dueDate'],
+  work_order: ['receivedDate', 'dueDate'],
+  cotton_order: ['orderDate', 'dueDate'],
+  operational_task: ['createdDate', 'dueDate'],
+  client_issue: ['openedDate'],
+  payment_deadline: ['dueDate'],
+  production_record: ['date']
+}
+const moduleDate = (row: CloudRecord) => {
+  const keys = referenceDateKeys[row.entity_type] || ['date', 'dueDate', 'orderDate', 'receivedDate', 'createdDate', 'openedDate']
+  const value = keys.map(key => p(row)[key]).find(candidate => String(candidate || '').trim())
+  return isoDate(value || row.updated_at)
+}
 
 const isOverdue = (row: CloudRecord) => {
   const due = isoDate(p(row).dueDate || p(row).expectedDeliveryDate || p(row).revisedDeliveryDate)
@@ -175,7 +190,7 @@ function taskFocusBoard(rows: CloudRecord[], canManage: boolean) {
     return aUrgency - bUrgency || priorityRank(a) - priorityRank(b) || (aDue || '9999').localeCompare(bDue || '9999')
   })
   const buckets = [
-    { key: 'work', state: 'OPEN', title: 'Attività da lavorare', subtitle: 'Tutto ciò che richiede il tuo intervento', rows: sorted },
+    { key: 'work', state: 'TODO', title: 'Attività da lavorare', subtitle: 'Tutto ciò che richiede il tuo intervento', rows: sorted },
     { key: 'completed', state: 'DONE', title: 'Completate', subtitle: 'Ultime attività concluse', rows: rows.filter(row => terminalStatus.test(String(p(row).status || ''))).sort((a,b) => b.updated_at.localeCompare(a.updated_at)) }
   ]
   const card = (row: CloudRecord) => {
@@ -407,20 +422,40 @@ export function printDashboardReport(records: CloudRecord[], from: string, to: s
   page.document.close()
 }
 
-type EditableField = { key: string; label: string; kind?: 'text'|'number'|'date'|'textarea' }
+type EditableField = { key: string; label: string; kind?: 'text'|'number'|'date'|'textarea'|'select'; options?: string[] }
+
+// Valori ammessi dall'app Android. Un testo libero non riconosciuto veniva
+// convertito in un valore predefinito sul telefono e la modifica web non
+// risultava mai assorbita, provocando ripubblicazioni continue.
+const enumOptions = {
+  workStatus: ['DRAFT','RECEIVED','IN_PROCESS','TRANSFERRED_TO_PRODUCTION','WAITING_MATERIAL','WAITING_CLIENT','IN_PRODUCTION','IN_PROGRESS','PRINTED','TRANSFERRED','READY','COMPLETED','DELIVERED','CLOSED','ON_HOLD','BLOCKED','CANCELLED'],
+  zenthaStatus: ['DRAFT','CONFIRMED','GRAPHICS','WAITING_APPROVAL','PRODUCTION','READY','DELIVERED','CLOSED','CANCELLED'],
+  taskStatus: ['TODO','IN_PROGRESS','DONE','CANCELLED'],
+  priority: ['NORMAL','HIGH'],
+  issueStatus: ['OPEN','WAITING_CLIENT','MONITORING','RESOLVED','CLOSED'],
+  timelineStatus: ['OPEN','RESOLVED'],
+  severity: ['LOW','MEDIUM','HIGH','CRITICAL'],
+  timelineSeverity: ['INFO','LOW','MEDIUM','HIGH','BLOCKING'],
+  economicStatus: ['OPEN','COMPLETED','PAID','CANCELLED'],
+  criticality: ['NESSUNA','BASSA','MEDIA','ALTA','CRITICA']
+}
+const pick = (key: string, label: string, options: string[]): EditableField => ({ key, label, kind: 'select', options })
 function editableFields(module: string, row: CloudRecord): EditableField[] {
   if (row.entity_type === 'zentha_product') return [{key:'sku',label:'Codice articolo'},{key:'name',label:'Nome prodotto'},{key:'category',label:'Categoria'},{key:'description',label:'Descrizione',kind:'textarea'},{key:'standardCost',label:'Costo standard',kind:'number'},{key:'standardPrice',label:'Prezzo listino',kind:'number'},{key:'priceListName',label:'Nome listino'}]
   const fields: Record<string, EditableField[]> = {
-    orders:[{key:'orderCode',label:'Codice ordine'},{key:'client',label:'Cliente'},{key:'title',label:'Titolo'},{key:'status',label:'Stato'},{key:'priority',label:'Priorità'},{key:'receivedDate',label:'Data ordine',kind:'date'},{key:'materialReceivedDate',label:'Consegna materiale',kind:'date'},{key:'materialReceiptNotes',label:'Note consegna materiale',kind:'textarea'},{key:'dueDate',label:'Consegna ordine',kind:'date'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'designCode',label:'Codice disegno'},{key:'description',label:'Descrizione',kind:'textarea'}],
-    production:[{key:'date',label:'Data',kind:'date'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Riferimento ordine'},{key:'zenthaOrderId',label:'ID ordine Zentha collegato',kind:'number'},{key:'plotter',label:'Plotter'},{key:'printedPaperMeters',label:'Carta stampata (m)',kind:'number'},{key:'protectionPaperMeters',label:'Carta protezione (m)',kind:'number'},{key:'fabricUsedMeters',label:'Tessuto usato (m)',kind:'number'},{key:'fabricDisplayName',label:'Tessuto'},{key:'technicalNotes',label:'Note tecniche',kind:'textarea'},{key:'productionRating',label:'Valutazione produzione (1-5)',kind:'number'},{key:'productionCriticality',label:'Criticità (NESSUNA/BASSA/MEDIA/ALTA/CRITICA)'},{key:'productionProblems',label:'Problemi rilevati',kind:'textarea'},{key:'productionReview',label:'Valutazione finale',kind:'textarea'}],
+    orders:[{key:'orderCode',label:'Codice ordine'},{key:'client',label:'Cliente'},{key:'title',label:'Titolo'},pick('status','Stato',enumOptions.workStatus),pick('priority','Priorità',enumOptions.priority),{key:'receivedDate',label:'Data ordine',kind:'date'},{key:'materialReceivedDate',label:'Consegna materiale',kind:'date'},{key:'materialReceiptNotes',label:'Note consegna materiale',kind:'textarea'},{key:'dueDate',label:'Consegna ordine',kind:'date'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'designCode',label:'Codice disegno'},{key:'description',label:'Descrizione',kind:'textarea'}],
+    production:[{key:'date',label:'Data',kind:'date'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Riferimento ordine'},{key:'zenthaOrderId',label:'ID ordine Zentha collegato',kind:'number'},{key:'plotter',label:'Plotter'},{key:'printedPaperMeters',label:'Carta stampata (m)',kind:'number'},{key:'protectionPaperMeters',label:'Carta protezione (m)',kind:'number'},{key:'fabricUsedMeters',label:'Tessuto usato (m)',kind:'number'},{key:'fabricDisplayName',label:'Tessuto'},{key:'technicalNotes',label:'Note tecniche',kind:'textarea'},{key:'productionRating',label:'Valutazione produzione (1-5)',kind:'number'},pick('productionCriticality','Criticità',enumOptions.criticality),{key:'productionProblems',label:'Problemi rilevati',kind:'textarea'},{key:'productionReview',label:'Valutazione finale',kind:'textarea'}],
     inventory:[{key:'fabricName',label:'Tessuto'},{key:'ownerName',label:'Proprietario'},{key:'quantityMeters',label:'Disponibilità (m)',kind:'number'},{key:'minimumQuantityMeters',label:'Soglia minima (m)',kind:'number'},{key:'supplierName',label:'Fornitore'},{key:'composition',label:'Composizione'},{key:'variant',label:'Variante'},{key:'lotCode',label:'Lotto'},{key:'purchasePricePerMeter',label:'Costo acquisto / m',kind:'number'},{key:'processingCostPerMeter',label:'Lavorazioni / m',kind:'number'},{key:'defaultSalePricePerMeter',label:'Vendita predefinita / m',kind:'number'}],
     clients:[{key:'name',label:'Ragione sociale / nome'},{key:'email',label:'Email'},{key:'phone',label:'Telefono'},{key:'address',label:'Indirizzo'},{key:'notes',label:'Note',kind:'textarea'}],
-    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}],
-    zentha:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'orderDate',label:'Data ordine',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'chromiaRatePerMeter',label:'Tariffa Chromia / m',kind:'number'},{key:'notes',label:'Note',kind:'textarea'}],
-    tasks:[{key:'title',label:'Attività'},{key:'clientName',label:'Cliente'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'priority',label:'Priorità'},{key:'status',label:'Stato'},{key:'description',label:'Descrizione',kind:'textarea'}],
+    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna',kind:'date'},pick('status','Stato',enumOptions.workStatus),{key:'notes',label:'Note',kind:'textarea'}],
+    zentha:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'orderDate',label:'Data ordine',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},pick('status','Stato',enumOptions.zenthaStatus),{key:'chromiaRatePerMeter',label:'Tariffa Chromia / m',kind:'number'},{key:'notes',label:'Note',kind:'textarea'}],
+    tasks:[{key:'title',label:'Attività'},{key:'clientName',label:'Cliente'},{key:'dueDate',label:'Scadenza',kind:'date'},pick('priority','Priorità',enumOptions.priority),pick('status','Stato',enumOptions.taskStatus),{key:'description',label:'Descrizione',kind:'textarea'}],
     issues:[{key:'title',label:'Titolo'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Ordine'},{key:'status',label:'Stato'},{key:'severity',label:'Gravità'},{key:'description',label:'Descrizione',kind:'textarea'}],
     finance:[{key:'title',label:'Voce'},{key:'clientName',label:'Cliente'},{key:'date',label:'Data',kind:'date'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'amount',label:'Importo',kind:'number'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}]
   }
+  if (row.entity_type === 'order_timeline_event') return (fields.issues || []).map(field => field.key === 'status' ? pick('status','Stato',enumOptions.timelineStatus) : field.key === 'severity' ? pick('severity','Gravità',enumOptions.timelineSeverity) : field)
+  if (row.entity_type === 'client_issue') return (fields.issues || []).map(field => field.key === 'status' ? pick('status','Stato',enumOptions.issueStatus) : field.key === 'severity' ? pick('severity','Gravità',enumOptions.severity) : field)
+  if (row.entity_type === 'economic_work') return (fields.finance || []).map(field => field.key === 'status' ? pick('status','Stato',enumOptions.economicStatus) : field)
   return fields[module] || []
 }
 
@@ -469,7 +504,7 @@ export function renderAnalyticalModule(
     ${module.key === 'production' ? `<div id="production-analysis">${productionAnalytics(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>` : ''}
     ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
     <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">${module.key === 'tasks' ? 'ARCHIVIO E PIANIFICAZIONE' : 'CENTRO OPERATIVO'}</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
-      <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(rowStatus(row))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus(row)))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(rowStatus(row))).length}</b></button></div>
+      <div class="view-tabs" role="tablist"><button class="${['tasks', 'zentha', 'orders'].includes(module.key) ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${['tasks', 'zentha', 'orders'].includes(module.key) ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(rowStatus(row))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus(row)))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(rowStatus(row))).length}</b></button></div>
       <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="sort-filter" aria-label="Ordina risultati"><option value="date_desc">Data: più recenti prima</option><option value="date_asc">Data: meno recenti prima</option><option value="updated_desc">Ultima modifica</option><option value="client_asc">Cliente: A–Z</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table class="module-table ${esc(module.key)}"><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
@@ -492,7 +527,9 @@ export function renderAnalyticalModule(
   const sort = root.querySelector<HTMLSelectElement>('#sort-filter')!
   const group = root.querySelector<HTMLSelectElement>('#group-filter')!
   const resultCount = root.querySelector<HTMLElement>('#result-count')!
-  let currentView = module.key === 'tasks' ? 'operative' : 'all'
+  // Ordini e attività aprono sui record operativi: sono sempre visibili, a
+  // prescindere dal periodo, finché non vengono chiusi o consegnati.
+  let currentView = ['tasks', 'zentha', 'orders'].includes(module.key) ? 'operative' : 'all'
   let visibleRows: CloudRecord[] = []
   let editingRow: CloudRecord | null = null
   const editOverlay = root.querySelector<HTMLElement>('#edit-overlay')!
@@ -599,6 +636,12 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#edit-title')!.textContent = `Modifica ${titleOf(row)}`
     root.querySelector<HTMLElement>('#edit-fields')!.innerHTML = fields.map(field => {
       const value = p(row)[field.key] ?? ''
+      if (field.kind === 'select') {
+        const options = field.options || []
+        const current = String(value)
+        const list = current && !options.includes(current) ? [current, ...options] : options
+        return `<label>${esc(field.label)}<select name="${esc(field.key)}">${list.map(option => `<option value="${esc(option)}" ${option === current ? 'selected' : ''}>${esc(translateCode(option))}</option>`).join('')}</select></label>`
+      }
       return field.kind === 'textarea' ? `<label>${esc(field.label)}<textarea name="${esc(field.key)}">${esc(value)}</textarea></label>` : `<label>${esc(field.label)}<input name="${esc(field.key)}" type="${field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}" ${field.kind === 'number' ? 'step="0.01"' : ''} value="${esc(value)}"></label>`
     }).join('')
     const message = root.querySelector<HTMLElement>('#edit-message')!; message.hidden = true; message.textContent = ''
@@ -653,7 +696,10 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)
     root.querySelector<HTMLElement>('#module-insights')!.innerHTML = moduleInsights(periodRows)
     if (module.key === 'production') root.querySelector<HTMLElement>('#production-analysis')!.innerHTML = productionAnalytics(periodRows)
-    visibleRows = periodRows.filter(row => {
+    // Le viste operative mostrano tutto ciò che è aperto; il periodo filtra
+    // soltanto l'elenco completo e l'archivio.
+    const ignoresPeriod = currentView === 'operative' || currentView === 'attention'
+    visibleRows = (ignoresPeriod ? primary : periodRows).filter(row => {
       const effectiveStatus = rowStatus(row)
       const viewMatch = currentView === 'all' || (currentView === 'operative' && !terminalStatus.test(effectiveStatus)) ||
         (currentView === 'archive' && terminalStatus.test(effectiveStatus)) ||
@@ -674,7 +720,7 @@ export function renderAnalyticalModule(
       return `${heading}<tr data-record="${esc(row.id)}">${cells(module.key, row, records).map(value => `<td>${value}</td>`).join('')}</tr>`
     }).join('')
     empty.hidden = visibleRows.length > 0
-    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${periodRows.length} nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
+    resultCount.textContent = ignoresPeriod ? `${visibleRows.length} elementi aperti visualizzati (tutti i periodi)` : `${visibleRows.length} elementi visualizzati su ${periodRows.length} nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
     root.querySelector<HTMLElement>('#export-period-label')!.textContent = `${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
     root.querySelector<HTMLElement>('#export-count-label')!.textContent = String(visibleRows.length)
     body.querySelectorAll<HTMLTableRowElement>('tr').forEach(element => element.addEventListener('click', () => {
@@ -730,7 +776,21 @@ export function renderAnalyticalModule(
     event.preventDefault(); if (!editingRow || !onUpdate) return
     const button = root.querySelector<HTMLButtonElement>('#edit-save')!; button.disabled = true; button.textContent = 'Salvataggio…'
     const form = new FormData(event.currentTarget as HTMLFormElement); const patch: Record<string, unknown> = {}
-    editableFields(module.key, editingRow).forEach(field => { const raw = String(form.get(field.key) ?? ''); patch[field.key] = field.kind === 'number' ? Number(raw || 0) : raw })
+    // Invia soltanto i campi realmente modificati: un patch con valori
+    // invariati (o con 0 al posto di un collegamento vuoto) non veniva mai
+    // riconosciuto come assorbito da Android e restava attivo per sempre.
+    const original = p(editingRow)
+    editableFields(module.key, editingRow).forEach(field => {
+      const raw = String(form.get(field.key) ?? '')
+      const before = original[field.key]
+      if (field.kind === 'number') {
+        const next = raw.trim() === '' ? null : Number(raw)
+        if (next !== null && !Number.isFinite(next)) return
+        const previous = before === null || before === undefined || before === '' ? null : Number(before)
+        if (next !== previous) patch[field.key] = next
+      } else if (raw !== String(before ?? '')) patch[field.key] = raw
+    })
+    if (!Object.keys(patch).length) { closeEdit(); button.disabled = false; button.textContent = 'Salva modifiche'; return }
     const error = await onUpdate(editingRow, patch)
     if (error) { const message = root.querySelector<HTMLElement>('#edit-message')!; message.textContent = error; message.hidden = false; button.disabled = false; button.textContent = 'Salva modifiche' }
   })

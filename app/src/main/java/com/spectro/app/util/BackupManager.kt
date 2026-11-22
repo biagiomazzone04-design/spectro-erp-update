@@ -142,7 +142,13 @@ object BackupManager {
         snapshot.economicWorks.forEach { add("finance", "economic_work", it.id, it.toJson()) }
         snapshot.cottonOrders.forEach { add("cotton", "cotton_order", it.id, it.toJson()) }
         snapshot.zenthaProducts.forEach { add("zentha", "zentha_product", it.id, it.toJson()) }
-        snapshot.zenthaOrders.forEach { add("zentha", "zentha_order", it.id, it.toJson()) }
+        // Le righe sono pubblicate anche dentro l'ordine: il portale le legge e
+        // le modifica come blocco unico (cloud 014) e Android le riacquisisce.
+        val zenthaLinesByOrder = snapshot.zenthaItems.groupBy { it.orderId }
+        snapshot.zenthaOrders.forEach { order ->
+            val lines = JSONArray().apply { zenthaLinesByOrder[order.id].orEmpty().forEach { put(it.toJson()) } }
+            add("zentha", "zentha_order", order.id, order.toJson().put("items", lines))
+        }
         snapshot.zenthaItems.forEach { add("zentha", "zentha_order_item", it.id, it.toJson()) }
         snapshot.zenthaExtraCosts.forEach { add("zentha", "zentha_extra_cost", it.id, it.toJson()) }
         snapshot.zenthaPayments.forEach { add("zentha", "zentha_payment", it.id, it.toJson()) }

@@ -523,6 +523,6 @@ class CloudSyncRepository(
         const val ATTACHMENT_MIRROR_VERSION = 2
         const val IMPORTED_OVERLAYS_KEY = "imported_web_overlays"
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
-        const val RECORD_MIRROR_VERSION = 6
+        const val RECORD_MIRROR_VERSION = 7
     }
 }

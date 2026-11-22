@@ -408,6 +408,7 @@ class SpectroRepository(context: Context) {
         val forcedOrders = mutableSetOf<Long>()
         val items = mutableListOf<ZenthaOrderItem>()
         val tasks = mutableListOf<OperationalTask>()
+        val orderLines = mutableMapOf<Long, List<ZenthaOrderItem>>()
         for (index in 0 until records.length()) {
             val envelope = records.optJSONObject(index) ?: continue
             val raw = envelope.optJSONObject("payload") ?: continue
@@ -467,6 +468,11 @@ class SpectroRepository(context: Context) {
                 "zentha_order" -> {
                     val legacyId = envelope.optLong("legacy_id")
                     if (envelope.optBoolean("force_update")) forcedOrders += legacyId
+                    raw.optJSONArray("items")?.let { lines ->
+                        orderLines[legacyId] = (0 until lines.length()).mapNotNull { lines.optJSONObject(it) }
+                            .map { it.toZenthaLine(0, legacyId) }
+                            .filter { it.productName.isNotBlank() && it.quantity > 0 && it.unitPrice >= 0 && it.unitCost >= 0 }
+                    }
                     orders += ZenthaOrder(
                     id = legacyId, orderCode = raw.optString("orderCode"),
                     clientId = raw.optLong("clientId").takeIf { raw.has("clientId") && !raw.isNull("clientId") },
@@ -491,15 +497,7 @@ class SpectroRepository(context: Context) {
                     priority = runCatching { Priority.valueOf(raw.optString("priority")) }.getOrDefault(Priority.NORMAL),
                     status = runCatching { OperationalTaskStatus.valueOf(raw.optString("status")) }.getOrDefault(OperationalTaskStatus.TODO)
                 )
-                "zentha_order_item" -> items += ZenthaOrderItem(
-                    id = envelope.optLong("legacy_id"), orderId = raw.optLong("orderId"),
-                    productId = raw.optLong("productId").takeIf { raw.has("productId") && !raw.isNull("productId") },
-                    productName = raw.optString("productName"), quantity = raw.optInt("quantity"),
-                    unitPrice = raw.optDouble("unitPrice"), unitCost = raw.optDouble("unitCost"),
-                    skuSnapshot = raw.optString("skuSnapshot"), productDescriptionSnapshot = raw.optString("productDescriptionSnapshot"),
-                    variant = raw.optString("variant"), color = raw.optString("color"), sizeBreakdown = raw.optString("sizeBreakdown"),
-                    personalization = raw.optString("personalization"), productionNotes = raw.optString("productionNotes")
-                )
+                "zentha_order_item" -> items += raw.toZenthaLine(envelope.optLong("legacy_id"), raw.optLong("orderId"))
             }
         }
         var imported = 0
@@ -530,13 +528,26 @@ class SpectroRepository(context: Context) {
         orders.forEach { order ->
             val existing = db.getZenthaOrderById(order.id, sql)
             val candidate = order.copy(attachments = existing?.attachments ?: order.attachments, clientId = order.clientId ?: existing?.clientId)
+            var changed = false
             if ((existing == null || order.id in forcedOrders) && candidate != existing) {
                 db.upsertCloudZenthaOrder(candidate, sql)
                 if (existing == null) {
                 items.filter { it.orderId == order.id }.forEach { db.upsertCloudZenthaItem(it, sql) }
                 }
-                imported++
+                changed = true
             }
+            // Righe modificate dal portale: sostituiscono quelle locali come fa il
+            // salvataggio dell'ordine su Android (snapshot di prezzi e costi).
+            val webLines = orderLines[order.id]
+            if (existing != null && order.id in forcedOrders && !webLines.isNullOrEmpty()) {
+                val localLines = db.getZenthaItems(sql).filter { it.orderId == order.id }
+                if (webLines.map { it.copy(id = 0, orderId = order.id) } != localLines.map { it.copy(id = 0, orderId = order.id) }) {
+                    db.deleteZenthaItems(order.id, sql)
+                    webLines.forEach { db.insertZenthaItem(it.copy(id = 0, orderId = order.id), sql) }
+                    changed = true
+                }
+            }
+            if (changed) imported++
         }
         if (tasks.isNotEmpty()) {
             val localTasks = db.getOperationalTasks(sql).associateBy { it.id }
@@ -555,6 +566,16 @@ class SpectroRepository(context: Context) {
         }
         imported
     }
+    private fun JSONObject.toZenthaLine(id: Long, orderId: Long) = ZenthaOrderItem(
+        id = id, orderId = orderId,
+        productId = optLong("productId").takeIf { has("productId") && !isNull("productId") },
+        productName = optString("productName"), quantity = optInt("quantity"),
+        unitPrice = optDouble("unitPrice", 0.0), unitCost = optDouble("unitCost", 0.0),
+        skuSnapshot = optString("skuSnapshot"), productDescriptionSnapshot = optString("productDescriptionSnapshot"),
+        variant = optString("variant"), color = optString("color"), sizeBreakdown = optString("sizeBreakdown"),
+        personalization = optString("personalization"), productionNotes = optString("productionNotes")
+    )
+
     fun addZenthaPayment(item: ZenthaPayment): Long {
         require(db.getZenthaOrders().any { it.id == item.orderId }) { "Ordine Zentha non trovato." }
         require(validDate(item.date)) { "Data pagamento non valida." }

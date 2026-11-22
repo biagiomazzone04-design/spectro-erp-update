@@ -1,5 +1,6 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import './style.css'
+import './theme.css'
 import { printDashboardReport, renderAnalyticalModule, type CloudRecord } from './erp'
 import { formatItalianDate, moduleLabel, translateCode } from './i18n'
 
@@ -61,7 +62,43 @@ const saveUiPreferences = (userId: string, preferences: UiPreferences) => {
   localStorage.setItem(preferenceKey(userId), JSON.stringify(preferences)); applyUiPreferences(preferences)
 }
 
+// Numeri chiave: brevi conteggi animati quando una pagina compare.
+const figureSelector = '.financial-hero-kpis strong, .executive-metrics strong, .dashboard-metrics strong, .metric-grid strong, .metric-card strong, .production-volume strong, .kpi strong'
+function animateFigure(element: HTMLElement) {
+  if (element.dataset.figureDone) return
+  element.dataset.figureDone = 'true'
+  const original = element.textContent || ''
+  const match = original.match(/^([^\d-]*)(-?[\d.]+(?:,\d+)?)(.*)$/s)
+  if (!match) return
+  const [, prefix, numeric, suffix] = match
+  const decimals = numeric.includes(',') ? numeric.split(',')[1].length : 0
+  const target = Number(numeric.replace(/\./g, '').replace(',', '.'))
+  if (!Number.isFinite(target) || Math.abs(target) < 2) return
+  const format = (value: number) => value.toLocaleString('it-IT', { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: numeric.includes('.') || Math.abs(target) >= 10000 })
+  const start = performance.now(); const duration = 750
+  const step = (now: number) => {
+    const t = Math.min(1, (now - start) / duration); const eased = 1 - Math.pow(1 - t, 3)
+    element.textContent = t < 1 ? `${prefix}${format(target * eased)}${suffix}` : original
+    if (t < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
+}
+function installFigureAnimation() {
+  if (document.documentElement.dataset.figuresReady) return
+  document.documentElement.dataset.figuresReady = 'true'
+  const reduced = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.dataset.motion === 'none'
+  new MutationObserver(records => {
+    if (reduced()) return
+    records.forEach(record => record.addedNodes.forEach(node => {
+      if (!(node instanceof HTMLElement)) return
+      if (node.matches(figureSelector)) animateFigure(node)
+      node.querySelectorAll<HTMLElement>(figureSelector).forEach(animateFigure)
+    }))
+  }).observe(document.body, { childList: true, subtree: true })
+}
+
 function installInteractiveMotion() {
+  installFigureAnimation()
   if (document.documentElement.dataset.motionReady) return
   document.documentElement.dataset.motionReady = 'true'
   let frame = 0
@@ -98,9 +135,29 @@ const modules: Module[] = [
   { key: 'users', eyebrow: 'Amministrazione', title: 'Utenti e accessi', description: 'Ruoli e permessi personalizzati.', permission: 'users.manage', accent: 'pink' }
 ]
 
+// Icone lineari coerenti (stessa griglia 24×24, tratto 1.8): sostituiscono i
+// simboli testuali senza cambiare voci, nomi o ordine del menu.
+const svgIcon = (d: string) => `<svg class="ui-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`
 const moduleIcons: Record<string, string> = {
-  dashboard: '⌂', orders: '▤', production: '◫', inventory: '▦', clients: '◉', issues: '!', cotton: '◌',
-  zentha: '◆', finance: '€', tasks: '✓', sync: '☁', users: '⚙'
+  dashboard: svgIcon('M3 11l9-7 9 7M5 10v10h14V10M10 20v-6h4v6'),
+  orders: svgIcon('M8 4h8l1 2h3v15H4V6h3zM8 11h8M8 15h5'),
+  production: svgIcon('M7 9V4h10v5M6 18H4v-7h16v7h-2M7 14h10v6H7z'),
+  inventory: svgIcon('M3 7l9-4 9 4-9 4zM3 7v10l9 4 9-4V7M12 11v10'),
+  clients: svgIcon('M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6'),
+  issues: svgIcon('M12 4l9 16H3zM12 10v4M12 17v.5'),
+  cotton: svgIcon('M12 3c3 3 5 5.5 5 9a5 5 0 0 1-10 0c0-3.5 2-6 5-9zM12 12v9'),
+  zentha: svgIcon('M8 3l-4 3 2 3 2-1v13h8V8l2 1 2-3-4-3-2 2h-4z'),
+  finance: svgIcon('M18 6a7 7 0 1 0 0 12M4 10h10M4 14h10'),
+  tasks: svgIcon('M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h11'),
+  sync: svgIcon('M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9a4.5 4.5 0 0 0 1 9z'),
+  users: svgIcon('M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6zM9 12l2 2 4-4')
+}
+const toolbarIcons = {
+  search: svgIcon('M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5'),
+  refresh: svgIcon('M20 11a8 8 0 0 0-14.9-3M4 4v4h4M4 13a8 8 0 0 0 14.9 3M20 20v-4h-4'),
+  bell: svgIcon('M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4'),
+  palette: svgIcon('M12 3a9 9 0 1 0 0 18c1 0 1.5-.7 1.5-1.5 0-1.2-1-1.5-1-2.5S13.3 15 14.5 15H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8zM7.5 11.5h.01M10 7.5h.01M15 7.5h.01'),
+  menu: svgIcon('M4 7h16M4 12h16M4 17h16')
 }
 
 function allowedModules(access: AccessContext) {
@@ -127,6 +184,7 @@ async function listCloudRecords(organizationId: string, module: string | null) {
 }
 
 function mountShell(user: User, access: AccessContext, activeKey: string, content: string) {
+  document.body.classList.remove('nav-open')
   document.body.classList.remove('drawer-open')
   activateScrollMemory(user.id, activeKey)
   localStorage.setItem(`spectro-last-route:${user.id}`, activeKey)
@@ -138,7 +196,8 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
     ...allowed
   ].filter((item, index, list) => index === list.findIndex(candidate => candidate.key === item.key))
   app.innerHTML = `<div class="workspace control-tower">
-    <aside class="sidebar">
+    <button class="sidebar-scrim" id="sidebar-scrim" aria-label="Chiudi il menu"></button>
+    <aside class="sidebar" id="app-sidebar">
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
       <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
       <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
@@ -146,9 +205,8 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">
-      <a class="new-ui-banner" href="/nuovo/"><b>✦ Nuova interfaccia</b><span>Oggi, ordini per fasi e selettore Zentha: provala con i tuoi dati</span><strong>Apri →</strong></a>
       ${access.preview_name ? `<div class="preview-banner"><strong>Anteprima utente: ${escapeHtml(access.preview_name)}</strong><span>Stai vedendo Spectro con i permessi di ${escapeHtml(access.preview_role || 'questo utente')}.</span><button id="exit-preview">Torna ad amministratore</button></div>` : ''}
-      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><button class="global-search command-trigger" id="open-command" type="button">⌕<span>Cerca o apri un modulo…</span><kbd>Ctrl K</kbd></button><div class="topbar-actions"><button id="refresh-cloud-data" title="Aggiorna dati cloud" aria-label="Aggiorna dati cloud">↻</button><button id="open-notifications" title="Notifiche" aria-label="Notifiche">♢<i id="notification-count" hidden>0</i></button><button id="open-customization" title="Personalizza interfaccia" aria-label="Personalizza interfaccia">◐</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
+      <header class="topbar"><div><p class="breadcrumb">Spectro / <strong>${escapeHtml(activeKey === 'dashboard' ? 'Dashboard' : modules.find(module => module.key === activeKey)?.title || 'Area di lavoro')}</strong></p><span>${formatItalianDate(new Date().toISOString())}</span></div><button class="menu-toggle" id="menu-toggle" type="button" aria-label="Apri il menu" aria-controls="app-sidebar">${toolbarIcons.menu}</button><button class="global-search command-trigger" id="open-command" type="button">${toolbarIcons.search}<span>Cerca o apri un modulo…</span><kbd>Ctrl K</kbd></button><div class="topbar-actions"><button id="refresh-cloud-data" title="Aggiorna dati cloud" aria-label="Aggiorna dati cloud">${toolbarIcons.refresh}</button><button id="open-notifications" title="Notifiche" aria-label="Notifiche">${toolbarIcons.bell}<i id="notification-count" hidden>0</i></button><button id="open-customization" title="Personalizza interfaccia" aria-label="Personalizza interfaccia">${toolbarIcons.palette}</button><span class="role-badge">${escapeHtml(access.role_name || 'Utente')}</span></div></header>
       <main class="content control-content" id="view-host">${content}</main>
       <div id="notification-panel" class="ui-panel" hidden><button class="ui-panel-scrim" data-close-panel aria-label="Chiudi"></button><aside><header><div><p class="kicker">CENTRO NOTIFICHE</p><h2>Attenzione richiesta</h2></div><button data-close-panel>×</button></header><div id="notification-list" class="notification-center"><p class="muted">Caricamento notifiche…</p></div></aside></div>
       <div id="customization-panel" class="ui-panel" hidden><button class="ui-panel-scrim" data-close-panel aria-label="Chiudi"></button><aside class="customization-drawer"><header><div><p class="kicker">SOLO SU QUESTO DISPOSITIVO</p><h2>Personalizza Spectro</h2></div><button data-close-panel>×</button></header><div class="customization-content">
@@ -167,7 +225,12 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
     adminPreview = null
     if (original) void renderWorkspace(original.user, original.access)
   })
+  // Telefono: il menu laterale si apre come pannello, con le stesse voci.
+  const closeNav = () => document.body.classList.remove('nav-open')
+  document.querySelector('#menu-toggle')?.addEventListener('click', () => document.body.classList.toggle('nav-open'))
+  document.querySelector('#sidebar-scrim')?.addEventListener('click', closeNav)
   document.querySelectorAll<HTMLElement>('[data-route]').forEach(element => element.addEventListener('click', () => {
+    closeNav()
     document.body.classList.remove('drawer-open')
     const key = element.dataset.route
     const navigate = () => { if (key === 'dashboard') void renderWorkspace(user, access)

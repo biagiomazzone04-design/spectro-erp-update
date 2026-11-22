@@ -407,6 +407,7 @@ class SpectroRepository(context: Context) {
         val orders = mutableListOf<ZenthaOrder>()
         val forcedOrders = mutableSetOf<Long>()
         val items = mutableListOf<ZenthaOrderItem>()
+        val tasks = mutableListOf<OperationalTask>()
         for (index in 0 until records.length()) {
             val envelope = records.optJSONObject(index) ?: continue
             val raw = envelope.optJSONObject("payload") ?: continue
@@ -475,6 +476,21 @@ class SpectroRepository(context: Context) {
                     splitPercentB = raw.optDouble("splitPercentB", 50.0), chromiaRatePerMeter = raw.optDouble("chromiaRatePerMeter", 2.5)
                     )
                 }
+                // Le attività esistono solo su Android: il web può modificarne
+                // stato, priorità, scadenza e testi (bacheca e trascinamento).
+                "operational_task" -> if (envelope.optBoolean("force_update")) tasks += OperationalTask(
+                    id = envelope.optLong("legacy_id"),
+                    createdDate = raw.optString("createdDate"),
+                    dueDate = raw.optString("dueDate"),
+                    clientId = raw.optLong("clientId").takeIf { raw.has("clientId") && !raw.isNull("clientId") },
+                    clientName = raw.optString("clientName"),
+                    workOrderId = raw.optLong("workOrderId").takeIf { raw.has("workOrderId") && !raw.isNull("workOrderId") },
+                    title = raw.optString("title"),
+                    type = runCatching { OperationalTaskType.valueOf(raw.optString("type")) }.getOrDefault(OperationalTaskType.OTHER),
+                    description = raw.optString("description"),
+                    priority = runCatching { Priority.valueOf(raw.optString("priority")) }.getOrDefault(Priority.NORMAL),
+                    status = runCatching { OperationalTaskStatus.valueOf(raw.optString("status")) }.getOrDefault(OperationalTaskStatus.TODO)
+                )
                 "zentha_order_item" -> items += ZenthaOrderItem(
                     id = envelope.optLong("legacy_id"), orderId = raw.optLong("orderId"),
                     productId = raw.optLong("productId").takeIf { raw.has("productId") && !raw.isNull("productId") },
@@ -497,26 +513,40 @@ class SpectroRepository(context: Context) {
                     imported++
                 }
             }
-            if (existing == null || order.id in forcedWorkOrders) {
-                db.upsertCloudWorkOrder(order.copy(images = existing?.images ?: order.images, clientId = order.clientId ?: existing?.clientId), sql)
+            val candidate = order.copy(images = existing?.images ?: order.images, clientId = order.clientId ?: existing?.clientId)
+            if ((existing == null || order.id in forcedWorkOrders) && candidate != existing) {
+                db.upsertCloudWorkOrder(candidate, sql)
                 imported++
             }
         }
         productionRecords.forEach { production ->
             val existing = db.getProductionById(production.id, sql)
-            if (existing == null || production.id in forcedProductionRecords) {
-                db.upsertCloudProduction(production.copy(images = if (production.images.isNotEmpty()) production.images else existing?.images.orEmpty()), sql)
+            val candidate = production.copy(images = if (production.images.isNotEmpty()) production.images else existing?.images.orEmpty())
+            if ((existing == null || production.id in forcedProductionRecords) && candidate != existing) {
+                db.upsertCloudProduction(candidate, sql)
                 imported++
             }
         }
         orders.forEach { order ->
             val existing = db.getZenthaOrderById(order.id, sql)
-            if (existing == null || order.id in forcedOrders) {
-                db.upsertCloudZenthaOrder(order.copy(attachments = existing?.attachments ?: order.attachments, clientId = order.clientId ?: existing?.clientId), sql)
+            val candidate = order.copy(attachments = existing?.attachments ?: order.attachments, clientId = order.clientId ?: existing?.clientId)
+            if ((existing == null || order.id in forcedOrders) && candidate != existing) {
+                db.upsertCloudZenthaOrder(candidate, sql)
                 if (existing == null) {
                 items.filter { it.orderId == order.id }.forEach { db.upsertCloudZenthaItem(it, sql) }
                 }
                 imported++
+            }
+        }
+        if (tasks.isNotEmpty()) {
+            val localTasks = db.getOperationalTasks(sql).associateBy { it.id }
+            tasks.forEach { task ->
+                val existing = localTasks[task.id] ?: return@forEach
+                val candidate = task.copy(images = existing.images)
+                if (candidate != existing) {
+                    db.updateOperationalTask(candidate, sql)
+                    imported++
+                }
             }
         }
         if (imported > 0) {

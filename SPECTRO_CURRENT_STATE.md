@@ -1,9 +1,9 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.2.7 Beta 17**.
-- versionCode 34
-- versionName `3.2.7-beta17`
+Base: **Spectro ERP 3.2.8 Beta 18** (cloud 013).
+- versionCode 35
+- versionName `3.2.8-beta18`
 - applicationId `com.spectro.app`
 - SQLite schema 10
 - backup formato v9 (import retrocompatibile)
@@ -53,6 +53,8 @@ La Beta 12 elimina il limite casuale dei 500 record tramite paginazione determin
 La Beta 16 elimina la crescita incontrollata dello Storage cloud: gli allegati vengono salvati una sola volta per contenuto tramite SHA-256, mentre il workspace contiene soltanto dati e riferimenti. La migrazione cloud 011 restituisce all'app esclusivamente manifest, blocchi e allegati obsoleti della stessa organizzazione; la rimozione fisica avviene via Storage API solo dopo il commit atomico della nuova revisione. I backup manuali e di recupero restano completi e retrocompatibili, mentre il download cloud ricostruisce e verifica gli allegati locali. La prima sincronizzazione con Beta 16 converte automaticamente il workspace e libera le vecchie copie ridondanti.
 
 La Beta 17 ripristina automaticamente una sincronizzazione interrotta dopo un commit server già riuscito, purché la revisione appartenga allo stesso dispositivo, e forza una sola ripubblicazione completa del mirror. La migrazione cloud 012 consuma gli overlay web già incorporati da Android, impedendo che stati obsoleti prevalgano in seguito su attività e ordini aggiornati. Il portale aggiorna i dati al ritorno sulla scheda, ogni minuto quando non sono aperti editor o dossier, e offre anche il pulsante manuale di aggiornamento senza perdere sezione e posizione di scorrimento.
+
+La Beta 18 corregge la sincronizzazione Zentha tra Android e portale (dettagli in `ANALISI_SYNC_ZENTHA_BETA18.md`). Il portale usa la data ordine come riferimento del periodo e mostra sempre i record aperti nelle viste Operativi e Da attenzionare, quindi gli ordini con consegna futura non spariscono più. I campi di stato/priorità sono menu con i soli valori Android e il salvataggio invia solo i campi modificati. La migrazione cloud 013 rende la pubblicazione incrementale (i record invariati non vengono riscritti né duplicati nell'audit), invia ad Android solo overlay con differenze reali, attività incluse, e li conferma per revisione con `ack_web_changes_v2`, conservando i campi esistenti solo sul web. Android importa le modifiche web solo quando cambiano davvero il record locale, eliminando le ripubblicazioni continue.
 
 Il frontend è predisposto per la migrazione indipendente su Cloudflare Workers: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT. La pubblicazione automatica usa la root `web`, il comando di build `npm run build` e il comando di deploy `npx wrangler deploy`.
 

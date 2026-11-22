@@ -12,8 +12,8 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 34
-        versionName = "3.2.7-beta17"
+        versionCode = 35
+        versionName = "3.2.8-beta18"
 
         // Project URL and sb_publishable key are public client configuration.
         // RLS protects the data; properties/environment can override these

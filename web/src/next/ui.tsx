@@ -23,7 +23,12 @@ const paths: Record<string, string> = {
   list: 'M8 6h12M8 12h12M8 18h12M4 6h.5M4 12h.5M4 18h.5',
   board: 'M4 4h5v16H4zM10 4h5v10h-5zM16 4h4v13h-4z',
   repeat: 'M17 2l4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3',
-  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6'
+  external: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  users: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6',
+  box: 'M3 7l9-4 9 4-9 4zM3 7v10l9 4 9-4V7M12 11v10',
+  euro: 'M18 6a7 7 0 1 0 0 12M4 10h10M4 14h10',
+  cloud: 'M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9a4.5 4.5 0 0 0 1 9z',
+  grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z'
 }
 
 export function Icon({ name, size = 20 }: { name: string; size?: number }) {
@@ -77,7 +82,7 @@ export function Bars({ values, labels, capacity }: { values: number[]; labels: s
       {capacity ? <div className="bars-capacity" style={{ bottom: `${(capacity / max) * 100}%` }}><span>media {formatMeters(capacity)}</span></div> : null}
       {values.map((value, i) => (
         <div key={labels[i]} className="bar-slot" title={`${labels[i]}: ${formatMeters(value)}`}>
-          <motion.div className={`bar ${value === 0 ? 'empty' : ''}`} initial={{ height: 0 }} animate={{ height: `${Math.max(2, (value / max) * 100)}%` }} transition={{ delay: i * 0.025, type: 'spring', stiffness: 140, damping: 20 }} />
+          <motion.div className={`bar ${value === 0 ? 'is-zero' : ''}`} initial={{ height: 0 }} animate={{ height: `${Math.max(2, (value / max) * 100)}%` }} transition={{ delay: i * 0.025, type: 'spring', stiffness: 140, damping: 20 }} />
         </div>
       ))}
     </div>

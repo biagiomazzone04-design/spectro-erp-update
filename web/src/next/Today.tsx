@@ -42,7 +42,7 @@ export function Today({ name, commesse, plotters, revenue, canFinance, onOpen, o
           <h1>{greeting()}, {name}</h1>
           <p className="lead">
             {late.length ? <><b className="text-danger">{late.length} {late.length === 1 ? 'ordine in ritardo' : 'ordini in ritardo'}</b> · </> : <><b className="text-ok">Nessun ritardo</b> · </>}
-            {upcoming.length} consegne nei prossimi 7 giorni{blocked.length ? <> · <b className="text-warning">{blocked.length} da sbloccare</b></> : null}
+            {upcoming.length} {upcoming.length === 1 ? "consegna" : "consegne"} nei prossimi 7 giorni{blocked.length ? <> · <b className="text-warning">{blocked.length} da sbloccare</b></> : null}
           </p>
         </div>
         <button className="primary-action" onClick={() => onGo('zentha', 'new')}><Icon name="plus" />Nuovo ordine Zentha</button>

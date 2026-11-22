@@ -35,7 +35,7 @@ export async function signIn(email: string, password: string) {
 
 export async function loadAccess(): Promise<Access> {
   if (isDemo()) {
-    return { userId: 'demo', name: 'Biagio', organizationId: 'demo', role: 'Amministratore', permissions: [], canFinance: true, canManageZentha: true, demo: true }
+    return { userId: 'demo', name: 'Biagio', organizationId: 'demo', role: 'Amministratore', permissions: ['finance.view'], canFinance: true, canManageZentha: true, demo: true }
   }
   const { data, error } = await supabase.rpc('my_access_context')
   if (error) throw new Error(error.message)
@@ -54,7 +54,7 @@ export async function loadAccess(): Promise<Access> {
   }
 }
 
-async function listModule(organizationId: string, module: string): Promise<CloudRecord[]> {
+async function listModule(organizationId: string, module: string | null): Promise<CloudRecord[]> {
   const all: CloudRecord[] = []
   for (let offset = 0; offset < 10000; offset += 500) {
     const { data, error } = await supabase.rpc('list_erp_records_safe_v2', {
@@ -70,9 +70,8 @@ async function listModule(organizationId: string, module: string): Promise<Cloud
 
 export async function loadRecords(access: Access): Promise<CloudRecord[]> {
   if (access.demo) return demoRecords()
-  const modules = ['orders', 'production', 'zentha', 'clients']
-  const results = await Promise.allSettled(modules.map(module => listModule(access.organizationId, module)))
-  return results.flatMap(result => (result.status === 'fulfilled' ? result.value : []))
+  // Tutti i moduli consentiti dal ruolo: il server filtra permessi e campi economici.
+  return listModule(access.organizationId, null)
 }
 
 export type NewZenthaLine = {

@@ -5,19 +5,35 @@ import { buildCommesse, dueLabel, formatDate, formatMeters, monthRevenue, plotte
 import { Orders, type OrderFilter } from './Orders'
 import { Today } from './Today'
 import { Zentha } from './Zentha'
+import { Direzione } from './Direzione'
+import { Produzione } from './Produzione'
+import { Magazzino } from './Magazzino'
+import { Clienti } from './Clienti'
+import { Attivita, Cotone, Criticita, Lavorazioni } from './Registri'
 import { createZenthaOrder, currentSession, isDemo, loadAccess, loadRecords, signIn, supabase, type Access, type NewZenthaLine } from './source'
 import { CommandPalette, Drawer, Icon, KindTag, PhaseChip, Stepper, Toasts, urgencyText, type Command, type Toast } from './ui'
 
-type View = 'oggi' | 'ordini' | 'zentha'
-const NAV: { key: View; label: string; icon: string }[] = [
-  { key: 'oggi', label: 'Oggi', icon: 'today' },
-  { key: 'ordini', label: 'Ordini', icon: 'orders' },
-  { key: 'zentha', label: 'Zentha', icon: 'zentha' }
+type View = 'oggi' | 'direzione' | 'ordini' | 'produzione' | 'attivita' | 'zentha' | 'clienti' | 'cotone' | 'magazzino' | 'criticita' | 'lavorazioni'
+type NavItem = { key: View; label: string; icon: string; permission: string; group: string }
+// Stesse sezioni e stessi permessi del portale classico.
+const NAV: NavItem[] = [
+  { key: 'oggi', label: 'Oggi', icon: 'today', permission: 'dashboard.view', group: 'Lavoro' },
+  { key: 'ordini', label: 'Ordini', icon: 'orders', permission: 'orders.view', group: 'Lavoro' },
+  { key: 'produzione', label: 'Produzione', icon: 'printer', permission: 'production.view', group: 'Lavoro' },
+  { key: 'attivita', label: 'Attività', icon: 'check', permission: 'tasks.view', group: 'Lavoro' },
+  { key: 'zentha', label: 'Zentha', icon: 'zentha', permission: 'zentha.view', group: 'Linee' },
+  { key: 'cotone', label: 'Cotone', icon: 'repeat', permission: 'cotton.view', group: 'Linee' },
+  { key: 'clienti', label: 'Clienti', icon: 'users', permission: 'clients.view', group: 'Linee' },
+  { key: 'direzione', label: 'Direzione', icon: 'stats', permission: 'dashboard.view', group: 'Controllo' },
+  { key: 'magazzino', label: 'Magazzino', icon: 'box', permission: 'inventory.view', group: 'Controllo' },
+  { key: 'criticita', label: 'Criticità', icon: 'alert', permission: 'issues.view', group: 'Controllo' },
+  { key: 'lavorazioni', label: 'Ulteriori lavorazioni', icon: 'euro', permission: 'finance.view', group: 'Controllo' }
 ]
+const PHONE_TABS: View[] = ['oggi', 'ordini', 'zentha']
 
 const viewFromHash = (): View => {
-  const hash = location.hash.replace('#', '')
-  return hash === 'ordini' || hash === 'zentha' ? hash : 'oggi'
+  const hash = location.hash.replace('#', '') as View
+  return NAV.some(item => item.key === hash) ? hash : 'oggi'
 }
 
 export function App() {
@@ -78,7 +94,10 @@ export function App() {
   const plotters = useMemo(() => plotterStats(records), [records])
   const revenue = useMemo(() => monthRevenue(records), [records])
 
-  const go = (next: View) => { location.hash = next; setView(next) }
+  const [more, setMore] = useState(false)
+  const allowedNav = access ? NAV.filter(item => access.demo || access.permissions.includes(item.permission) || (item.key === 'ordini' && access.permissions.includes('zentha.view'))) : []
+  const isAdmin = !!access && (access.demo || access.permissions.includes('users.manage'))
+  const go = (next: View) => { location.hash = next; setView(next); setMore(false); window.scrollTo({ top: 0 }) }
   const goFromToday = (target: 'orders' | 'zentha', extra?: string) => {
     if (target === 'zentha') { if (extra === 'new') setZenthaNew(n => n + 1); go('zentha'); return }
     setFilter((extra as OrderFilter) || 'all'); go('ordini')
@@ -89,6 +108,7 @@ export function App() {
     { id: 'go-today', label: 'Vai a Oggi', hint: 'Navigazione', icon: 'today', run: () => go('oggi') },
     { id: 'go-orders', label: 'Vai a Ordini', hint: 'Navigazione', icon: 'orders', run: () => go('ordini') },
     { id: 'go-late', label: 'Ordini in ritardo', hint: 'Filtro', icon: 'alert', run: () => goFromToday('orders', 'late') },
+    ...allowedNav.map(item => ({ id: `nav-${item.key}`, label: `Vai a ${item.label}`, hint: 'Navigazione', icon: item.icon, run: () => go(item.key) })),
     ...commesse.map(c => ({ id: c.key, label: `${c.client} · ${c.code}`, hint: `${c.kind === 'zentha' ? 'Zentha' : 'Spectro'} · ${dueLabel(c)}`, icon: c.kind === 'zentha' ? 'zentha' : 'orders', run: () => setSelected(c) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [commesse])
@@ -116,12 +136,28 @@ export function App() {
       <aside className="sidebar">
         <div className="brand"><span className="brand-mark" />SPECTRO</div>
         <nav>
-          {NAV.map(item => (
-            <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => go(item.key)} aria-current={view === item.key ? 'page' : undefined}>
-              {view === item.key ? <motion.span layoutId="nav-pill" className="nav-pill" transition={{ type: 'spring', stiffness: 400, damping: 34 }} /> : null}
-              <Icon name={item.icon} /><span>{item.label}</span>
-            </button>
-          ))}
+          {['Lavoro', 'Linee', 'Controllo'].map(group => {
+            const items = allowedNav.filter(item => item.group === group)
+            if (!items.length) return null
+            return (
+              <div key={group} className="nav-group">
+                <small>{group}</small>
+                {items.map(item => (
+                  <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => go(item.key)} aria-current={view === item.key ? 'page' : undefined}>
+                    {view === item.key ? <motion.span layoutId="nav-pill" className="nav-pill" transition={{ type: 'spring', stiffness: 400, damping: 34 }} /> : null}
+                    <Icon name={item.icon} /><span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )
+          })}
+          {isAdmin ? (
+            <div className="nav-group">
+              <small>Amministrazione</small>
+              <a className="nav-link" href="/"><Icon name="cloud" /><span>Workspace cloud</span><Icon name="external" size={14} /></a>
+              <a className="nav-link" href="/"><Icon name="lock" /><span>Utenti e accessi</span><Icon name="external" size={14} /></a>
+            </div>
+          ) : null}
         </nav>
         <button className="search-trigger" onClick={() => setPalette(true)}><Icon name="search" size={18} /><span>Cerca</span><kbd>Ctrl K</kbd></button>
         <div className="sidebar-foot">
@@ -142,17 +178,37 @@ export function App() {
           <motion.div key={view} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }}>
             {view === 'oggi' ? <Today name={access.name} commesse={commesse} plotters={plotters} revenue={revenue} canFinance={access.canFinance} onOpen={setSelected} onGo={goFromToday} /> : null}
             {view === 'ordini' ? <Orders commesse={commesse} onOpen={setSelected} filter={filter} setFilter={setFilter} /> : null}
+            {view === 'direzione' ? <Direzione records={records} canFinance={access.canFinance} /> : null}
+            {view === 'produzione' ? <Produzione records={records} canFinance={access.canFinance} /> : null}
+            {view === 'attivita' ? <Attivita records={records} /> : null}
+            {view === 'clienti' ? <Clienti records={records} canFinance={access.canFinance} /> : null}
+            {view === 'cotone' ? <Cotone records={records} canFinance={access.canFinance} /> : null}
+            {view === 'magazzino' ? <Magazzino records={records} canFinance={access.canFinance} /> : null}
+            {view === 'criticita' ? <Criticita records={records} /> : null}
+            {view === 'lavorazioni' ? <Lavorazioni records={records} /> : null}
             {view === 'zentha' ? <Zentha key={zenthaNew} catalog={catalog} commesse={commesse} canFinance={access.canFinance} canCreate={access.canManageZentha} startNew={zenthaNew > 0} onOpen={setSelected} onCreate={createOrder} /> : null}
           </motion.div>
         </AnimatePresence>
       </main>
 
       <nav className="tabbar">
-        {NAV.map(item => (
+        {allowedNav.filter(item => PHONE_TABS.includes(item.key)).map(item => (
           <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => go(item.key)}><Icon name={item.icon} /><span>{item.label}</span></button>
         ))}
-        <button onClick={() => setPalette(true)}><Icon name="search" /><span>Cerca</span></button>
+        <button className={!PHONE_TABS.includes(view) ? 'active' : ''} onClick={() => setMore(true)}><Icon name="grid" /><span>Altro</span></button>
       </nav>
+      <Drawer open={more} onClose={() => setMore(false)} title="Tutte le sezioni">
+        <div className="more-sheet">
+          <h2>Sezioni</h2>
+          <button className="search-trigger" onClick={() => { setMore(false); setPalette(true) }}><Icon name="search" size={18} /><span>Cerca ordini, clienti, azioni</span></button>
+          <div className="more-grid">
+            {allowedNav.map(item => (
+              <button key={item.key} className={view === item.key ? 'active' : ''} onClick={() => go(item.key)}><Icon name={item.icon} size={22} /><span>{item.label}</span></button>
+            ))}
+            {isAdmin ? <a href="/"><Icon name="cloud" size={22} /><span>Workspace e utenti</span></a> : null}
+          </div>
+        </div>
+      </Drawer>
 
       <Drawer open={!!selected} onClose={() => setSelected(null)} title={selected?.code || 'Dettaglio'}>
         {selected ? <Detail c={selected} /> : null}

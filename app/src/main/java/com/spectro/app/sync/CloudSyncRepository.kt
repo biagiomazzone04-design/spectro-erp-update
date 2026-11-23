@@ -106,13 +106,7 @@ class CloudSyncRepository(
                 JSONObject().put("p_organization_id", access.organizationId)
             )
         }
-        val pending = response.optJSONObject("result") ?: response
-        val imported = repository.importPendingWebZentha(pending)
-        // Ricorda quali revisioni di overlay sono state lette: verranno
-        // confermate al server solo dopo una pubblicazione riuscita, così il
-        // portale non perde la modifica prima che il mirror la contenga.
-        rememberImportedOverlays(pending)
-        imported
+        repository.importPendingWebZentha(response.optJSONObject("result") ?: response)
     } catch (t: Throwable) {
         // Compatibilità con progetti che non hanno ancora applicato le migrazioni 007/008.
         if (t.message.orEmpty().contains("get_web_pending_zentha_records", ignoreCase = true)) 0 else throw t
@@ -158,9 +152,6 @@ class CloudSyncRepository(
                 pendingChanges = true
             ).also(repository::saveLocalSyncState)
         }
-        // Overlay già importati nel database locale e quindi inclusi nello
-        // snapshot che sta per essere pubblicato.
-        val overlaysInSnapshot = importedOverlays()
         // Claim the currently pending batch before taking its snapshot. Any edit made while
         // the upload is running sets this flag again and is sent in the following revision.
         repository.saveLocalSyncState(local.copy(pendingChanges = false))
@@ -265,19 +256,6 @@ class CloudSyncRepository(
             // Cleanup is best-effort and happens only after the new revision
             // was atomically accepted. A cleanup failure never invalidates it.
             runCatching { auth.deleteStorageObjects(BUCKET, cleanupPaths) }
-            if (overlaysInSnapshot.isNotEmpty()) runCatching {
-                auth.authenticatedRpc(
-                    "ack_web_changes_v2",
-                    JSONObject()
-                        .put("p_organization_id", access.organizationId)
-                        .put("p_applied", JSONArray().apply {
-                            overlaysInSnapshot.forEach { (recordId, revision) ->
-                                put(JSONObject().put("record_id", recordId).put("overlay_revision", revision))
-                            }
-                        })
-                )
-                forgetImportedOverlays(overlaysInSnapshot)
-            }
             runCatching {
                 try {
                     auth.authenticatedRpc("ack_web_changes", JSONObject().put("p_organization_id", access.organizationId))
@@ -350,36 +328,6 @@ class CloudSyncRepository(
             transfer.delete()
         }
     }
-
-    private fun importedOverlays(): Map<String, Long> {
-        val stored = runCatching { JSONObject(syncPreferences.getString(IMPORTED_OVERLAYS_KEY, "{}") ?: "{}") }
-            .getOrDefault(JSONObject())
-        return buildMap { stored.keys().forEach { key -> put(key, stored.optLong(key)) } }
-    }
-
-    @Synchronized
-    private fun rememberImportedOverlays(pending: JSONObject) {
-        val records = pending.optJSONArray("records") ?: return
-        val current = importedOverlays().toMutableMap()
-        for (index in 0 until records.length()) {
-            val entry = records.optJSONObject(index) ?: continue
-            val recordId = entry.optString("record_id")
-            val revision = entry.optLong("overlay_revision", 0L)
-            if (!entry.optBoolean("force_update") || recordId.isBlank() || revision <= 0) continue
-            current[recordId] = maxOf(current[recordId] ?: 0L, revision)
-        }
-        syncPreferences.edit().putString(IMPORTED_OVERLAYS_KEY, current.toOverlayJson()).apply()
-    }
-
-    @Synchronized
-    private fun forgetImportedOverlays(confirmed: Map<String, Long>) {
-        // Mantiene le voci reimportate con una revisione più recente durante l'upload.
-        val remaining = importedOverlays().filter { (recordId, revision) -> revision > (confirmed[recordId] ?: -1L) }
-        syncPreferences.edit().putString(IMPORTED_OVERLAYS_KEY, remaining.toOverlayJson()).apply()
-    }
-
-    private fun Map<String, Long>.toOverlayJson(): String =
-        JSONObject().also { json -> forEach { (recordId, revision) -> json.put(recordId, revision) } }.toString()
 
     private fun localStateFor(organizationId: String): LocalSyncState {
         val current = repository.localSyncState()
@@ -521,8 +469,7 @@ class CloudSyncRepository(
         const val MAX_WORKSPACE_BYTES = 1024L * 1024L * 1024L
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
         const val ATTACHMENT_MIRROR_VERSION = 2
-        const val IMPORTED_OVERLAYS_KEY = "imported_web_overlays"
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
-        const val RECORD_MIRROR_VERSION = 7
+        const val RECORD_MIRROR_VERSION = 6
     }
 }

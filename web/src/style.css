@@ -316,4 +316,3 @@ html[data-motion="reduced"] .task-focus-board { animation:none; } html[data-moti
 .advanced-filters { grid-template-columns:minmax(240px,1fr) repeat(6,max-content); overflow-x:auto; }.advanced-filters select { min-height:42px; }
 @media (max-width:1400px) { .production-analytics { grid-template-columns:repeat(2,minmax(0,1fr)); }.advanced-filters { grid-template-columns:1fr 1fr 1fr; } }
 @media (max-width:760px) { .production-brief-grid,.attachment-gallery,.production-analytics,.advanced-filters { grid-template-columns:1fr; }.detail-actions { top:136px; }.attachment-gallery img { height:190px; } }
-

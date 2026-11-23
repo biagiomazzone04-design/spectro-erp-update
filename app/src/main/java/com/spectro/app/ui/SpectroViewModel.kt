@@ -370,7 +370,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
             val imported = cloudSyncRepository.importPendingWebZentha(access)
             if (imported > 0) {
                 val refreshed = repo.snapshot()
-                withContext(Dispatchers.Main) { state = refreshed.toUiState("$imported modifiche dal portale web acquisite.") }
+                withContext(Dispatchers.Main) { state = refreshed.toUiState("$imported ordini Zentha creati dal web acquisiti.") }
             }
             repo.localSyncState().pendingChanges
         }

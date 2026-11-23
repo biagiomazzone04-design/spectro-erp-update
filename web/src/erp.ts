@@ -31,24 +31,9 @@ const p = (row: CloudRecord) => row.payload
 const has = (row: CloudRecord, key: string) => Object.prototype.hasOwnProperty.call(row.payload, key)
 const terminalStatus = /(CLOSED|DELIVERED|COMPLETED|DONE|CANCELLED|PAID|RESOLVED|ARCHIVED)/
 
-// Data di riferimento per periodo, ordinamento e statistiche. Gli ordini usano
-// la data di ricezione/inserimento: la consegna è quasi sempre futura e, se
-// usata come riferimento, escludeva i nuovi ordini da tutti i periodi
-// predefiniti (che terminano oggi), rendendoli invisibili nel portale.
-const referenceDateKeys: Record<string, string[]> = {
-  zentha_order: ['orderDate', 'dueDate'],
-  work_order: ['receivedDate', 'dueDate'],
-  cotton_order: ['orderDate', 'dueDate'],
-  operational_task: ['createdDate', 'dueDate'],
-  client_issue: ['openedDate'],
-  payment_deadline: ['dueDate'],
-  production_record: ['date']
-}
-const moduleDate = (row: CloudRecord) => {
-  const keys = referenceDateKeys[row.entity_type] || ['date', 'dueDate', 'orderDate', 'receivedDate', 'createdDate', 'openedDate']
-  const value = keys.map(key => p(row)[key]).find(candidate => String(candidate || '').trim())
-  return isoDate(value || row.updated_at)
-}
+const moduleDate = (row: CloudRecord) => isoDate(
+  p(row).date || p(row).dueDate || p(row).orderDate || p(row).receivedDate || p(row).createdDate || p(row).openedDate || row.updated_at
+)
 
 const isOverdue = (row: CloudRecord) => {
   const due = isoDate(p(row).dueDate || p(row).expectedDeliveryDate || p(row).revisedDeliveryDate)
@@ -80,19 +65,6 @@ function titleOf(row: CloudRecord) {
 
 function related(records: CloudRecord[], entity: string, key: string, value: unknown) {
   return records.filter(row => row.entity_type === entity && String(p(row)[key] ?? '') === String(value ?? ''))
-}
-
-// Righe di un ordine Zentha. Da Beta 19 Android pubblica le righe dentro
-// l'ordine (`items`), e il portale le modifica come un unico blocco: così
-// prevale sempre la versione più recente, compresa una modifica web in attesa.
-// Senza permessi economici il server rimuove `items` e restano le righe
-// separate, già prive di prezzi e costi.
-function zenthaOrderItems(records: CloudRecord[], order: CloudRecord): CloudRecord[] {
-  const lines = p(order).items
-  if (Array.isArray(lines)) return lines
-    .filter(line => line && typeof line === 'object')
-    .map((line, index) => ({ id: `${order.id}:line:${index}`, module: 'zentha', entity_type: 'zentha_order_item', payload: line as Record<string, unknown>, updated_at: order.updated_at, revision: order.revision }))
-  return related(records, 'zentha_order_item', 'orderId', p(order).id)
 }
 
 function cells(module: string, row: CloudRecord, records: CloudRecord[]) {
@@ -136,7 +108,7 @@ function cells(module: string, row: CloudRecord, records: CloudRecord[]) {
         `<strong>${num(produced)} / ${num(ordered)} m</strong><div class="mini-progress"><i style="width:${progress}%"></i></div>`, badge(x.status)]
     }
     case 'zentha': {
-      const items = zenthaOrderItems(records, row)
+      const items = related(records, 'zentha_order_item', 'orderId', x.id)
       return [`<strong>${esc(text(x.orderCode, `#${x.id}`))}</strong><small>${date(x.orderDate)}</small>`,
         `<strong>${esc(text(x.clientName))}</strong><small>${esc(text(x.notes, 'Nessuna nota'))}</small>`,
         `<strong>${date(x.dueDate)}</strong>`, `<strong>${items.length} righe · ${items.reduce((s, i) => s + Number(p(i).quantity || 0), 0)} pz</strong>`, badge(x.status)]
@@ -159,7 +131,7 @@ function statistics(module: string, primary: CloudRecord[], records: CloudRecord
     inventory: [['Tessuti', String(primary.length), 'Articoli censiti'], ['Disponibilità', `${num(sum('quantityMeters'))} m`, 'Giacenza totale'], ['Sotto soglia', String(primary.filter(r => Number(p(r).quantityMeters || 0) <= Number(p(r).minimumQuantityMeters || 0)).length), 'Da riordinare'], ['Colli', String(records.filter(r => r.entity_type === 'fabric_roll').length), 'Unità tracciate']],
     clients: [['Clienti', String(primary.length), 'Anagrafiche'], ['Ordini', String(records.filter(r => r.entity_type === 'work_order').length), 'Commesse collegate'], ['Produzioni', String(records.filter(r => r.entity_type === 'production_record').length), 'Storico lavorazioni'], ['Attività', String(records.filter(r => r.entity_type === 'operational_task').length), 'Promemoria']],
     cotton: [['Ordini cotone', String(primary.length), 'Totale'], ['Aperti', String(open), 'In gestione'], ['Metri ordinati', `${num(sum('orderedMeters'))} m`, 'Volume'], ['Metri prodotti', `${num(sum('actualProducedMeters'))} m`, 'Avanzamento']],
-    zentha: [['Ordini Zentha', String(primary.length), 'Commesse sportive'], ['Aperti', String(open), 'In gestione'], ['Articoli', String(records.filter(r => r.entity_type === 'zentha_product').length), 'Catalogo'], ['Pezzi ordinati', String(primary.reduce((total, order) => total + zenthaOrderItems(records, order).reduce((pieces, item) => pieces + Number(p(item).quantity || 0), 0), 0)), 'Totale quantità']],
+    zentha: [['Ordini Zentha', String(primary.length), 'Commesse sportive'], ['Aperti', String(open), 'In gestione'], ['Articoli', String(records.filter(r => r.entity_type === 'zentha_product').length), 'Catalogo'], ['Pezzi ordinati', String(sum('quantity', records.filter(r => r.entity_type === 'zentha_order_item'))), 'Totale quantità']],
     finance: [['Movimenti', String(primary.length), 'Voci economiche'], ['Aperti', String(open), 'Da gestire'], ['Scadenze', String(primary.filter(r => r.entity_type === 'payment_deadline').length), 'Pagamenti'], ['Valore', canFinance ? euro(sum('amount') + sum('manualGrossRevenue')) : 'Riservato', 'Accesso controllato']],
     tasks: [['Attività', String(primary.length), 'Totale'], ['Da completare', String(open), 'Operative'], ['Alta priorità', String(primary.filter(r => p(r).priority === 'HIGH').length), 'Attenzione'], ['Completate', String(primary.filter(r => p(r).status === 'DONE').length), 'Archiviate']],
     issues: [['Eventi', String(primary.length), 'Timeline e criticità'], ['Aperti', String(open), 'Da seguire'], ['Critici', String(primary.filter(r => /CRITICAL|BLOCKING/.test(String(p(r).severity))).length), 'Priorità'], ['Risolti', String(primary.filter(r => /RESOLVED|CLOSED/.test(String(p(r).status))).length), 'Completati']]
@@ -203,7 +175,7 @@ function taskFocusBoard(rows: CloudRecord[], canManage: boolean) {
     return aUrgency - bUrgency || priorityRank(a) - priorityRank(b) || (aDue || '9999').localeCompare(bDue || '9999')
   })
   const buckets = [
-    { key: 'work', state: 'TODO', title: 'Attività da lavorare', subtitle: 'Tutto ciò che richiede il tuo intervento', rows: sorted },
+    { key: 'work', state: 'OPEN', title: 'Attività da lavorare', subtitle: 'Tutto ciò che richiede il tuo intervento', rows: sorted },
     { key: 'completed', state: 'DONE', title: 'Completate', subtitle: 'Ultime attività concluse', rows: rows.filter(row => terminalStatus.test(String(p(row).status || ''))).sort((a,b) => b.updated_at.localeCompare(a.updated_at)) }
   ]
   const card = (row: CloudRecord) => {
@@ -320,7 +292,7 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
       <section class="detail-section"><h3>Timeline ordine <span>${timeline.length}</span></h3>${timeline.map(item => `<div class="linked-row"><b>${date(p(item).date)} · ${esc(text(p(item).title))}</b><span>${esc(text(p(item).description, 'Nessuna descrizione'))}</span></div>`).join('') || '<p class="muted">Nessun evento visibile per il tuo ruolo.</p>'}</section>`
   }
   if (module === 'zentha' && row.entity_type === 'zentha_order') {
-    const items = zenthaOrderItems(records, row)
+    const items = related(records, 'zentha_order_item', 'orderId', x.id)
     const productions = related(records, 'production_record', 'zenthaOrderId', x.id)
     const paperMeters = productions.reduce((sum, production) => sum + Number(p(production).printedPaperMeters || 0), 0)
     const chromia = paperMeters * Number(x.chromiaRatePerMeter || 2.5)
@@ -348,7 +320,7 @@ function zenthaCatalog(products: CloudRecord[], canFinance: boolean) {
 }
 
 function printZenthaOrder(order: CloudRecord, records: CloudRecord[], profile: 'production'|'accounting'|'complete') {
-  const x = p(order); const items = zenthaOrderItems(records, order)
+  const x = p(order); const items = related(records, 'zentha_order_item', 'orderId', x.id)
   const productions = related(records, 'production_record', 'zenthaOrderId', x.id)
   const paperMeters = productions.reduce((sum, production) => sum + Number(p(production).printedPaperMeters || 0), 0)
   const chromiaAmount = paperMeters * Number(x.chromiaRatePerMeter || 2.5)
@@ -435,40 +407,20 @@ export function printDashboardReport(records: CloudRecord[], from: string, to: s
   page.document.close()
 }
 
-type EditableField = { key: string; label: string; kind?: 'text'|'number'|'date'|'textarea'|'select'; options?: string[] }
-
-// Valori ammessi dall'app Android. Un testo libero non riconosciuto veniva
-// convertito in un valore predefinito sul telefono e la modifica web non
-// risultava mai assorbita, provocando ripubblicazioni continue.
-const enumOptions = {
-  workStatus: ['DRAFT','RECEIVED','IN_PROCESS','TRANSFERRED_TO_PRODUCTION','WAITING_MATERIAL','WAITING_CLIENT','IN_PRODUCTION','IN_PROGRESS','PRINTED','TRANSFERRED','READY','COMPLETED','DELIVERED','CLOSED','ON_HOLD','BLOCKED','CANCELLED'],
-  zenthaStatus: ['DRAFT','CONFIRMED','GRAPHICS','WAITING_APPROVAL','PRODUCTION','READY','DELIVERED','CLOSED','CANCELLED'],
-  taskStatus: ['TODO','IN_PROGRESS','DONE','CANCELLED'],
-  priority: ['NORMAL','HIGH'],
-  issueStatus: ['OPEN','WAITING_CLIENT','MONITORING','RESOLVED','CLOSED'],
-  timelineStatus: ['OPEN','RESOLVED'],
-  severity: ['LOW','MEDIUM','HIGH','CRITICAL'],
-  timelineSeverity: ['INFO','LOW','MEDIUM','HIGH','BLOCKING'],
-  economicStatus: ['OPEN','COMPLETED','PAID','CANCELLED'],
-  criticality: ['NESSUNA','BASSA','MEDIA','ALTA','CRITICA']
-}
-const pick = (key: string, label: string, options: string[]): EditableField => ({ key, label, kind: 'select', options })
+type EditableField = { key: string; label: string; kind?: 'text'|'number'|'date'|'textarea' }
 function editableFields(module: string, row: CloudRecord): EditableField[] {
   if (row.entity_type === 'zentha_product') return [{key:'sku',label:'Codice articolo'},{key:'name',label:'Nome prodotto'},{key:'category',label:'Categoria'},{key:'description',label:'Descrizione',kind:'textarea'},{key:'standardCost',label:'Costo standard',kind:'number'},{key:'standardPrice',label:'Prezzo listino',kind:'number'},{key:'priceListName',label:'Nome listino'}]
   const fields: Record<string, EditableField[]> = {
-    orders:[{key:'orderCode',label:'Codice ordine'},{key:'client',label:'Cliente'},{key:'title',label:'Titolo'},pick('status','Stato',enumOptions.workStatus),pick('priority','Priorità',enumOptions.priority),{key:'receivedDate',label:'Data ordine',kind:'date'},{key:'materialReceivedDate',label:'Consegna materiale',kind:'date'},{key:'materialReceiptNotes',label:'Note consegna materiale',kind:'textarea'},{key:'dueDate',label:'Consegna ordine',kind:'date'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'designCode',label:'Codice disegno'},{key:'description',label:'Descrizione',kind:'textarea'}],
-    production:[{key:'date',label:'Data',kind:'date'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Riferimento ordine'},{key:'zenthaOrderId',label:'ID ordine Zentha collegato',kind:'number'},{key:'plotter',label:'Plotter'},{key:'printedPaperMeters',label:'Carta stampata (m)',kind:'number'},{key:'protectionPaperMeters',label:'Carta protezione (m)',kind:'number'},{key:'fabricUsedMeters',label:'Tessuto usato (m)',kind:'number'},{key:'fabricDisplayName',label:'Tessuto'},{key:'technicalNotes',label:'Note tecniche',kind:'textarea'},{key:'productionRating',label:'Valutazione produzione (1-5)',kind:'number'},pick('productionCriticality','Criticità',enumOptions.criticality),{key:'productionProblems',label:'Problemi rilevati',kind:'textarea'},{key:'productionReview',label:'Valutazione finale',kind:'textarea'}],
+    orders:[{key:'orderCode',label:'Codice ordine'},{key:'client',label:'Cliente'},{key:'title',label:'Titolo'},{key:'status',label:'Stato'},{key:'priority',label:'Priorità'},{key:'receivedDate',label:'Data ordine',kind:'date'},{key:'materialReceivedDate',label:'Consegna materiale',kind:'date'},{key:'materialReceiptNotes',label:'Note consegna materiale',kind:'textarea'},{key:'dueDate',label:'Consegna ordine',kind:'date'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'designCode',label:'Codice disegno'},{key:'description',label:'Descrizione',kind:'textarea'}],
+    production:[{key:'date',label:'Data',kind:'date'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Riferimento ordine'},{key:'zenthaOrderId',label:'ID ordine Zentha collegato',kind:'number'},{key:'plotter',label:'Plotter'},{key:'printedPaperMeters',label:'Carta stampata (m)',kind:'number'},{key:'protectionPaperMeters',label:'Carta protezione (m)',kind:'number'},{key:'fabricUsedMeters',label:'Tessuto usato (m)',kind:'number'},{key:'fabricDisplayName',label:'Tessuto'},{key:'technicalNotes',label:'Note tecniche',kind:'textarea'},{key:'productionRating',label:'Valutazione produzione (1-5)',kind:'number'},{key:'productionCriticality',label:'Criticità (NESSUNA/BASSA/MEDIA/ALTA/CRITICA)'},{key:'productionProblems',label:'Problemi rilevati',kind:'textarea'},{key:'productionReview',label:'Valutazione finale',kind:'textarea'}],
     inventory:[{key:'fabricName',label:'Tessuto'},{key:'ownerName',label:'Proprietario'},{key:'quantityMeters',label:'Disponibilità (m)',kind:'number'},{key:'minimumQuantityMeters',label:'Soglia minima (m)',kind:'number'},{key:'supplierName',label:'Fornitore'},{key:'composition',label:'Composizione'},{key:'variant',label:'Variante'},{key:'lotCode',label:'Lotto'},{key:'purchasePricePerMeter',label:'Costo acquisto / m',kind:'number'},{key:'processingCostPerMeter',label:'Lavorazioni / m',kind:'number'},{key:'defaultSalePricePerMeter',label:'Vendita predefinita / m',kind:'number'}],
     clients:[{key:'name',label:'Ragione sociale / nome'},{key:'email',label:'Email'},{key:'phone',label:'Telefono'},{key:'address',label:'Indirizzo'},{key:'notes',label:'Note',kind:'textarea'}],
-    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna',kind:'date'},pick('status','Stato',enumOptions.workStatus),{key:'notes',label:'Note',kind:'textarea'}],
-    zentha:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'orderDate',label:'Data ordine',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},pick('status','Stato',enumOptions.zenthaStatus),{key:'chromiaRatePerMeter',label:'Tariffa Chromia / m',kind:'number'},{key:'notes',label:'Note',kind:'textarea'}],
-    tasks:[{key:'title',label:'Attività'},{key:'clientName',label:'Cliente'},{key:'dueDate',label:'Scadenza',kind:'date'},pick('priority','Priorità',enumOptions.priority),pick('status','Stato',enumOptions.taskStatus),{key:'description',label:'Descrizione',kind:'textarea'}],
+    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}],
+    zentha:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'orderDate',label:'Data ordine',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'chromiaRatePerMeter',label:'Tariffa Chromia / m',kind:'number'},{key:'notes',label:'Note',kind:'textarea'}],
+    tasks:[{key:'title',label:'Attività'},{key:'clientName',label:'Cliente'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'priority',label:'Priorità'},{key:'status',label:'Stato'},{key:'description',label:'Descrizione',kind:'textarea'}],
     issues:[{key:'title',label:'Titolo'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Ordine'},{key:'status',label:'Stato'},{key:'severity',label:'Gravità'},{key:'description',label:'Descrizione',kind:'textarea'}],
     finance:[{key:'title',label:'Voce'},{key:'clientName',label:'Cliente'},{key:'date',label:'Data',kind:'date'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'amount',label:'Importo',kind:'number'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}]
   }
-  if (row.entity_type === 'order_timeline_event') return (fields.issues || []).map(field => field.key === 'status' ? pick('status','Stato',enumOptions.timelineStatus) : field.key === 'severity' ? pick('severity','Gravità',enumOptions.timelineSeverity) : field)
-  if (row.entity_type === 'client_issue') return (fields.issues || []).map(field => field.key === 'status' ? pick('status','Stato',enumOptions.issueStatus) : field.key === 'severity' ? pick('severity','Gravità',enumOptions.severity) : field)
-  if (row.entity_type === 'economic_work') return (fields.finance || []).map(field => field.key === 'status' ? pick('status','Stato',enumOptions.economicStatus) : field)
   return fields[module] || []
 }
 
@@ -503,32 +455,10 @@ export function renderAnalyticalModule(
     tasks: 'Cerca attività, cliente o descrizione…', issues: 'Cerca criticità, cliente o ordine…'
   }
   let zenthaLineSequence = 0
-  const zenthaCreateLine = (line?: Record<string, unknown>) => {
+  const zenthaCreateLine = () => {
     const index = zenthaLineSequence++
-    const v = (key: string) => esc(line?.[key] ?? '')
-    const matched = line ? products.find(product => String(p(product).id ?? '') === String(line.productId ?? '')) : undefined
-    // Un articolo non più presente nel catalogo resta selezionabile così com'è.
-    const keepOption = line && !matched ? `<option value="__keep__" selected>${esc(text(line.skuSnapshot, 'S/C'))} · ${esc(text(line.productName, 'Prodotto'))} (riga esistente)</option>` : ''
-    return `<article class="zentha-create-line" data-line="${index}" data-original="${line ? esc(JSON.stringify(line)) : ''}"><div class="zentha-line-heading"><strong>Prodotto ${index + 1}</strong><button type="button" data-remove-zentha-line="${index}" aria-label="Rimuovi prodotto">×</button></div><label>Articolo<select name="productId" required><option value="">Seleziona prodotto…</option>${keepOption}${products.map(product => `<option value="${esc(product.id)}" ${matched?.id === product.id ? 'selected' : ''}>${esc(text(p(product).sku, 'S/C'))} · ${esc(text(p(product).name, 'Prodotto'))}</option>`).join('')}</select></label><div class="edit-field-row"><label>Quantità<input name="quantity" type="number" min="1" step="1" value="${line ? v('quantity') : '1'}" required></label>${canFinance ? `<label>Prezzo unitario €<input name="unitPrice" type="number" min="0" step="0.01" value="${v('unitPrice')}"></label><label>Costo unitario €<input name="unitCost" type="number" min="0" step="0.01" value="${v('unitCost')}"></label>` : ''}</div><div class="edit-field-row"><label>Variante<input name="variant" type="text" placeholder="Es. uomo double" value="${v('variant')}"></label><label>Colore<input name="color" type="text" value="${v('color')}"></label></div><label>Taglie e quantità<input name="sizeBreakdown" type="text" placeholder="S×4, M×8, L×6…" value="${v('sizeBreakdown')}"></label><label>Personalizzazioni<textarea name="personalization" placeholder="Nomi, numeri, sponsor, loghi…">${v('personalization')}</textarea></label><label>Note produzione<textarea name="productionNotes" placeholder="Indicazioni per stampa e confezionamento">${v('productionNotes')}</textarea></label></article>`
+    return `<article class="zentha-create-line" data-line="${index}"><div class="zentha-line-heading"><strong>Prodotto ${index + 1}</strong><button type="button" data-remove-zentha-line="${index}" aria-label="Rimuovi prodotto">×</button></div><label>Articolo<select name="productId" required><option value="">Seleziona prodotto…</option>${products.map(product => `<option value="${esc(product.id)}">${esc(text(p(product).sku, 'S/C'))} · ${esc(text(p(product).name, 'Prodotto'))}</option>`).join('')}</select></label><div class="edit-field-row"><label>Quantità<input name="quantity" type="number" min="1" step="1" value="1" required></label>${canFinance ? '<label>Prezzo unitario €<input name="unitPrice" type="number" min="0" step="0.01"></label><label>Costo unitario €<input name="unitCost" type="number" min="0" step="0.01"></label>' : ''}</div><div class="edit-field-row"><label>Variante<input name="variant" type="text" placeholder="Es. uomo double"></label><label>Colore<input name="color" type="text"></label></div><label>Taglie e quantità<input name="sizeBreakdown" type="text" placeholder="S×4, M×8, L×6…"></label><label>Personalizzazioni<textarea name="personalization" placeholder="Nomi, numeri, sponsor, loghi…"></textarea></label><label>Note produzione<textarea name="productionNotes" placeholder="Indicazioni per stampa e confezionamento"></textarea></label></article>`
   }
-  const readZenthaLines = (container: ParentNode) => [...container.querySelectorAll<HTMLElement>('.zentha-create-line')].map(line => {
-    const get = (name:string) => (line.querySelector<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>(`[name="${name}"]`)?.value || '')
-    const original: Record<string, unknown> = line.dataset.original ? JSON.parse(line.dataset.original) : {}
-    const keep = get('productId') === '__keep__'
-    const product = keep ? undefined : products.find(value => value.id === get('productId'))
-    const productPayload: Record<string, unknown> = product ? p(product) : {}
-    const sameProduct = keep || (product && String(productPayload.id ?? '') === String(original.productId ?? ''))
-    return {
-      productId: keep ? (original.productId ?? null) : (productPayload.id ?? null),
-      productName: keep ? text(original.productName, '') : text(productPayload.name, ''),
-      quantity: Number(get('quantity') || 0),
-      unitPrice: canFinance ? Number(get('unitPrice') || (sameProduct ? original.unitPrice : productPayload.standardPrice) || 0) : 0,
-      unitCost: canFinance ? Number(get('unitCost') || (sameProduct ? original.unitCost : productPayload.standardCost) || 0) : 0,
-      skuSnapshot: sameProduct && original.skuSnapshot !== undefined ? text(original.skuSnapshot, '') : text(productPayload.sku, ''),
-      productDescriptionSnapshot: sameProduct && original.productDescriptionSnapshot !== undefined ? text(original.productDescriptionSnapshot, '') : text(productPayload.description, ''),
-      variant: get('variant'), color: get('color'), sizeBreakdown: get('sizeBreakdown'), personalization: get('personalization'), productionNotes: get('productionNotes')
-    }
-  })
   root.innerHTML = `<div class="analytical-page">
     <header class="module-header compact-header"><div><button id="home" class="back">← Dashboard</button><p class="kicker">${esc(module.eyebrow)}</p><h1>${esc(module.title)}</h1><p>${esc(module.description)}</p></div><div class="header-actions">${module.key === 'orders' && canManage && onCreateOrder ? '<button id="new-work-order" class="primary compact-action">＋ Nuovo ordine</button>' : ''}${module.key === 'production' && canManage && onCreateProduction ? '<button id="new-production" class="primary compact-action">＋ Nuova produzione</button>' : ''}${module.key === 'zentha' && canManage && onCreateZentha ? '<button id="new-zentha-order" class="primary compact-action">＋ Nuovo ordine Zentha</button>' : ''}${canManage ? '<span class="permission-chip manage">● Gestione autorizzata</span>' : '<span class="permission-chip">Sola visualizzazione</span>'}<div class="live"><i></i>${primary.length} elementi</div></div></header>
     ${errorMessage ? `<p class="form-message">${esc(errorMessage)}</p>` : ''}
@@ -539,7 +469,7 @@ export function renderAnalyticalModule(
     ${module.key === 'production' ? `<div id="production-analysis">${productionAnalytics(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>` : ''}
     ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
     <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">${module.key === 'tasks' ? 'ARCHIVIO E PIANIFICAZIONE' : 'CENTRO OPERATIVO'}</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
-      <div class="view-tabs" role="tablist"><button class="${['tasks', 'zentha', 'orders'].includes(module.key) ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${['tasks', 'zentha', 'orders'].includes(module.key) ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(rowStatus(row))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus(row)))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(rowStatus(row))).length}</b></button></div>
+      <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(rowStatus(row))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus(row)))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(rowStatus(row))).length}</b></button></div>
       <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="sort-filter" aria-label="Ordina risultati"><option value="date_desc">Data: più recenti prima</option><option value="date_asc">Data: meno recenti prima</option><option value="updated_desc">Ultima modifica</option><option value="client_asc">Cliente: A–Z</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table class="module-table ${esc(module.key)}"><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
@@ -550,8 +480,7 @@ export function renderAnalyticalModule(
     <div id="edit-overlay" class="export-overlay" hidden><button class="edit-scrim export-scrim" aria-label="Chiudi"></button><form id="edit-form" class="export-center edit-center"><header><div><p class="kicker">MODIFICA RECORD</p><h2 id="edit-title">Aggiorna dati</h2><p>La modifica viene salvata nel cloud come livello protetto.</p></div><button id="edit-close" type="button" aria-label="Chiudi">×</button></header><div id="edit-fields" class="edit-fields"></div><p id="edit-message" class="form-message" hidden></p><footer><button id="edit-cancel" type="button" class="secondary">Annulla</button><button id="edit-save" type="submit" class="primary">Salva modifiche</button></footer></form></div>
     ${module.key === 'orders' && canManage && onCreateOrder ? `<div id="work-create-overlay" class="export-overlay" hidden><button class="work-create-scrim export-scrim" aria-label="Chiudi"></button><form id="work-create-form" class="export-center edit-center operational-create-center"><header><div><p class="kicker">NUOVO ORDINE SPECTRO</p><h2>Crea una commessa produttiva</h2><p>Scegli un cliente registrato per applicare il prezzo predefinito, che resta sempre modificabile.</p></div><button id="work-create-close" type="button" aria-label="Chiudi">×</button></header><div class="edit-fields"><div class="edit-field-row"><label>Cliente registrato<select name="clientId"><option value="">Cliente manuale…</option>${clients.map(row=>`<option value="${esc(p(row).id)}" data-name="${esc(p(row).name)}" data-price="${esc(p(row).defaultPrintPrice||0)}">${esc(text(p(row).name))} · ${euro(p(row).defaultPrintPrice||0)}/m</option>`).join('')}</select></label><label>Cliente manuale<input name="client" required placeholder="Seleziona sopra o scrivi qui"></label><label>Titolo / riferimento<input name="title" required placeholder="Nome commessa"></label></div><div class="edit-field-row"><label>Data ordine<input name="receivedDate" type="date" value="${today}" required></label><label>Consegna materiale<input name="materialReceivedDate" type="date"></label><label>Consegna ordine<input name="dueDate" type="date"></label></div><div class="edit-field-row"><label>Stato<select name="status"><option value="RECEIVED">Ricevuto</option><option value="IN_PROCESS">In lavorazione</option><option value="WAITING_MATERIAL">Attesa materiale</option><option value="WAITING_CLIENT">Attesa cliente</option><option value="IN_PRODUCTION">In produzione</option><option value="ON_HOLD">In pausa</option></select></label><label>Priorità<select name="priority"><option value="NORMAL">Normale</option><option value="HIGH">Alta</option></select></label><label>Blocco<select name="blocker"><option value="NONE">Nessuno</option><option value="WAITING_MATERIAL">Attesa materiale</option><option value="WAITING_CLIENT">Attesa cliente</option></select></label></div><div class="edit-field-row"><label>Metri ordinati<input name="orderedMeters" type="number" min="0" step="0.01"></label><label>Codice disegno<input name="designCode"></label>${canFinance ? '<label>Prezzo stampa €/m<input name="printPricePerMeter" type="number" min="0" step="0.01"></label>' : ''}</div><label>Descrizione e note operative<textarea name="description" placeholder="Disegni, colori, lavorazioni, richieste del cliente…"></textarea></label><label>Note consegna materiale<textarea name="materialReceiptNotes" placeholder="Pezzi, colli o materiale ricevuto…"></textarea></label></div><p id="work-create-message" class="form-message" hidden></p><footer><button id="work-create-cancel" type="button" class="secondary">Annulla</button><button id="work-create-save" type="submit" class="primary">Crea e sincronizza ordine</button></footer></form></div>` : ''}
     ${module.key === 'production' && canManage && onCreateProduction ? `<div id="production-create-overlay" class="export-overlay" hidden><button class="production-create-scrim export-scrim" aria-label="Chiudi"></button><form id="production-create-form" class="export-center edit-center operational-create-center"><header><div><p class="kicker">NUOVA REGISTRAZIONE</p><h2>Aggiungi produzione o evento negativo</h2><p>I calcoli economici usano automaticamente i costi impostati su Android.</p></div><button id="production-create-close" type="button" aria-label="Chiudi">×</button></header><div class="edit-fields"><div class="edit-field-row"><label>Tipo<select name="type"><option value="PRODUCTION">Produzione</option><option value="NEGATIVE">Evento negativo / perdita</option></select></label><label>Data<input name="date" type="date" value="${today}" required></label><label>Cliente registrato<select name="clientId"><option value="">Cliente manuale…</option>${clients.map(row=>`<option value="${esc(p(row).id)}" data-name="${esc(p(row).name)}" data-price="${esc(p(row).defaultPrintPrice||0)}">${esc(text(p(row).name))}</option>`).join('')}</select></label></div><div class="edit-field-row"><label>Cliente manuale<input name="clientName" required placeholder="Cliente o evento interno"></label><label>Ordine collegato<select name="workOrderId"><option value="">Nessun ordine</option>${workOrders.map(row=>`<option value="${esc(p(row).id)}" data-client="${esc(p(row).client)}" data-ref="${esc(p(row).title||p(row).orderCode)}" data-price="${esc(p(row).printPricePerMeter||0)}">${esc(text(p(row).client))} · ${esc(text(p(row).title,p(row).orderCode as string))}</option>`).join('')}</select></label><label>Riferimento ordine<input name="orderRef" placeholder="Commessa o lavorazione"></label></div><div class="edit-field-row"><label>Plotter<select name="plotter"><option value="X1">X1</option><option value="X2">X2</option></select></label><label>Carta stampata (m)<input name="printedPaperMeters" type="number" min="0" step="0.01"></label><label>Prezzo stampa €/m<input name="printPricePerMeter" type="number" min="0" step="0.01"></label></div><div class="edit-field-row"><label>Carta protezione (m)<input name="protectionPaperMeters" type="number" min="0" step="0.01"></label><label>Sfrido carta (m)<input name="paperWasteMeters" type="number" min="0" step="0.01"></label><label>Disegni<input name="designs" placeholder="Separati da virgola"></label></div><div class="edit-field-row"><label>Tessuto / materiale<input name="manualFabricName" placeholder="Facoltativo"></label><label>Tessuto lavorato (m)<input name="fabricUsedMeters" type="number" min="0" step="0.01"></label><label>Costo tessuto €/m<input name="fabricCostPerMeter" type="number" min="0" step="0.01"></label></div><div class="edit-field-row negative-costs"><label>Rimborso / perdita €<input name="refundCost" type="number" min="0" step="0.01"></label><label>Costo tessuto difettato €<input name="fabricLossCost" type="number" min="0" step="0.01"></label><label class="check-field"><input name="applyFixedCosts" type="checkbox" checked> Applica costi fissi alla giornata</label></div><label>Note tecniche o descrizione evento<textarea name="technicalNotes" required placeholder="Lavorazione, difetto, metri coinvolti, causa e conseguenze economiche…"></textarea></label></div><p id="production-create-message" class="form-message" hidden></p><footer><button id="production-create-cancel" type="button" class="secondary">Annulla</button><button id="production-create-save" type="submit" class="primary">Registra e sincronizza</button></footer></form></div>` : ''}
-    ${module.key === 'zentha' && canManage && onCreateZentha ? `<div id="zentha-create-overlay" class="export-overlay" hidden><button class="zentha-create-scrim export-scrim" aria-label="Chiudi"></button><form id="zentha-create-form" class="export-center edit-center zentha-create-center"><header><div><p class="kicker">NUOVO ORDINE ZENTHA</p><h2>Crea una commessa completa</h2><p>Il nuovo ordine sarà visibile subito sul web e acquisito automaticamente da Android.</p></div><button id="zentha-create-close" type="button" aria-label="Chiudi">×</button></header><div class="edit-fields"><div class="edit-field-row"><label>Cliente / società<input name="clientName" required placeholder="Nome cliente manuale"></label><label>Stato<select name="status"><option value="CONFIRMED">Confermato</option><option value="DRAFT">Bozza</option><option value="GRAPHICS">Grafica</option><option value="WAITING_APPROVAL">Attesa approvazione</option><option value="PRODUCTION">In produzione</option></select></label></div><div class="edit-field-row"><label>Data ordine<input name="orderDate" type="date" value="${today}" required></label><label>Consegna facoltativa<input name="dueDate" type="date"></label></div><label>Note ordine<textarea name="notes" placeholder="Riferimenti, richieste e indicazioni generali"></textarea></label>${canFinance ? '<div class="edit-field-row"><label>Quota A %<input name="splitPercentA" type="number" value="50" min="0" max="100" step="0.01"></label><label>Quota B %<input name="splitPercentB" type="number" value="50" min="0" max="100" step="0.01"></label><label>Tariffa Chromia €/m<input name="chromiaRatePerMeter" type="number" value="2.5" min="0" step="0.01"></label></div>' : ''}<div class="zentha-create-products"><div class="zentha-products-title"><div><p class="kicker">PRODOTTI</p><h3>Articoli dell’ordine</h3></div><button id="add-zentha-line" type="button" class="secondary">＋ Aggiungi prodotto</button></div><div id="zentha-create-lines" class="zentha-lines-container">${zenthaCreateLine()}</div></div></div><p id="zentha-create-message" class="form-message" hidden></p><footer><button id="zentha-create-cancel" type="button" class="secondary">Continua più tardi</button><button id="zentha-create-save" type="submit" class="primary">Crea ordine Zentha</button></footer></form></div>` : ''}
-    ${module.key === 'zentha' && canManage && canFinance && onUpdate ? `<div id="zentha-lines-overlay" class="export-overlay" hidden><button class="zentha-lines-scrim export-scrim" aria-label="Chiudi"></button><form id="zentha-lines-form" class="export-center edit-center zentha-create-center"><header><div><p class="kicker">RIGHE ORDINE ZENTHA</p><h2 id="zentha-lines-title">Modifica prodotti</h2><p>Le righe aggiornate sostituiscono quelle dell’ordine e vengono acquisite automaticamente da Android.</p></div><button id="zentha-lines-close" type="button" aria-label="Chiudi">×</button></header><div class="edit-fields"><div class="zentha-create-products"><div class="zentha-products-title"><div><p class="kicker">PRODOTTI</p><h3>Articoli dell’ordine</h3></div><button id="add-zentha-edit-line" type="button" class="secondary">＋ Aggiungi prodotto</button></div><div id="zentha-lines-edit" class="zentha-lines-container"></div></div></div><p id="zentha-lines-message" class="form-message" hidden></p><footer><button id="zentha-lines-cancel" type="button" class="secondary">Annulla</button><button id="zentha-lines-save" type="submit" class="primary">Salva righe</button></footer></form></div>` : ''}
+    ${module.key === 'zentha' && canManage && onCreateZentha ? `<div id="zentha-create-overlay" class="export-overlay" hidden><button class="zentha-create-scrim export-scrim" aria-label="Chiudi"></button><form id="zentha-create-form" class="export-center edit-center zentha-create-center"><header><div><p class="kicker">NUOVO ORDINE ZENTHA</p><h2>Crea una commessa completa</h2><p>Il nuovo ordine sarà visibile subito sul web e acquisito automaticamente da Android.</p></div><button id="zentha-create-close" type="button" aria-label="Chiudi">×</button></header><div class="edit-fields"><div class="edit-field-row"><label>Cliente / società<input name="clientName" required placeholder="Nome cliente manuale"></label><label>Stato<select name="status"><option value="CONFIRMED">Confermato</option><option value="DRAFT">Bozza</option><option value="GRAPHICS">Grafica</option><option value="WAITING_APPROVAL">Attesa approvazione</option><option value="PRODUCTION">In produzione</option></select></label></div><div class="edit-field-row"><label>Data ordine<input name="orderDate" type="date" value="${today}" required></label><label>Consegna facoltativa<input name="dueDate" type="date"></label></div><label>Note ordine<textarea name="notes" placeholder="Riferimenti, richieste e indicazioni generali"></textarea></label>${canFinance ? '<div class="edit-field-row"><label>Quota A %<input name="splitPercentA" type="number" value="50" min="0" max="100" step="0.01"></label><label>Quota B %<input name="splitPercentB" type="number" value="50" min="0" max="100" step="0.01"></label><label>Tariffa Chromia €/m<input name="chromiaRatePerMeter" type="number" value="2.5" min="0" step="0.01"></label></div>' : ''}<div class="zentha-create-products"><div class="zentha-products-title"><div><p class="kicker">PRODOTTI</p><h3>Articoli dell’ordine</h3></div><button id="add-zentha-line" type="button" class="secondary">＋ Aggiungi prodotto</button></div><div id="zentha-create-lines">${zenthaCreateLine()}</div></div></div><p id="zentha-create-message" class="form-message" hidden></p><footer><button id="zentha-create-cancel" type="button" class="secondary">Continua più tardi</button><button id="zentha-create-save" type="submit" class="primary">Crea ordine Zentha</button></footer></form></div>` : ''}
   </div>`
   const body = root.querySelector<HTMLTableSectionElement>('#record-body')!
   const empty = root.querySelector<HTMLElement>('#record-empty')!
@@ -563,9 +492,7 @@ export function renderAnalyticalModule(
   const sort = root.querySelector<HTMLSelectElement>('#sort-filter')!
   const group = root.querySelector<HTMLSelectElement>('#group-filter')!
   const resultCount = root.querySelector<HTMLElement>('#result-count')!
-  // Ordini e attività aprono sui record operativi: sono sempre visibili, a
-  // prescindere dal periodo, finché non vengono chiusi o consegnati.
-  let currentView = ['tasks', 'zentha', 'orders'].includes(module.key) ? 'operative' : 'all'
+  let currentView = module.key === 'tasks' ? 'operative' : 'all'
   let visibleRows: CloudRecord[] = []
   let editingRow: CloudRecord | null = null
   const editOverlay = root.querySelector<HTMLElement>('#edit-overlay')!
@@ -641,8 +568,7 @@ export function renderAnalyticalModule(
   const createOverlay = root.querySelector<HTMLElement>('#zentha-create-overlay')
   const closeCreate = () => { if (createOverlay) createOverlay.hidden = true; document.body.classList.remove('drawer-open') }
   const bindZenthaLineActions = () => root.querySelectorAll<HTMLButtonElement>('[data-remove-zentha-line]').forEach(button => button.onclick = () => {
-    const container = button.closest('.zentha-lines-container') || root
-    const lines = container.querySelectorAll('.zentha-create-line'); if (lines.length > 1) button.closest('.zentha-create-line')?.remove()
+    const lines = root.querySelectorAll('.zentha-create-line'); if (lines.length > 1) button.closest('.zentha-create-line')?.remove()
   })
   root.querySelector('#new-zentha-order')?.addEventListener('click', () => { if (createOverlay) { createOverlay.hidden = false; document.body.classList.add('drawer-open') } })
   root.querySelector('#zentha-create-close')?.addEventListener('click', closeCreate)
@@ -650,40 +576,16 @@ export function renderAnalyticalModule(
   root.querySelector('.zentha-create-scrim')?.addEventListener('click', closeCreate)
   root.querySelector('#add-zentha-line')?.addEventListener('click', () => { root.querySelector('#zentha-create-lines')?.insertAdjacentHTML('beforeend', zenthaCreateLine()); bindZenthaLineActions() })
   bindZenthaLineActions()
-  const linesOverlay = root.querySelector<HTMLElement>('#zentha-lines-overlay')
-  let linesOrder: CloudRecord | null = null
-  const closeLines = () => { if (linesOverlay) linesOverlay.hidden = true; linesOrder = null; document.body.classList.remove('drawer-open') }
-  const openLines = (order: CloudRecord) => {
-    if (!linesOverlay) return
-    linesOrder = order
-    const container = root.querySelector<HTMLElement>('#zentha-lines-edit')!
-    const current = zenthaOrderItems(records, order).map(item => p(item))
-    container.innerHTML = (current.length ? current : [undefined]).map(line => zenthaCreateLine(line)).join('')
-    root.querySelector<HTMLElement>('#zentha-lines-title')!.textContent = `Prodotti di ${text(p(order).orderCode, 'ordine Zentha')}`
-    const message = root.querySelector<HTMLElement>('#zentha-lines-message')!; message.hidden = true
-    bindZenthaLineActions()
-    root.querySelector<HTMLElement>('#detail-overlay')!.hidden = true
-    linesOverlay.hidden = false; document.body.classList.add('drawer-open')
-  }
-  root.querySelector('#zentha-lines-close')?.addEventListener('click', closeLines)
-  root.querySelector('#zentha-lines-cancel')?.addEventListener('click', closeLines)
-  root.querySelector('.zentha-lines-scrim')?.addEventListener('click', closeLines)
-  root.querySelector('#add-zentha-edit-line')?.addEventListener('click', () => { root.querySelector('#zentha-lines-edit')?.insertAdjacentHTML('beforeend', zenthaCreateLine()); bindZenthaLineActions() })
-  root.querySelector<HTMLFormElement>('#zentha-lines-form')?.addEventListener('submit', async event => {
-    event.preventDefault(); if (!linesOrder || !onUpdate) return
-    const items = readZenthaLines(root.querySelector('#zentha-lines-edit')!)
-    const message = root.querySelector<HTMLElement>('#zentha-lines-message')!; const save = root.querySelector<HTMLButtonElement>('#zentha-lines-save')!
-    if (!items.length || items.some(item => !item.productName || !Number.isInteger(item.quantity) || item.quantity <= 0 || item.unitPrice < 0 || item.unitCost < 0)) { message.textContent = 'Ogni riga deve avere un prodotto, una quantità intera positiva e importi non negativi.'; message.hidden = false; return }
-    save.disabled = true; save.textContent = 'Salvataggio…'
-    const error = await onUpdate(linesOrder, { items })
-    if (error) { message.textContent = error; message.hidden = false; save.disabled = false; save.textContent = 'Salva righe' }
-  })
   root.querySelector<HTMLFormElement>('#zentha-create-form')?.addEventListener('submit', async event => {
     event.preventDefault(); if (!onCreateZentha) return
     const formElement = event.currentTarget as HTMLFormElement
     const form = new FormData(formElement)
     const order: Record<string, unknown> = { clientName:String(form.get('clientName')||''), orderDate:String(form.get('orderDate')||today), dueDate:String(form.get('dueDate')||''), status:String(form.get('status')||'CONFIRMED'), notes:String(form.get('notes')||''), splitPercentA:Number(form.get('splitPercentA')||50), splitPercentB:Number(form.get('splitPercentB')||50), chromiaRatePerMeter:Number(form.get('chromiaRatePerMeter')||2.5) }
-    const items = readZenthaLines(root.querySelector('#zentha-create-lines') || root)
+    const items = [...root.querySelectorAll<HTMLElement>('.zentha-create-line')].map(line => {
+      const get = (name:string) => (line.querySelector<HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement>(`[name="${name}"]`)?.value || '')
+      const product = products.find(value => value.id === get('productId')); const productPayload = product ? p(product) : {}
+      return { productId:productPayload.id || null, productName:text(productPayload.name,''), quantity:Number(get('quantity')||0), unitPrice:canFinance ? Number(get('unitPrice') || productPayload.standardPrice || 0) : 0, unitCost:canFinance ? Number(get('unitCost') || productPayload.standardCost || 0) : 0, skuSnapshot:text(productPayload.sku,''), productDescriptionSnapshot:text(productPayload.description,''), variant:get('variant'), color:get('color'), sizeBreakdown:get('sizeBreakdown'), personalization:get('personalization'), productionNotes:get('productionNotes') }
+    })
     const message = root.querySelector<HTMLElement>('#zentha-create-message')!; const save = root.querySelector<HTMLButtonElement>('#zentha-create-save')!
     if (items.some(item => !item.productName || item.quantity <= 0)) { message.textContent='Seleziona un prodotto e una quantità valida per ogni riga.'; message.hidden=false; return }
     if (canFinance && Math.abs(Number(order.splitPercentA)+Number(order.splitPercentB)-100) > .01) { message.textContent='Le quote A e B devono totalizzare 100%.'; message.hidden=false; return }
@@ -697,12 +599,6 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#edit-title')!.textContent = `Modifica ${titleOf(row)}`
     root.querySelector<HTMLElement>('#edit-fields')!.innerHTML = fields.map(field => {
       const value = p(row)[field.key] ?? ''
-      if (field.kind === 'select') {
-        const options = field.options || []
-        const current = String(value)
-        const list = current && !options.includes(current) ? [current, ...options] : options
-        return `<label>${esc(field.label)}<select name="${esc(field.key)}">${list.map(option => `<option value="${esc(option)}" ${option === current ? 'selected' : ''}>${esc(translateCode(option))}</option>`).join('')}</select></label>`
-      }
       return field.kind === 'textarea' ? `<label>${esc(field.label)}<textarea name="${esc(field.key)}">${esc(value)}</textarea></label>` : `<label>${esc(field.label)}<input name="${esc(field.key)}" type="${field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}" ${field.kind === 'number' ? 'step="0.01"' : ''} value="${esc(value)}"></label>`
     }).join('')
     const message = root.querySelector<HTMLElement>('#edit-message')!; message.hidden = true; message.textContent = ''
@@ -712,9 +608,8 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
     root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
     const actions = root.querySelector<HTMLElement>('#detail-actions')!
-    actions.innerHTML = `${canManage && onUpdate ? `<button id="edit-record">${module.key === 'production' ? 'Modifica e valuta produzione' : 'Modifica dati'}</button>` : ''}${module.key === 'zentha' && row.entity_type === 'zentha_order' && canManage && canFinance && onUpdate ? '<button id="edit-zentha-lines">Modifica prodotti</button>' : ''}${module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : ''}`
+    actions.innerHTML = `${canManage && onUpdate ? `<button id="edit-record">${module.key === 'production' ? 'Modifica e valuta produzione' : 'Modifica dati'}</button>` : ''}${module.key === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : ''}`
     actions.querySelector('#edit-record')?.addEventListener('click', () => openEdit(row))
-    actions.querySelector('#edit-zentha-lines')?.addEventListener('click', () => openLines(row))
     actions.querySelectorAll<HTMLButtonElement>('[data-export-profile]').forEach(button => button.addEventListener('click', () => printZenthaOrder(row, records, button.dataset.exportProfile as 'production'|'accounting'|'complete')))
     const tabs = root.querySelector<HTMLElement>('#detail-tabs')!
     tabs.innerHTML = module.key === 'production' ? '<button class="active" data-detail-target="top">Riepilogo</button><button data-detail-target=".production-brief">Scheda tecnica</button><button data-detail-target=".production-quality">Valutazione</button><button data-detail-target=".attachment-section">Immagini</button>' : `<button class="active" data-detail-target="top">Riepilogo</button>${module.key === 'orders' ? '<button data-detail-target=".detail-section">Collegamenti e timeline</button>' : ''}<button data-detail-target=".attachment-section">Allegati</button>`
@@ -758,10 +653,7 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)
     root.querySelector<HTMLElement>('#module-insights')!.innerHTML = moduleInsights(periodRows)
     if (module.key === 'production') root.querySelector<HTMLElement>('#production-analysis')!.innerHTML = productionAnalytics(periodRows)
-    // Le viste operative mostrano tutto ciò che è aperto; il periodo filtra
-    // soltanto l'elenco completo e l'archivio.
-    const ignoresPeriod = currentView === 'operative' || currentView === 'attention'
-    visibleRows = (ignoresPeriod ? primary : periodRows).filter(row => {
+    visibleRows = periodRows.filter(row => {
       const effectiveStatus = rowStatus(row)
       const viewMatch = currentView === 'all' || (currentView === 'operative' && !terminalStatus.test(effectiveStatus)) ||
         (currentView === 'archive' && terminalStatus.test(effectiveStatus)) ||
@@ -782,7 +674,7 @@ export function renderAnalyticalModule(
       return `${heading}<tr data-record="${esc(row.id)}">${cells(module.key, row, records).map(value => `<td>${value}</td>`).join('')}</tr>`
     }).join('')
     empty.hidden = visibleRows.length > 0
-    resultCount.textContent = ignoresPeriod ? `${visibleRows.length} elementi aperti visualizzati (tutti i periodi)` : `${visibleRows.length} elementi visualizzati su ${periodRows.length} nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
+    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${periodRows.length} nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
     root.querySelector<HTMLElement>('#export-period-label')!.textContent = `${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
     root.querySelector<HTMLElement>('#export-count-label')!.textContent = String(visibleRows.length)
     body.querySelectorAll<HTMLTableRowElement>('tr').forEach(element => element.addEventListener('click', () => {
@@ -838,21 +730,7 @@ export function renderAnalyticalModule(
     event.preventDefault(); if (!editingRow || !onUpdate) return
     const button = root.querySelector<HTMLButtonElement>('#edit-save')!; button.disabled = true; button.textContent = 'Salvataggio…'
     const form = new FormData(event.currentTarget as HTMLFormElement); const patch: Record<string, unknown> = {}
-    // Invia soltanto i campi realmente modificati: un patch con valori
-    // invariati (o con 0 al posto di un collegamento vuoto) non veniva mai
-    // riconosciuto come assorbito da Android e restava attivo per sempre.
-    const original = p(editingRow)
-    editableFields(module.key, editingRow).forEach(field => {
-      const raw = String(form.get(field.key) ?? '')
-      const before = original[field.key]
-      if (field.kind === 'number') {
-        const next = raw.trim() === '' ? null : Number(raw)
-        if (next !== null && !Number.isFinite(next)) return
-        const previous = before === null || before === undefined || before === '' ? null : Number(before)
-        if (next !== previous) patch[field.key] = next
-      } else if (raw !== String(before ?? '')) patch[field.key] = raw
-    })
-    if (!Object.keys(patch).length) { closeEdit(); button.disabled = false; button.textContent = 'Salva modifiche'; return }
+    editableFields(module.key, editingRow).forEach(field => { const raw = String(form.get(field.key) ?? ''); patch[field.key] = field.kind === 'number' ? Number(raw || 0) : raw })
     const error = await onUpdate(editingRow, patch)
     if (error) { const message = root.querySelector<HTMLElement>('#edit-message')!; message.textContent = error; message.hidden = false; button.disabled = false; button.textContent = 'Salva modifiche' }
   })

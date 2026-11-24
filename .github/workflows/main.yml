@@ -12,7 +12,7 @@ jobs:
       SPECTRO_SUPABASE_URL: https://fbfxtyowcxgagseqdlyz.supabase.co
       SPECTRO_SUPABASE_ANON_KEY: ${{ secrets.SPECTRO_SUPABASE_ANON_KEY || 'sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU' }}
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -174,3 +174,25 @@ jobs:
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Pubblica APK Beta 18 con link diretto
+        if: github.ref == 'refs/heads/spectro-3.0-beta'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v3.2.8-beta18"
+          SOURCE_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
+          PUBLIC_APK="SpectroERP-v3.2.8-BETA18.apk"
+          cp "$SOURCE_APK" "$PUBLIC_APK"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$PUBLIC_APK" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$PUBLIC_APK" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Spectro ERP 3.2.8 Beta 18" \
+              --notes "APK Android RELEASE firmato. Installare sopra la versione esistente senza disinstallare l'app." \
+              --prerelease
+          fi

@@ -12,8 +12,9 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
-        versionName = "3.2.8-beta18"
+        // Android upgrades must also accept installations of the earlier Beta 19 (36).
+        versionCode = 37
+        versionName = "3.2.10-beta20"
 
         // Project URL and sb_publishable key are public client configuration.
         // RLS protects the data; properties/environment can override these

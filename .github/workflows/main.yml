@@ -170,20 +170,20 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v3.2.8-BETA18-ZENTHA-CONTROL-TOWER
+          name: SpectroERP-v3.2.10-BETA20
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Pubblica APK Beta 18 con link diretto
+      - name: Pubblica APK Beta 20 con link diretto
         if: github.ref == 'refs/heads/spectro-3.0-beta'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v3.2.8-beta18"
+          TAG="v3.2.10-beta20"
           SOURCE_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
-          PUBLIC_APK="SpectroERP-v3.2.8-BETA18.apk"
+          PUBLIC_APK="SpectroERP-v3.2.10-BETA20.apk"
           cp "$SOURCE_APK" "$PUBLIC_APK"
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -192,7 +192,7 @@ jobs:
             gh release create "$TAG" "$PUBLIC_APK" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --title "Spectro ERP 3.2.8 Beta 18" \
+              --title "Spectro ERP 3.2.10 Beta 20" \
               --notes "APK Android RELEASE firmato. Installare sopra la versione esistente senza disinstallare l'app." \
               --prerelease
           fi

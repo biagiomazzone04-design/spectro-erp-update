@@ -184,12 +184,16 @@ jobs:
           TAG="v3.2.10-beta20"
           SOURCE_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
           PUBLIC_APK="SpectroERP-v3.2.10-BETA20.apk"
-          cp "$SOURCE_APK" "$PUBLIC_APK"
+          PUBLIC_ZIP="SpectroERP-v3.2.10-BETA20.zip"
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$PUBLIC_APK" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$PUBLIC_APK"
+            zip -j "$PUBLIC_ZIP" "$PUBLIC_APK"
+            gh release upload "$TAG" "$PUBLIC_ZIP" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" "$PUBLIC_APK" \
+            cp "$SOURCE_APK" "$PUBLIC_APK"
+            zip -j "$PUBLIC_ZIP" "$PUBLIC_APK"
+            gh release create "$TAG" "$PUBLIC_APK" "$PUBLIC_ZIP" \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Spectro ERP 3.2.10 Beta 20" \

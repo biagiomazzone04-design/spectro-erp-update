@@ -372,6 +372,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
                 val refreshed = repo.snapshot()
                 withContext(Dispatchers.Main) { state = refreshed.toUiState("$imported ordini Zentha creati dal web acquisiti.") }
             }
+            cloudSyncRepository.prepareSnapshotIntegritySync()
             repo.localSyncState().pendingChanges
         }
         if (!pending) return

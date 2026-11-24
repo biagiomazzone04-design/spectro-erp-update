@@ -32,7 +32,7 @@ private fun String.toEconomicMaterials(): List<EconomicMaterialUsage> = try {
     }.filter { it.name.isNotBlank() || it.quantity > 0 || it.unitCost > 0 }
 } catch (_: Exception) { emptyList() }
 
-class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 11) {
+class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_native.db", null, 12) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE clients(
@@ -138,7 +138,11 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
                 theme_key TEXT NOT NULL,
                 zentha_split_a REAL NOT NULL DEFAULT 50,
                 zentha_split_b REAL NOT NULL DEFAULT 50,
-                chromia_rate_m REAL NOT NULL DEFAULT 2.5
+                chromia_rate_m REAL NOT NULL DEFAULT 2.5,
+                sport TEXT NOT NULL DEFAULT 'MULTISPORT',
+                audience TEXT NOT NULL DEFAULT 'MISTO',
+                priority TEXT NOT NULL DEFAULT 'NORMAL',
+                blocker_reason TEXT NOT NULL DEFAULT ''
             )
         """.trimIndent())
         val s = AppSettings()
@@ -212,6 +216,12 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         if (oldVersion < 11) {
             safeAlter(db, "ALTER TABLE inventory ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
             deduplicateWebWorkOrders(db)
+        }
+        if (oldVersion < 12) {
+            safeAlter(db, "ALTER TABLE zentha_orders ADD COLUMN sport TEXT NOT NULL DEFAULT 'MULTISPORT'")
+            safeAlter(db, "ALTER TABLE zentha_orders ADD COLUMN audience TEXT NOT NULL DEFAULT 'MISTO'")
+            safeAlter(db, "ALTER TABLE zentha_orders ADD COLUMN priority TEXT NOT NULL DEFAULT 'NORMAL'")
+            safeAlter(db, "ALTER TABLE zentha_orders ADD COLUMN blocker_reason TEXT NOT NULL DEFAULT ''")
         }
         createIndexes(db)
     }
@@ -683,6 +693,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
     fun getCottonOrders(db: SQLiteDatabase = readableDatabase): List<CottonOrder> = db.query("cotton_orders", null, null, null, null, null, "order_date DESC, id DESC").use { c -> buildList { while (c.moveToNext()) add(c.cottonOrder()) } }
     fun getCottonOrderById(id: Long, db: SQLiteDatabase = readableDatabase): CottonOrder? = db.query("cotton_orders", null, "id=?", arrayOf(id.toString()), null, null, null).use { c -> if (c.moveToFirst()) c.cottonOrder() else null }
     fun insertCottonOrder(item: CottonOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertOrThrow("cotton_orders", null, item.cottonValues(false))
+    fun upsertCloudCottonOrder(item: CottonOrder, db: SQLiteDatabase = writableDatabase): Long = db.insertWithOnConflict("cotton_orders", null, item.cottonValues(true), SQLiteDatabase.CONFLICT_REPLACE)
     fun updateCottonOrder(item: CottonOrder, db: SQLiteDatabase = writableDatabase) { db.update("cotton_orders", item.cottonValues(false), "id=?", arrayOf(item.id.toString())) }
     fun deleteCottonOrder(id: Long, db: SQLiteDatabase = writableDatabase) { db.delete("cotton_orders", "id=?", arrayOf(id.toString())) }
 
@@ -833,7 +844,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         priceListName = optionalString("price_list_name").ifBlank { "Listino standard" }, markupPercent = optionalDouble("markup_percent"),
         sourceReference = optionalString("source_reference")
     )
-    private fun Cursor.zenthaOrder() = ZenthaOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), enumValueOrDefault(string("status"), ZenthaOrderStatus.CONFIRMED), string("notes"), string("attachments_json").toStringList(), double("split_a"), double("split_b"), optionalDouble("chromia_rate_m", 2.5))
+    private fun Cursor.zenthaOrder() = ZenthaOrder(long("id"), string("order_code"), nullableLong("client_id"), string("client_name"), string("order_date"), string("due_date"), enumValueOrDefault(string("status"), ZenthaOrderStatus.CONFIRMED), string("notes"), string("attachments_json").toStringList(), double("split_a"), double("split_b"), optionalDouble("chromia_rate_m", 2.5), optionalString("sport").ifBlank { "MULTISPORT" }, optionalString("audience").ifBlank { "MISTO" }, enumValueOrDefault(optionalString("priority"), Priority.NORMAL), optionalString("blocker_reason"))
     private fun Cursor.zenthaItem() = ZenthaOrderItem(
         id = long("id"), orderId = long("order_id"), productId = nullableLong("product_id"), productName = string("product_name"),
         quantity = int("quantity"), unitPrice = double("unit_price"), unitCost = double("unit_cost"),
@@ -879,7 +890,7 @@ class SpectroDatabase(context: Context) : SQLiteOpenHelper(context, "spectro_nat
         put("lining_cost", liningCost); put("print_cost", printCost); put("accessory_cost", accessoryCost); put("cutting_cost", cuttingCost); put("sewing_cost", sewingCost)
         put("label_cost", labelCost); put("packaging_cost", packagingCost); put("other_cost", otherCost); put("price_list_name", priceListName); put("markup_percent", markupPercent); put("source_reference", sourceReference)
     }
-    private fun ZenthaOrder.zenthaOrderValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("status", status.name); put("notes", notes); put("attachments_json", attachments.toJsonArrayString()); put("split_a", splitPercentA); put("split_b", splitPercentB); put("chromia_rate_m", chromiaRatePerMeter) }
+    private fun ZenthaOrder.zenthaOrderValues(includeId: Boolean) = ContentValues().apply { if (includeId) put("id", id); put("order_code", orderCode); if (clientId == null) putNull("client_id") else put("client_id", clientId); put("client_name", clientName); put("order_date", orderDate); put("due_date", dueDate); put("status", status.name); put("notes", notes); put("attachments_json", attachments.toJsonArrayString()); put("split_a", splitPercentA); put("split_b", splitPercentB); put("chromia_rate_m", chromiaRatePerMeter); put("sport", sport); put("audience", audience); put("priority", priority.name); put("blocker_reason", blockerReason) }
     private fun ZenthaOrderItem.zenthaItemValues(includeId: Boolean) = ContentValues().apply {
         if (includeId) put("id", id); put("order_id", orderId); if (productId == null) putNull("product_id") else put("product_id", productId)
         put("product_name", productName); put("quantity", quantity); put("unit_price", unitPrice); put("unit_cost", unitCost); put("sku_snapshot", skuSnapshot)

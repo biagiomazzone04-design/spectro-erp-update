@@ -170,7 +170,7 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v3.2.7-BETA17-SYNC-RECOVERY
+          name: SpectroERP-v3.2.8-BETA18-ZENTHA-CONTROL-TOWER
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30

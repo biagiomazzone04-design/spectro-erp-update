@@ -41,6 +41,7 @@ class CloudSyncWorker(
             val signedIn = auth.restore() as? AuthState.SignedIn ?: return@withLock Result.success()
             if (!signedIn.access.can(AppPermission.SYNC_USE)) return@withLock Result.success()
             cloud.importPendingWebZentha(signedIn.access)
+            cloud.prepareSnapshotIntegritySync()
             if (!repository.localSyncState().pendingChanges) return@withLock Result.success()
 
             repeat(3) {

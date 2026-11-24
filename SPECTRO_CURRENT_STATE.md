@@ -1,11 +1,11 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.2.7 Beta 17**.
-- versionCode 34
-- versionName `3.2.7-beta17`
+Base: **Spectro ERP 3.2.8 Beta 18**.
+- versionCode 35
+- versionName `3.2.8-beta18`
 - applicationId `com.spectro.app`
-- SQLite schema 10
+- SQLite schema 12
 - backup formato v9 (import retrocompatibile)
 - branch di sviluppo usato: `spectro-3.0-beta`
 
@@ -53,6 +53,8 @@ La Beta 12 elimina il limite casuale dei 500 record tramite paginazione determin
 La Beta 16 elimina la crescita incontrollata dello Storage cloud: gli allegati vengono salvati una sola volta per contenuto tramite SHA-256, mentre il workspace contiene soltanto dati e riferimenti. La migrazione cloud 011 restituisce all'app esclusivamente manifest, blocchi e allegati obsoleti della stessa organizzazione; la rimozione fisica avviene via Storage API solo dopo il commit atomico della nuova revisione. I backup manuali e di recupero restano completi e retrocompatibili, mentre il download cloud ricostruisce e verifica gli allegati locali. La prima sincronizzazione con Beta 16 converte automaticamente il workspace e libera le vecchie copie ridondanti.
 
 La Beta 17 ripristina automaticamente una sincronizzazione interrotta dopo un commit server già riuscito, purché la revisione appartenga allo stesso dispositivo, e forza una sola ripubblicazione completa del mirror. La migrazione cloud 012 consuma gli overlay web già incorporati da Android, impedendo che stati obsoleti prevalgano in seguito su attività e ordini aggiornati. Il portale aggiorna i dati al ritorno sulla scheda, ogni minuto quando non sono aperti editor o dossier, e offre anche il pulsante manuale di aggiornamento senza perdere sezione e posizione di scorrimento.
+
+La Beta 18 rileva automaticamente qualunque variazione locale del database e degli allegati, così gli ordini Zentha creati su Android vengono pubblicati anche quando una vecchia installazione non aveva marcato correttamente la modifica. La migrazione cloud 013 ripara il preset operativo di Maria senza esporre prezzi, introduce sport, destinatario, priorità e motivo di blocco nel workflow Zentha e abilita la creazione Cotone dal web con acquisizione Android. Web e Android offrono un percorso Zentha guidato per cliente, sport, modelli, taglie e riepilogo; Ordini unifica Spectro e Zentha in una bacheca per fasi. Il salvataggio Cotone mostra ora gli errori di compilazione senza chiudere o perdere il modulo.
 
 Il frontend è predisposto per la migrazione indipendente su Cloudflare Workers: fallback SPA, intestazioni di sicurezza/cache, configurazione Wrangler e callback email legata automaticamente al dominio corrente. Il branch `spectro-3.0-beta` può essere collegato direttamente a Cloudflare; Supabase resta il backend e non dipende dall’hosting ChatGPT. La pubblicazione automatica usa la root `web`, il comando di build `npm run build` e il comando di deploy `npx wrangler deploy`.
 

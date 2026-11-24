@@ -231,7 +231,7 @@ object BackupManager {
         put("labelCost", labelCost); put("packagingCost", packagingCost); put("otherCost", otherCost); put("priceListName", priceListName)
         put("markupPercent", markupPercent); put("sourceReference", sourceReference)
     }
-    private fun ZenthaOrder.toJson() = JSONObject().apply { put("id", id); put("orderCode", orderCode); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderDate", orderDate); put("dueDate", dueDate); put("status", status.name); put("notes", notes); put("attachments", JSONArray(attachments)); put("splitPercentA", splitPercentA); put("splitPercentB", splitPercentB); put("chromiaRatePerMeter", chromiaRatePerMeter) }
+    private fun ZenthaOrder.toJson() = JSONObject().apply { put("id", id); put("orderCode", orderCode); put("clientId", clientId ?: JSONObject.NULL); put("clientName", clientName); put("orderDate", orderDate); put("dueDate", dueDate); put("status", status.name); put("notes", notes); put("attachments", JSONArray(attachments)); put("splitPercentA", splitPercentA); put("splitPercentB", splitPercentB); put("chromiaRatePerMeter", chromiaRatePerMeter); put("sport", sport); put("audience", audience); put("priority", priority.name); put("blockerReason", blockerReason) }
     private fun ZenthaOrderItem.toJson() = JSONObject().apply {
         put("id", id); put("orderId", orderId); put("productId", productId ?: JSONObject.NULL); put("productName", productName); put("quantity", quantity)
         put("unitPrice", unitPrice); put("unitCost", unitCost); put("skuSnapshot", skuSnapshot); put("productDescriptionSnapshot", productDescriptionSnapshot)
@@ -303,7 +303,7 @@ object BackupManager {
         labelCost = optDouble("labelCost"), packagingCost = optDouble("packagingCost"), otherCost = optDouble("otherCost"),
         priceListName = optString("priceListName", "Listino standard"), markupPercent = optDouble("markupPercent"), sourceReference = optString("sourceReference")
     )
-    private fun JSONObject.toZenthaOrder() = ZenthaOrder(optLong("id"), optString("orderCode"), nullableLong("clientId"), optString("clientName"), optString("orderDate"), optString("dueDate"), enumOr(optString("status"), ZenthaOrderStatus.CONFIRMED), optString("notes"), optJSONArray("attachments").strings(), optDouble("splitPercentA", 50.0), optDouble("splitPercentB", 50.0), optDouble("chromiaRatePerMeter", 2.5))
+    private fun JSONObject.toZenthaOrder() = ZenthaOrder(optLong("id"), optString("orderCode"), nullableLong("clientId"), optString("clientName"), optString("orderDate"), optString("dueDate"), enumOr(optString("status"), ZenthaOrderStatus.CONFIRMED), optString("notes"), optJSONArray("attachments").strings(), optDouble("splitPercentA", 50.0), optDouble("splitPercentB", 50.0), optDouble("chromiaRatePerMeter", 2.5), optString("sport", "MULTISPORT"), optString("audience", "MISTO"), enumOr(optString("priority"), Priority.NORMAL), optString("blockerReason"))
     private fun JSONObject.toZenthaItem() = ZenthaOrderItem(
         id = optLong("id"), orderId = optLong("orderId"), productId = nullableLong("productId"), productName = optString("productName"),
         quantity = optInt("quantity"), unitPrice = optDouble("unitPrice"), unitCost = optDouble("unitCost"), skuSnapshot = optString("skuSnapshot"),

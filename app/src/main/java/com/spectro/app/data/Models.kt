@@ -375,7 +375,11 @@ data class ZenthaOrder(
     val attachments: List<String> = emptyList(),
     val splitPercentA: Double = 50.0,
     val splitPercentB: Double = 50.0,
-    val chromiaRatePerMeter: Double = 2.50
+    val chromiaRatePerMeter: Double = 2.50,
+    val sport: String = "MULTISPORT",
+    val audience: String = "MISTO",
+    val priority: Priority = Priority.NORMAL,
+    val blockerReason: String = ""
 )
 
 data class ZenthaOrderItem(

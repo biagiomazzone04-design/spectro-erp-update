@@ -62,6 +62,9 @@ internal fun canRebaseOwnCommittedRevision(local: LocalSyncState, remote: Remote
     remote.exists && remote.revision > local.baseRevision &&
         remote.deviceId.isNotBlank() && remote.deviceId == local.deviceId
 
+internal fun shouldMarkSnapshotPending(lastPublishedFingerprint: String, currentFingerprint: String): Boolean =
+    currentFingerprint.isNotBlank() && currentFingerprint != lastPublishedFingerprint
+
 class CloudSyncRepository(
     context: Context,
     private val auth: SupabaseAuthRepository,
@@ -88,6 +91,20 @@ class CloudSyncRepository(
      * mirror consultabile dal web, anche se il workspace era già allineato. */
     fun prepareRecordMirrorUpgrade(): Boolean {
         if (syncPreferences.getInt(RECORD_MIRROR_VERSION_KEY, 0) >= RECORD_MIRROR_VERSION) return false
+        val state = repository.localSyncState()
+        if (!state.pendingChanges) repository.saveLocalSyncState(state.copy(pendingChanges = true))
+        return true
+    }
+
+    /**
+     * Non si affida soltanto al flag pendingChanges: confronta il contenuto ERP
+     * effettivo con l'ultima revisione pubblicata. In questo modo anche un ordine
+     * Zentha salvato mentre Android viene chiuso o interrotto viene rilevato dal
+     * worker periodico e trasferito al portale senza interventi manuali.
+     */
+    fun prepareSnapshotIntegritySync(): Boolean {
+        val fingerprint = snapshotFingerprint(repository.snapshot())
+        if (!shouldMarkSnapshotPending(syncPreferences.getString(LAST_PUBLISHED_FINGERPRINT_KEY, "").orEmpty(), fingerprint)) return false
         val state = repository.localSyncState()
         if (!state.pendingChanges) repository.saveLocalSyncState(state.copy(pendingChanges = true))
         return true
@@ -276,6 +293,7 @@ class CloudSyncRepository(
             repository.saveLocalSyncState(saved)
             syncPreferences.edit().putInt(ATTACHMENT_MIRROR_VERSION_KEY, ATTACHMENT_MIRROR_VERSION).apply()
             syncPreferences.edit().putInt(RECORD_MIRROR_VERSION_KEY, RECORD_MIRROR_VERSION).apply()
+            syncPreferences.edit().putString(LAST_PUBLISHED_FINGERPRINT_KEY, snapshotFingerprint(snapshot)).apply()
             uploadedPaths.clear() // manifest e blocchi sono ora referenziati dalla revisione pubblicata
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
         } catch (t: Throwable) {
@@ -320,6 +338,7 @@ class CloudSyncRepository(
                 pendingChanges = false
             )
             repository.saveLocalSyncState(saved)
+            syncPreferences.edit().putString(LAST_PUBLISHED_FINGERPRINT_KEY, snapshotFingerprint(incoming)).apply()
             return SyncTransferResult(SyncInspection(saved, remote), recovery)
         } catch (t: Throwable) {
             repository.saveLocalSyncState(inspection.local.copy(lastError = t.message ?: "Download cloud non riuscito."))
@@ -461,6 +480,17 @@ class CloudSyncRepository(
         return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
+    private fun snapshotFingerprint(snapshot: SpectroSnapshot): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(BackupManager.toCloudRecords(snapshot).toString().toByteArray(Charsets.UTF_8))
+        BackupManager.attachmentPaths(snapshot).sorted().forEach { path ->
+            val file = File(path)
+            digest.update(path.toByteArray(Charsets.UTF_8))
+            digest.update(if (file.isFile) "|${file.length()}|${file.lastModified()}".toByteArray() else "|missing".toByteArray())
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
     private companion object {
         const val BUCKET = "spectro-attachments"
         const val CHUNKED_FORMAT_VERSION = 2
@@ -470,6 +500,7 @@ class CloudSyncRepository(
         const val ATTACHMENT_MIRROR_VERSION_KEY = "attachment_mirror_version"
         const val ATTACHMENT_MIRROR_VERSION = 2
         const val RECORD_MIRROR_VERSION_KEY = "record_mirror_version"
-        const val RECORD_MIRROR_VERSION = 6
+        const val RECORD_MIRROR_VERSION = 7
+        const val LAST_PUBLISHED_FINGERPRINT_KEY = "last_published_snapshot_fingerprint"
     }
 }

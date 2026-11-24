@@ -76,4 +76,12 @@ class CloudSyncStateTest {
         assertFalse(canRebaseOwnCommittedRevision(local, RemoteWorkspace(exists = true, revision = 21, deviceId = "phone-b")))
         assertFalse(canRebaseOwnCommittedRevision(local, RemoteWorkspace(exists = true, revision = 20, deviceId = "phone-a")))
     }
+
+    @Test
+    fun changedSnapshotFingerprintAlwaysRestoresPendingState() {
+        assertTrue(shouldMarkSnapshotPending("", "first-snapshot"))
+        assertTrue(shouldMarkSnapshotPending("snapshot-a", "snapshot-b"))
+        assertFalse(shouldMarkSnapshotPending("snapshot-a", "snapshot-a"))
+        assertFalse(shouldMarkSnapshotPending("snapshot-a", ""))
+    }
 }

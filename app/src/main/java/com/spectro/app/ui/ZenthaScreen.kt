@@ -245,6 +245,11 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var splitA by remember(editing?.id) { mutableStateOf(savedDraft?.splitA ?: (editing?.splitPercentA ?: vm.state.settings.zenthaSplitA).toString()) }
     var splitB by remember(editing?.id) { mutableStateOf(savedDraft?.splitB ?: (editing?.splitPercentB ?: vm.state.settings.zenthaSplitB).toString()) }
     var chromiaRate by remember(editing?.id) { mutableStateOf(savedDraft?.chromiaRate ?: (editing?.chromiaRatePerMeter ?: vm.state.settings.chromiaRatePerMeter).toString()) }
+    var sport by remember(editing?.id) { mutableStateOf(savedDraft?.sport ?: editing?.sport ?: "MULTISPORT") }
+    var audience by remember(editing?.id) { mutableStateOf(savedDraft?.audience ?: editing?.audience ?: "MISTO") }
+    var priority by remember(editing?.id) { mutableStateOf(savedDraft?.priority?.let { runCatching { Priority.valueOf(it) }.getOrNull() } ?: editing?.priority ?: Priority.NORMAL) }
+    var blockerReason by remember(editing?.id) { mutableStateOf(savedDraft?.blockerReason ?: editing?.blockerReason.orEmpty()) }
+    var step by remember(editing?.id) { mutableIntStateOf(savedDraft?.step?.coerceIn(1, 5) ?: 1) }
     var drafts by remember(editing?.id, vm.state.zenthaItems) {
         mutableStateOf<List<ZenthaItemDraft>>(
             savedDraft?.lines?.map { line -> ZenthaItemDraft(line.productId, line.productName, line.quantity, line.unitPrice, line.unitCost, line.sku, line.description, line.variant, line.color, line.sizes, line.personalization, line.productionNotes) }?.takeIf { it.isNotEmpty() } ?: editing?.let { o ->
@@ -285,6 +290,7 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     val currentDraft = ZenthaDraft(
         clientId = clientId, clientName = clientName, date = date, due = due, status = status.name, notes = notes,
         attachments = attachments, splitA = splitA, splitB = splitB, chromiaRate = chromiaRate,
+        sport = sport, audience = audience, priority = priority.name, blockerReason = blockerReason, step = step,
         lines = drafts.map { ZenthaLineDraft(it.productId, it.productName, it.quantity, it.unitPrice, it.unitCost, it.skuSnapshot, it.productDescriptionSnapshot, it.variant, it.color, it.sizeBreakdown, it.personalization, it.productionNotes) },
         extras = extras.map { ZenthaExtraDraftData(it.label, it.amount) }
     )
@@ -298,6 +304,17 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     val costs = drafts.sumOf { it.quantity.toDoubleSafe() * it.unitCost.toDoubleSafe() }
     val extraTotal = extras.sumOf { it.amount.toDoubleSafe() }
     val profit = revenue - costs - extraTotal
+    val activeProducts = vm.state.zenthaProducts.filter { it.active }
+    val sportTokens = when (sport) {
+        "BASKET" -> listOf("basket", "pallacanestro")
+        "CALCIO_VOLLEY" -> listOf("calcio", "volley", "pallavolo")
+        "DANZA" -> listOf("danza", "dance", "body")
+        else -> emptyList()
+    }
+    val sportProducts = if (sportTokens.isEmpty()) activeProducts else activeProducts.filter { product ->
+        val searchable = "${product.category} ${product.name} ${product.description}".lowercase()
+        sportTokens.any(searchable::contains)
+    }.ifEmpty { activeProducts }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -313,9 +330,21 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 }
             }
             LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(18.dp, 18.dp, 18.dp, 120.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
-                item { SpectroTextField("Cliente manuale", clientName, { clientName = it; clientId = null }, placeholder = "Associazione o società non in rubrica") }
                 item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Cliente", "Sport", "Modelli", "Taglie", "Riepilogo").forEachIndexed { index, label ->
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                color = if (step == index + 1) p.primary.copy(alpha = .2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .45f),
+                                shape = RoundedCornerShape(12.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, if (step >= index + 1) p.primary else MaterialTheme.colorScheme.outlineVariant)
+                            ) { Column(Modifier.padding(vertical = 9.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text("${index + 1}", fontWeight = FontWeight.Black, color = if (step >= index + 1) p.primary else p.textMuted); Text(label, fontSize = 9.sp, maxLines = 1) } }
+                        }
+                    }
+                }
+                if (step == 1) item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
+                if (step == 1) item { SpectroTextField("Cliente manuale", clientName, { clientName = it; clientId = null }, placeholder = "Associazione o società non in rubrica") }
+                if (step == 1) item {
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         if (maxWidth < 560.dp) Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             WheelDateField("Data ordine", date, { date = it }, Modifier.fillMaxWidth())
@@ -326,13 +355,19 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                         }
                     }
                 }
-                if (editing == null && date < LocalDate.now().toString()) item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Bozza recuperata con data precedente", color = p.danger, modifier = Modifier.weight(1f)); TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Usa oggi") } } }
-                item { SimpleSelectField("Stato", zenthaStatusLabel(status), ZenthaOrderStatus.entries.map { it to zenthaStatusLabel(it) }) { status = it } }
-                item { SectionTitle("Prodotti", "+ Aggiungi") { drafts = drafts + ZenthaItemDraft() } }
-                items(drafts.size) { index ->
+                if (step == 1 && editing == null && date < LocalDate.now().toString()) item { Row(verticalAlignment = Alignment.CenterVertically) { Text("Bozza recuperata con data precedente", color = p.danger, modifier = Modifier.weight(1f)); TextButton(onClick = { date = LocalDate.now().toString() }) { Text("Usa oggi") } } }
+                if (step == 1) item { SimpleSelectField("Priorità", priority.name, Priority.entries.map { it to it.name }) { priority = it } }
+                if (step == 2) item { Text("Che sport?", fontWeight = FontWeight.Black, fontSize = 28.sp) }
+                if (step == 2) items(listOf("BASKET" to "Basket", "CALCIO_VOLLEY" to "Calcio / Volley", "DANZA" to "Danza", "MULTISPORT" to "Multisport")) { (value, label) ->
+                    Card(onClick = { sport = value }, colors = CardDefaults.cardColors(containerColor = if (sport == value) p.primary.copy(alpha = .18f) else MaterialTheme.colorScheme.surfaceVariant), border = androidx.compose.foundation.BorderStroke(1.dp, if (sport == value) p.primary else MaterialTheme.colorScheme.outlineVariant)) { Row(Modifier.fillMaxWidth().padding(20.dp), verticalAlignment = Alignment.CenterVertically) { Icon(if (value == "BASKET") Icons.Rounded.SportsBasketball else if (value == "DANZA") Icons.Rounded.MusicNote else Icons.Rounded.SportsSoccer, null, tint = if (sport == value) p.primary else p.textMuted); Spacer(Modifier.width(14.dp)); Text(label, fontWeight = FontWeight.Black, fontSize = 19.sp) } }
+                }
+                if (step == 2) item { SimpleSelectField("Per chi", audience, listOf("UOMO" to "Uomo", "DONNA" to "Donna", "BAMBINO" to "Bambino / Junior", "MISTO" to "Squadra mista")) { audience = it } }
+                if (step == 3) item { SectionTitle("Kit e modelli", "+ Aggiungi") { drafts = drafts + ZenthaItemDraft() } }
+                if (step == 4) item { Text("Taglie e personalizzazioni", fontWeight = FontWeight.Black, fontSize = 25.sp) }
+                if (step == 3 || step == 4) items(drafts.size) { index ->
                     val d = drafts[index]
                     SpectroCard(p = p) {
-                        SimpleSelectField("Prodotto", d.productName.ifBlank { "Seleziona prodotto" }, vm.state.zenthaProducts.filter { it.active }.map { it.id to it.name }) { id ->
+                        SimpleSelectField("Prodotto · ${sport.replace('_', ' ')}", d.productName.ifBlank { "Seleziona prodotto" }, sportProducts.map { it.id to it.name }) { id ->
                             val prod = vm.state.zenthaProducts.firstOrNull { it.id == id }
                             if (prod != null) drafts = drafts.toMutableList().also {
                                 it[index] = d.copy(
@@ -348,30 +383,37 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                         if (d.skuSnapshot.isNotBlank() || d.productDescriptionSnapshot.isNotBlank()) {
                             Spacer(Modifier.height(5.dp)); Text(listOf(d.skuSnapshot, d.productDescriptionSnapshot).filter { it.isNotBlank() }.joinToString(" • "), color = p.textMuted, fontSize = 10.sp)
                         }
-                        Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Q.tà", d.quantity, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(quantity = v) } }, Modifier.weight(.7f), numeric = true); SpectroTextField("Prezzo", d.unitPrice, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(unitPrice = v) } }, Modifier.weight(1f), numeric = true); SpectroTextField("Costo", d.unitCost, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(unitCost = v) } }, Modifier.weight(1f), numeric = true) }
-                        Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Variante / vestibilità", d.variant, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(variant = v) } }, Modifier.weight(1f)); SpectroTextField("Colore", d.color, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(color = v) } }, Modifier.weight(1f)) }
-                        Spacer(Modifier.height(8.dp)); SpectroTextField("Taglie e quantità", d.sizeBreakdown, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(sizeBreakdown = v) } }, placeholder = "Es. S×4, M×8, L×6, XL×2", singleLine = false)
+                        if (step == 3) { Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Q.tà", d.quantity, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(quantity = v) } }, Modifier.weight(.7f), numeric = true); SpectroTextField("Prezzo", d.unitPrice, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(unitPrice = v) } }, Modifier.weight(1f), numeric = true); SpectroTextField("Costo", d.unitCost, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(unitCost = v) } }, Modifier.weight(1f), numeric = true) }
+                        Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Variante / vestibilità", d.variant.ifBlank { audience }, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(variant = v) } }, Modifier.weight(1f)); SpectroTextField("Colore", d.color, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(color = v) } }, Modifier.weight(1f)) } }
+                        if (step == 4) { Spacer(Modifier.height(8.dp)); SpectroTextField("Taglie e quantità", d.sizeBreakdown, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(sizeBreakdown = v) } }, placeholder = "Es. S×4, M×8, L×6, XL×2", singleLine = false)
                         Spacer(Modifier.height(8.dp)); SpectroTextField("Personalizzazioni", d.personalization, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(personalization = v) } }, placeholder = "Nomi, numeri, sponsor, loghi e grafiche", singleLine = false)
-                        Spacer(Modifier.height(8.dp)); SpectroTextField("Note produzione", d.productionNotes, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(productionNotes = v) } }, placeholder = "Indicazioni tecniche, cuciture e confezionamento", singleLine = false)
+                        Spacer(Modifier.height(8.dp)); SpectroTextField("Note produzione", d.productionNotes, { v -> drafts = drafts.toMutableList().also { it[index] = d.copy(productionNotes = v) } }, placeholder = "Indicazioni tecniche, cuciture e confezionamento", singleLine = false) }
                         if (drafts.size > 1) TextButton(onClick = { drafts = drafts.filterIndexed { i, _ -> i != index } }) { Text("Rimuovi prodotto", color = p.danger) }
                         Button(onClick = { drafts = drafts + ZenthaItemDraft() }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.Add, null); Spacer(Modifier.width(6.dp)); Text("Aggiungi un altro prodotto") }
                     }
                 }
-                item { SectionTitle("Costi extra", "+ Aggiungi") { extras = extras + ZenthaExtraDraft() } }
-                items(extras.size) { index -> val e = extras[index]; Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Voce", e.label, { v -> extras = extras.toMutableList().also { it[index] = e.copy(label = v) } }, Modifier.weight(1.4f)); SpectroTextField("Importo €", e.amount, { v -> extras = extras.toMutableList().also { it[index] = e.copy(amount = v) } }, Modifier.weight(1f), numeric = true); IconButton(onClick = { extras = extras.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) } } }
-                item { AttachmentSourceButtons(onImported = { attachments = (attachments + it).distinct() }) }
-                item { OutlinedButton(onClick = { picker.launch("application/pdf") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AttachFile, null); Spacer(Modifier.width(6.dp)); Text("Allega documento PDF") } }
-                if (attachments.isNotEmpty()) item { Text("${attachments.size} allegati salvati", color = p.textMuted, fontWeight = FontWeight.Bold) }
-                item { SpectroTextField("Note", notes, { notes = it }, singleLine = false) }
-                item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Quota A %", splitA, { splitA = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Quota B %", splitB, { splitB = it }, Modifier.weight(1f), numeric = true) } }
-                item { SpectroTextField("Tariffa Chromia €/mt carta", chromiaRate, { chromiaRate = it }, numeric = true); Text("I metri sono letti dalle produzioni collegate a questo ordine.", color = p.textMuted, fontSize = 11.sp) }
-                item { SpectroCard(p = p) { Text("Riepilogo", fontWeight = FontWeight.Black); Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(revenue), modifier = Modifier.weight(1f)); Metric("Costi", euro(costs + extraTotal), modifier = Modifier.weight(1f)); Metric("Utile", euro(profit), valueColor = if (profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(6.dp)); Text("Quota A ${euro(profit * splitA.toDoubleSafe() / 100)} • Quota B ${euro(profit * splitB.toDoubleSafe() / 100)}", color = p.textMuted) } }
+                if (step == 5) item { SimpleSelectField("Stato", zenthaStatusLabel(status), ZenthaOrderStatus.entries.map { it to zenthaStatusLabel(it) }) { status = it } }
+                if (step == 5) item { SpectroTextField("Motivo blocco / urgenza", blockerReason, { blockerReason = it }, placeholder = "Materiale mancante, approvazione, data evento…") }
+                if (step == 5) item { SectionTitle("Costi extra", "+ Aggiungi") { extras = extras + ZenthaExtraDraft() } }
+                if (step == 5) items(extras.size) { index -> val e = extras[index]; Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { SpectroTextField("Voce", e.label, { v -> extras = extras.toMutableList().also { it[index] = e.copy(label = v) } }, Modifier.weight(1.4f)); SpectroTextField("Importo €", e.amount, { v -> extras = extras.toMutableList().also { it[index] = e.copy(amount = v) } }, Modifier.weight(1f), numeric = true); IconButton(onClick = { extras = extras.filterIndexed { i, _ -> i != index } }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) } } }
+                if (step == 5) item { AttachmentSourceButtons(onImported = { attachments = (attachments + it).distinct() }) }
+                if (step == 5) item { OutlinedButton(onClick = { picker.launch("application/pdf") }, Modifier.fillMaxWidth()) { Icon(Icons.Rounded.AttachFile, null); Spacer(Modifier.width(6.dp)); Text("Allega documento PDF") } }
+                if (step == 5 && attachments.isNotEmpty()) item { Text("${attachments.size} allegati salvati", color = p.textMuted, fontWeight = FontWeight.Bold) }
+                if (step == 5) item { SpectroTextField("Note", notes, { notes = it }, singleLine = false) }
+                if (step == 5) item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Quota A %", splitA, { splitA = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Quota B %", splitB, { splitB = it }, Modifier.weight(1f), numeric = true) } }
+                if (step == 5) item { SpectroTextField("Tariffa Chromia €/mt carta", chromiaRate, { chromiaRate = it }, numeric = true); Text("I metri sono letti dalle produzioni collegate a questo ordine.", color = p.textMuted, fontSize = 11.sp) }
+                if (step == 5) item { SpectroCard(p = p) { Text("${clientName.ifBlank { "Cliente da definire" }} · ${sport.replace('_', ' ')} · $audience", fontWeight = FontWeight.Black); Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Metric("Vendite", euro(revenue), modifier = Modifier.weight(1f)); Metric("Costi", euro(costs + extraTotal), modifier = Modifier.weight(1f)); Metric("Utile", euro(profit), valueColor = if (profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f)) }; Spacer(Modifier.height(6.dp)); Text("${drafts.sumOf { it.quantity.toDoubleSafe().toInt() }} capi · Quota A ${euro(profit * splitA.toDoubleSafe() / 100)} • Quota B ${euro(profit * splitB.toDoubleSafe() / 100)}", color = p.textMuted) } }
             }
             Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 12.dp) {
               Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (editing != null) IconButton(onClick = { orderSaved = true; vm.deleteZenthaOrder(editing.id); DraftStore.clearZentha(context, draftKey); onDismiss() }) { Icon(Icons.Rounded.Delete, "Elimina", tint = p.danger) }
-                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Continua più tardi") }
-                Button(onClick = {
+                if (step == 1) OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Continua più tardi") }
+                else OutlinedButton(onClick = { step-- }, modifier = Modifier.weight(1f)) { Text("Indietro") }
+                if (step < 5) Button(onClick = {
+                    val valid = when (step) { 1 -> clientName.isNotBlank(); 3 -> drafts.any { it.productName.isNotBlank() && it.quantity.toDoubleSafe() > 0 }; else -> true }
+                    if (valid) step++
+                }, modifier = Modifier.weight(1.25f)) { Text("Avanti") }
+                else Button(onClick = {
                 val a = splitA.toDoubleSafe(); val b = splitB.toDoubleSafe()
                 val items = drafts.filter { it.productName.isNotBlank() && it.quantity.toDoubleSafe() > 0 }.map {
                     ZenthaOrderItem(
@@ -392,12 +434,12 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 }
                 val extraRows = extras.filter { it.label.isNotBlank() && it.amount.toDoubleSafe() > 0 }.map { ZenthaExtraCost(orderId = editing?.id ?: 0, label = it.label.trim(), amount = it.amount.toDoubleSafe()) }
                 if (clientName.isNotBlank() && items.isNotEmpty() && kotlin.math.abs(a + b - 100.0) < .01) {
-                    vm.saveZenthaOrder(ZenthaOrder(editing?.id ?: 0, editing?.orderCode.orEmpty(), clientId, clientName, date, due, status, notes.trim(), attachments, a, b, chromiaRate.toDoubleSafe()), items, extraRows)
+                    vm.saveZenthaOrder(ZenthaOrder(editing?.id ?: 0, editing?.orderCode.orEmpty(), clientId, clientName, date, due, status, notes.trim(), attachments, a, b, chromiaRate.toDoubleSafe(), sport, audience, priority, blockerReason.trim()), items, extraRows)
                     orderSaved = true
                     DraftStore.clearZentha(context, draftKey)
                     onDismiss()
                 }
-                }, modifier = Modifier.weight(1.25f)) { Text("Salva ordine") }
+                }, modifier = Modifier.weight(1.25f)) { Text("Crea ordine") }
               }
             }
           }

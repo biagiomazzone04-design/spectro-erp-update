@@ -46,6 +46,7 @@ data class ZenthaDraft(
     val clientId: Long? = null, val clientName: String = "", val date: String = "", val due: String = "",
     val status: String = "CONFIRMED", val notes: String = "", val attachments: List<String> = emptyList(),
     val splitA: String = "50", val splitB: String = "50", val chromiaRate: String = "2.5",
+    val sport: String = "MULTISPORT", val audience: String = "MISTO", val priority: String = "NORMAL", val blockerReason: String = "", val step: Int = 1,
     val lines: List<ZenthaLineDraft> = listOf(ZenthaLineDraft()), val extras: List<ZenthaExtraDraftData> = emptyList()
 )
 
@@ -99,6 +100,7 @@ object DraftStore {
     fun saveZentha(context: Context, d: ZenthaDraft, key: String = "new") = prefs(context).edit().putString(scoped("zentha", key), JSONObject().apply {
         putNullable("clientId", d.clientId); put("clientName", d.clientName); put("date", d.date); put("due", d.due); put("status", d.status)
         put("notes", d.notes); put("attachments", JSONArray(d.attachments)); put("splitA", d.splitA); put("splitB", d.splitB); put("chromiaRate", d.chromiaRate)
+        put("sport", d.sport); put("audience", d.audience); put("priority", d.priority); put("blockerReason", d.blockerReason); put("step", d.step)
         put("lines", JSONArray().apply { d.lines.forEach { line -> put(JSONObject().apply { putNullable("productId", line.productId); put("productName", line.productName); put("quantity", line.quantity); put("unitPrice", line.unitPrice); put("unitCost", line.unitCost); put("sku", line.sku); put("description", line.description); put("variant", line.variant); put("color", line.color); put("sizes", line.sizes); put("personalization", line.personalization); put("productionNotes", line.productionNotes) }) } })
         put("extras", JSONArray().apply { d.extras.forEach { extra -> put(JSONObject().put("label", extra.label).put("amount", extra.amount)) } })
         put("savedAt", System.currentTimeMillis())
@@ -107,6 +109,7 @@ object DraftStore {
         ZenthaDraft(
             clientId = o.nullableLong("clientId"), clientName = o.optString("clientName"), date = o.optString("date"), due = o.optString("due"), status = o.optString("status", "CONFIRMED"),
             notes = o.optString("notes"), attachments = o.optJSONArray("attachments").strings(), splitA = o.optString("splitA", "50"), splitB = o.optString("splitB", "50"), chromiaRate = o.optString("chromiaRate", "2.5"),
+            sport = o.optString("sport", "MULTISPORT"), audience = o.optString("audience", "MISTO"), priority = o.optString("priority", "NORMAL"), blockerReason = o.optString("blockerReason"), step = o.optInt("step", 1),
             lines = o.optJSONArray("lines").objects().map { line -> ZenthaLineDraft(line.nullableLong("productId"), line.optString("productName"), line.optString("quantity"), line.optString("unitPrice"), line.optString("unitCost"), line.optString("sku"), line.optString("description"), line.optString("variant"), line.optString("color"), line.optString("sizes"), line.optString("personalization"), line.optString("productionNotes")) }.ifEmpty { listOf(ZenthaLineDraft()) },
             extras = o.optJSONArray("extras").objects().map { extra -> ZenthaExtraDraftData(extra.optString("label"), extra.optString("amount")) }
         )

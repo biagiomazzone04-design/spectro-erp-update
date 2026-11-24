@@ -133,6 +133,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var rollDialog by remember { mutableStateOf(false) }
     var inventoryDialog by remember { mutableStateOf(false) }
     var allocations by remember(editing?.id) { mutableStateOf<Map<Long, Double>>(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
+    var formError by remember(editing?.id) { mutableStateOf("") }
 
     val inventory = vm.state.inventory.firstOrNull { it.id == inventoryId }
     val calc = CottonOrder(
@@ -155,6 +156,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         text = {
             LazyColumn(Modifier.heightIn(max = 650.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 item { Text("Bozza automatica attiva • anche le modifiche restano salvate se chiudi la schermata o l'app.", color = p.success, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
+                if (formError.isNotBlank()) item { Text(formError, color = p.danger, fontWeight = FontWeight.Bold) }
                 item { SpectroTextField("Nome ordine", title, { title = it }, placeholder = "Es. Caprese Voile Settembre") }
                 item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { WheelDateField("Data ordine", date, { date = it }, Modifier.weight(1f)); WheelDateField("Consegna", due, { due = it }, Modifier.weight(1f), allowEmpty = true) } }
@@ -186,7 +188,18 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         },
         confirmButton = {
             Button(onClick = {
-                if (title.isNotBlank() && clientName.isNotBlank() && fabric.isNotBlank() && ordered.toDoubleSafe() > 0) {
+                val allocationTotal = allocations.values.sum()
+                formError = when {
+                    title.isBlank() -> "Inserisci il nome dell’ordine."
+                    clientName.isBlank() -> "Seleziona o inserisci il cliente."
+                    fabric.isBlank() -> "Inserisci il tessuto."
+                    ordered.toDoubleSafe() <= 0 -> "Inserisci i metri ordinati."
+                    owner == OwnerType.HOUSE && inventoryId == null -> "Seleziona il tessuto aziendale utilizzato."
+                    owner == OwnerType.HOUSE && allocations.isEmpty() -> "Seleziona i colli utilizzati."
+                    owner == OwnerType.HOUSE && kotlin.math.abs(allocationTotal - needed) > .05 -> "I colli selezionati (${meters(allocationTotal)}) devono coprire ${meters(needed)}."
+                    else -> ""
+                }
+                if (formError.isBlank()) {
                     vm.saveCottonOrder(calc.copy(title = title.trim(), notes = notes.trim()), allocations)
                     DraftStore.clearCotton(context, draftKey)
                     onDismiss()

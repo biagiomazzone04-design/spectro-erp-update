@@ -404,6 +404,8 @@ class SpectroRepository(context: Context) {
         val forcedWorkOrders = mutableSetOf<Long>()
         val productionRecords = mutableListOf<ProductionRecord>()
         val forcedProductionRecords = mutableSetOf<Long>()
+        val cottonOrders = mutableListOf<CottonOrder>()
+        val forcedCottonOrders = mutableSetOf<Long>()
         val orders = mutableListOf<ZenthaOrder>()
         val forcedOrders = mutableSetOf<Long>()
         val items = mutableListOf<ZenthaOrderItem>()
@@ -463,6 +465,25 @@ class SpectroRepository(context: Context) {
                         zenthaOrderId = raw.optLong("zenthaOrderId").takeIf { raw.has("zenthaOrderId") && !raw.isNull("zenthaOrderId") }
                     )
                 }
+                "cotton_order" -> {
+                    val legacyId = envelope.optLong("legacy_id")
+                    if (envelope.optBoolean("force_update")) forcedCottonOrders += legacyId
+                    val images = raw.optJSONArray("images")?.let { values -> buildList { for (itemIndex in 0 until values.length()) add(values.optString(itemIndex)) } } ?: emptyList()
+                    cottonOrders += CottonOrder(
+                        id = legacyId, orderCode = raw.optString("orderCode"),
+                        clientId = raw.optLong("clientId").takeIf { raw.has("clientId") && !raw.isNull("clientId") },
+                        clientName = raw.optString("clientName"), orderDate = raw.optString("orderDate"), dueDate = raw.optString("dueDate"),
+                        fabricName = raw.optString("fabricName"), printType = runCatching { CottonPrintType.valueOf(raw.optString("printType")) }.getOrDefault(CottonPrintType.REACTIVE),
+                        orderedMeters = raw.optDouble("orderedMeters"), actualProducedMeters = raw.optDouble("actualProducedMeters"), deliveredMeters = raw.optDouble("deliveredMeters"),
+                        defectiveMeters = raw.optDouble("defectiveMeters"), sampleMeters = raw.optDouble("sampleMeters"), leftoverMeters = raw.optDouble("leftoverMeters"),
+                        productionCostPerMeter = raw.optDouble("productionCostPerMeter"), printPricePerMeter = raw.optDouble("printPricePerMeter"),
+                        fabricOwnerType = runCatching { OwnerType.valueOf(raw.optString("fabricOwnerType")) }.getOrDefault(OwnerType.CLIENT),
+                        inventoryId = raw.optLong("inventoryId").takeIf { raw.has("inventoryId") && !raw.isNull("inventoryId") },
+                        fabricCostPerMeter = raw.optDouble("fabricCostPerMeter"), notes = raw.optString("notes"),
+                        status = runCatching { WorkStatus.valueOf(raw.optString("status")) }.getOrDefault(WorkStatus.IN_PROCESS),
+                        title = raw.optString("title"), images = images
+                    )
+                }
                 "zentha_order" -> {
                     val legacyId = envelope.optLong("legacy_id")
                     if (envelope.optBoolean("force_update")) forcedOrders += legacyId
@@ -472,7 +493,10 @@ class SpectroRepository(context: Context) {
                     clientName = raw.optString("clientName"), orderDate = raw.optString("orderDate"), dueDate = raw.optString("dueDate"),
                     status = runCatching { ZenthaOrderStatus.valueOf(raw.optString("status")) }.getOrDefault(ZenthaOrderStatus.CONFIRMED),
                     notes = raw.optString("notes"), splitPercentA = raw.optDouble("splitPercentA", 50.0),
-                    splitPercentB = raw.optDouble("splitPercentB", 50.0), chromiaRatePerMeter = raw.optDouble("chromiaRatePerMeter", 2.5)
+                    splitPercentB = raw.optDouble("splitPercentB", 50.0), chromiaRatePerMeter = raw.optDouble("chromiaRatePerMeter", 2.5),
+                    sport = raw.optString("sport", "MULTISPORT"), audience = raw.optString("audience", "MISTO"),
+                    priority = runCatching { Priority.valueOf(raw.optString("priority")) }.getOrDefault(Priority.NORMAL),
+                    blockerReason = raw.optString("blockerReason")
                     )
                 }
                 "zentha_order_item" -> items += ZenthaOrderItem(
@@ -506,6 +530,13 @@ class SpectroRepository(context: Context) {
             val existing = db.getProductionById(production.id, sql)
             if (existing == null || production.id in forcedProductionRecords) {
                 db.upsertCloudProduction(production.copy(images = if (production.images.isNotEmpty()) production.images else existing?.images.orEmpty()), sql)
+                imported++
+            }
+        }
+        cottonOrders.forEach { order ->
+            val existing = db.getCottonOrderById(order.id, sql)
+            if (existing == null || order.id in forcedCottonOrders) {
+                db.upsertCloudCottonOrder(order.copy(images = if (order.images.isNotEmpty()) order.images else existing?.images.orEmpty(), clientId = order.clientId ?: existing?.clientId), sql)
                 imported++
             }
         }

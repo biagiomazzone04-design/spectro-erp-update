@@ -32,8 +32,9 @@ object ProductionCalculator {
                 displayName = "${item.fabricName} (${if (item.ownerType == OwnerType.HOUSE) "Nostro" else "Cliente"})"
                 if (item.ownerType == OwnerType.HOUSE) {
                     // Mantiene il comportamento economico della versione React: costo sui metri usati, ricavo sui metri venduti.
-                    fabricCost = max(0.0, input.fabricUsedMeters) * item.purchasePricePerMeter
-                    fabricRevenue = max(0.0, input.fabricUsedMeters) * max(0.0, input.fabricSalePricePerMeter)
+                    fabricCost = max(0.0, input.fabricUsedMeters) * item.actualCostPerMeter
+                    val salePrice = if (input.fabricSalePricePerMeter > 0) input.fabricSalePricePerMeter else item.defaultSalePricePerMeter
+                    fabricRevenue = max(0.0, input.fabricUsedMeters) * max(0.0, salePrice)
                 }
             }
             FabricMode.MANUAL -> displayName = input.manualFabricName.ifBlank { "Tessuto manuale" }
@@ -44,6 +45,7 @@ object ProductionCalculator {
         val materials = paperCost + protectionCost + fabricCost
         return input.copy(
             fabricDisplayName = displayName,
+            fabricSalePricePerMeter = if (input.fabricMode == FabricMode.INVENTORY && input.fabricSalePricePerMeter <= 0) inventoryItem?.defaultSalePricePerMeter ?: 0.0 else input.fabricSalePricePerMeter,
             paperPrintCost = paperCost,
             protectionPaperCost = protectionCost,
             fabricUsedCost = fabricCost,

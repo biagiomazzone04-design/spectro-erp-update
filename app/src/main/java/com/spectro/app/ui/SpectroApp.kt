@@ -1,5 +1,6 @@
 package com.spectro.app.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -7,8 +8,9 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
@@ -20,36 +22,78 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.R
-import com.spectro.app.data.ProductionRecord
-import com.spectro.app.data.RecordType
-import com.spectro.app.data.WorkOrder
+import com.spectro.app.auth.AppPermission
+import com.spectro.app.auth.AuthState
+import com.spectro.app.data.*
+import com.spectro.app.ui.theme.SpectroPalette
 import com.spectro.app.ui.theme.SpectroTheme
 import com.spectro.app.ui.theme.paletteFor
 import com.spectro.app.util.ReportExporter
 
-enum class AppTab { DASHBOARD, WORK, CREATE, INVENTORY, CLIENTS }
+enum class AppTab { DASHBOARD, WORK, CREATE, INVENTORY, MORE, CLIENTS, ISSUES, COTTON, ZENTHA, ECONOMIC, ACTIVITIES }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SpectroApp(vm: SpectroViewModel) {
     val state = vm.state
     val palette = paletteFor(state.settings.themeKey)
-    var tab by remember { mutableStateOf(AppTab.DASHBOARD) }
+    val signedIn = vm.authState as? AuthState.SignedIn
+    if (signedIn == null) {
+        SpectroTheme(state.settings.themeKey) { AuthScreen(vm, vm.authState, palette) }
+        return
+    }
+    var tab by remember(signedIn.access.permissions) { mutableStateOf(firstAvailableTab(vm)) }
+    val navHistory = remember { mutableStateListOf<AppTab>() }
     var settingsOpen by remember { mutableStateOf(false) }
     var searchOpen by remember { mutableStateOf(false) }
     var detail by remember { mutableStateOf<ProductionRecord?>(null) }
+    var selectedOrder by remember { mutableStateOf<WorkOrder?>(null) }
     var editingProduction by remember { mutableStateOf<ProductionRecord?>(null) }
     var editingWork by remember { mutableStateOf<WorkOrder?>(null) }
+    var sourceWork by remember { mutableStateOf<WorkOrder?>(null) }
     var createMode by remember { mutableStateOf(CreateMode.PRODUCTION) }
+    var selectedClient by remember { mutableStateOf<Client?>(null) }
+    var clientReturn by remember { mutableStateOf<Client?>(null) }
+    var clientProfileSection by remember { mutableStateOf(ClientProfileSection.HOME) }
+    var selectedInventory by remember { mutableStateOf<InventoryItem?>(null) }
+    var cottonOpenId by remember { mutableStateOf<Long?>(null) }
+    var zenthaOpenId by remember { mutableStateOf<Long?>(null) }
     val snackbar = remember { SnackbarHostState() }
 
-    LaunchedEffect(state.message) {
-        state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() }
+    LaunchedEffect(state.message) { state.message?.let { snackbar.showSnackbar(it); vm.consumeMessage() } }
+
+    fun navigate(next: AppTab, rememberCurrent: Boolean = true) {
+        if (next == tab || !isTabAllowed(next, vm)) return
+        if (rememberCurrent) navHistory.add(tab)
+        tab = next
     }
+    fun goBack() {
+        tab = if (navHistory.isNotEmpty()) navHistory.removeAt(navHistory.lastIndex) else firstAvailableTab(vm)
+    }
+
+    fun startProduction(order: WorkOrder) {
+        selectedOrder = null; clientReturn = null; editingProduction = null; editingWork = null; sourceWork = order; createMode = CreateMode.PRODUCTION; navigate(AppTab.CREATE)
+    }
+    fun editOrder(order: WorkOrder) {
+        selectedOrder = null; clientReturn = null; editingWork = order; editingProduction = null; sourceWork = null; createMode = CreateMode.WORK; navigate(AppTab.CREATE)
+    }
+    fun openOrder(order: WorkOrder) { selectedOrder = order }
+    fun closeOrder() {
+        selectedOrder = null
+        clientReturn?.let { client ->
+            selectedClient = client
+            clientReturn = null
+        }
+    }
+
+    BackHandler(enabled = selectedOrder != null) { closeOrder() }
+    BackHandler(enabled = selectedOrder == null && tab != AppTab.DASHBOARD) { goBack() }
 
     SpectroTheme(state.settings.themeKey) {
         if (state.loading) {
@@ -57,7 +101,7 @@ fun SpectroApp(vm: SpectroViewModel) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Image(painterResource(R.drawable.spectro_header_logo), null, Modifier.size(126.dp, 92.dp))
                     Spacer(Modifier.height(18.dp)); CircularProgressIndicator(color = palette.primary)
-                    Spacer(Modifier.height(10.dp)); Text("Avvio Spectro ERP…", color = palette.textMuted)
+                    Spacer(Modifier.height(10.dp)); Text("Aggiornamento dati Spectro ERP…", color = palette.textMuted)
                 }
             }
             return@SpectroTheme
@@ -68,135 +112,346 @@ fun SpectroApp(vm: SpectroViewModel) {
             snackbarHost = { SnackbarHost(snackbar) },
             topBar = {
                 Surface(color = Color.Transparent) {
-                    Row(
-                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp)
                     ) {
-                        Image(painterResource(R.drawable.spectro_header_logo), null, Modifier.width(76.dp).height(46.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("SPECTRO", fontWeight = FontWeight.Black, fontSize = 22.sp, color = palette.primary, letterSpacing = 1.sp)
-                            Text("CHROMIA ERP • NATIVE", fontSize = 9.sp, fontWeight = FontWeight.Black, color = palette.textMuted, letterSpacing = 1.3.sp)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            if (tab != AppTab.DASHBOARD) {
+                                IconButton(onClick = { goBack() }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.ArrowBack, "Indietro", tint = palette.text)
+                                }
+                                Spacer(Modifier.width(4.dp))
+                            }
+                            Image(
+                                painter = painterResource(R.drawable.spectro_header_logo),
+                                contentDescription = "Spectro",
+                                modifier = Modifier.width(88.dp).height(68.dp),
+                                contentScale = ContentScale.Fit
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "SPECTRO",
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = 28.sp,
+                                    color = palette.primary,
+                                    letterSpacing = 1.2.sp,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Clip
+                                )
+                                Text(
+                                    "ERP 3.0 • NATIVE",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = palette.text,
+                                    letterSpacing = 1.1.sp,
+                                    maxLines = 1
+                                )
+                            }
                         }
-                        FilledIconButton(onClick = { searchOpen = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)) {
-                            Icon(Icons.Rounded.Search, null, tint = palette.text)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        FilledIconButton(onClick = { settingsOpen = true }, colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)) {
-                            Icon(Icons.Rounded.Settings, null, tint = palette.text)
+                        val openTaskCount = vm.openTasks().size
+                        val urgentTaskCount = vm.urgentTasks().size
+                        Row(
+                            Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (canSearch(vm)) {
+                                FilledIconButton(
+                                    onClick = { searchOpen = true },
+                                    modifier = Modifier.size(42.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                                ) { Icon(Icons.Rounded.Search, "Cerca", tint = palette.text) }
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            if (vm.can(AppPermission.TASKS_VIEW)) {
+                                BadgedBox(
+                                    badge = {
+                                        if (openTaskCount > 0) {
+                                            Badge(containerColor = if (urgentTaskCount > 0) palette.secondary else palette.primary, contentColor = Color.Black) {
+                                                Text(openTaskCount.coerceAtMost(99).toString(), fontWeight = FontWeight.Black)
+                                            }
+                                        }
+                                    }
+                                ) {
+                                    FilledIconButton(
+                                        onClick = { navigate(AppTab.ACTIVITIES) },
+                                        modifier = Modifier.size(42.dp),
+                                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                                    ) {
+                                        Icon(Icons.Rounded.NotificationsActive, "Attività", tint = if (urgentTaskCount > 0) palette.secondary else palette.text)
+                                    }
+                                }
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            FilledIconButton(
+                                onClick = { settingsOpen = true },
+                                modifier = Modifier.size(42.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(containerColor = palette.surface)
+                            ) { Icon(Icons.Rounded.AccountCircle, "Account e impostazioni", tint = palette.text) }
                         }
                     }
                 }
             },
-            bottomBar = {
-                SpectroBottomBar(tab, palette) { next ->
-                    if (next == AppTab.CREATE) {
-                        editingProduction = null; editingWork = null; createMode = CreateMode.PRODUCTION
-                    }
-                    tab = next
-                }
-            }
+            bottomBar = { SpectroBottomBar(tab, palette, vm) { next -> if (next == AppTab.CREATE) { editingProduction = null; editingWork = null; sourceWork = null; createMode = CreateMode.PRODUCTION }; navigate(next) } }
         ) { padding ->
             Box(Modifier.padding(top = padding.calculateTopPadding()).fillMaxSize()) {
-                AnimatedContent(tab, transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(150)) }, label = "tabs") { current ->
+                AnimatedContent(tab, transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(130)) }, label = "tabs") { current ->
                     when (current) {
-                        AppTab.DASHBOARD -> DashboardScreen(vm, palette) { detail = it }
-                        AppTab.WORK -> WorkOrdersScreen(vm, palette) { w -> editingWork = w; editingProduction = null; createMode = CreateMode.WORK; tab = AppTab.CREATE }
-                        AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork) { done ->
-                            editingProduction = null; editingWork = null
-                            tab = if (done == CreateMode.WORK) AppTab.WORK else AppTab.DASHBOARD
+                        AppTab.DASHBOARD -> DashboardScreen(
+                            vm,
+                            palette,
+                            onRecord = { detail = it },
+                            onOpenOrder = ::openOrder,
+                            onEditOrder = ::editOrder,
+                            onOpenModule = { navigate(it) }
+                        )
+                        AppTab.WORK -> WorkOrdersScreen(vm, palette, onEdit = ::editOrder, onOpen = ::openOrder, onStartProduction = ::startProduction)
+                        AppTab.CREATE -> CreateScreen(vm, palette, createMode, editingProduction, editingWork, sourceWork) { done ->
+                            editingProduction = null; editingWork = null; sourceWork = null
+                            val preferred = if (done == CreateMode.WORK) AppTab.WORK else AppTab.DASHBOARD
+                            navigate(if (isTabAllowed(preferred, vm)) preferred else firstAvailableTab(vm), rememberCurrent = false)
                         }
                         AppTab.INVENTORY -> InventoryScreen(vm, palette)
-                        AppTab.CLIENTS -> ClientsScreen(vm, palette)
+                        AppTab.CLIENTS -> ClientsScreen(
+                            vm,
+                            palette,
+                            onOpenClient = {
+                                clientProfileSection = ClientProfileSection.HOME
+                                selectedClient = it
+                            }
+                        )
+                        AppTab.ISSUES -> IssuesCenterScreen(vm, palette, onOpenOrder = ::openOrder)
+                        AppTab.COTTON -> CottonScreen(vm, palette, initialOpenOrderId = cottonOpenId, onOpenConsumed = { cottonOpenId = null })
+                        AppTab.ZENTHA -> ZenthaScreen(vm, palette, initialOpenOrderId = zenthaOpenId, onOpenConsumed = { zenthaOpenId = null })
+                        AppTab.ECONOMIC -> EconomicWorkScreen(vm, palette)
+                        AppTab.ACTIVITIES -> OperationalTasksScreen(vm, palette, onOpenOrder = ::openOrder)
+                        AppTab.MORE -> MoreModulesScreen(vm, palette) { navigate(it) }
                     }
                 }
             }
         }
 
         if (settingsOpen) SettingsSheet(vm, palette) { settingsOpen = false }
-        if (searchOpen) GlobalSearchSheet(vm, palette) { searchOpen = false }
-        detail?.let { r ->
-            RecordDetailSheet(r, palette,
-                onDismiss = { detail = null },
-                onEdit = {
-                    editingProduction = r; editingWork = null; createMode = if (r.type == RecordType.NEGATIVE) CreateMode.NEGATIVE else CreateMode.PRODUCTION
-                    detail = null; tab = AppTab.CREATE
+        if (searchOpen) GlobalSearchSheet(
+            vm = vm,
+            p = palette,
+            onDismiss = { searchOpen = false },
+            onOpenClient = { clientProfileSection = ClientProfileSection.HOME; selectedClient = it },
+            onOpenOrder = ::openOrder,
+            onOpenProduction = { detail = it },
+            onOpenCotton = { cottonOpenId = it.id; navigate(AppTab.COTTON) },
+            onOpenZentha = { zenthaOpenId = it.id; navigate(AppTab.ZENTHA) },
+            onOpenInventory = { selectedInventory = it }
+        )
+        selectedClient?.let { client ->
+            SearchClientProfileSheet(
+                vm = vm,
+                p = palette,
+                client = client,
+                onDismiss = { selectedClient = null },
+                onOpenOrder = {
+                    clientReturn = selectedClient
+                    selectedClient = null
+                    openOrder(it)
                 },
-                onDelete = { vm.deleteProduction(r.id); detail = null }
+                onOpenProduction = {
+                    clientReturn = selectedClient
+                    selectedClient = null
+                    detail = it
+                },
+                onOpenInventory = {
+                    clientReturn = selectedClient
+                    selectedClient = null
+                    selectedInventory = it
+                },
+                onOpenCotton = { selectedClient = null; cottonOpenId = it.id; navigate(AppTab.COTTON) },
+                initialSection = clientProfileSection,
+                onSectionChange = { clientProfileSection = it }
+            )
+        }
+        selectedInventory?.let { item ->
+            InventoryDetailSheet(vm, palette, item, onDismiss = {
+                selectedInventory = null
+                clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+            })
+        }
+        selectedOrder?.let { order ->
+            OrderTimelineScreen(
+                vm = vm,
+                p = palette,
+                order = order,
+                onBack = { closeOrder() },
+                onEdit = ::editOrder,
+                onStartProduction = ::startProduction,
+                onComplete = { vm.completeWorkOrder(it.id) },
+                onReopen = { vm.reopenWorkOrder(it.id) }
+            )
+        }
+        detail?.let { r ->
+            val linkedOrder = r.workOrderId?.let { id -> vm.state.workOrders.firstOrNull { it.id == id } }
+            RecordDetailSheet(
+                r = r,
+                p = palette,
+                linkedOrder = linkedOrder,
+                showFinance = vm.can(AppPermission.FINANCE_VIEW),
+                onDismiss = {
+                    detail = null
+                    clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+                },
+                onEdit = { editingProduction = r; editingWork = null; sourceWork = null; createMode = if (r.type == RecordType.NEGATIVE) CreateMode.NEGATIVE else CreateMode.PRODUCTION; detail = null; navigate(AppTab.CREATE) },
+                onDelete = {
+                    vm.deleteProduction(r.id)
+                    detail = null
+                    clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+                },
+                onOpenHistory = {
+                    linkedOrder?.let { order -> detail = null; openOrder(order) }
+                },
+                onCompleteOrder = {
+                    linkedOrder?.let { vm.completeWorkOrder(it.id) }
+                    detail = null
+                    clientReturn?.let { client -> selectedClient = client; clientReturn = null }
+                }
             )
         }
     }
 }
 
 @Composable
-private fun SpectroBottomBar(selected: AppTab, p: com.spectro.app.ui.theme.SpectroPalette, onSelect: (AppTab) -> Unit) {
-    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
-        Row(
-            Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(36.dp)).background(p.surface).padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceAround
-        ) {
-            BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
-            BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
-            FilledIconButton(
-                onClick = { onSelect(AppTab.CREATE) },
-                modifier = Modifier.size(58.dp),
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.White)
-            ) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
-            BottomIcon(Icons.Rounded.Inventory2, selected == AppTab.INVENTORY, p) { onSelect(AppTab.INVENTORY) }
-            BottomIcon(Icons.Rounded.People, selected == AppTab.CLIENTS, p) { onSelect(AppTab.CLIENTS) }
-        }
+private fun MoreModulesScreen(vm: SpectroViewModel, p: SpectroPalette, onOpen: (AppTab) -> Unit) {
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 120.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text("Altri moduli", fontSize = 28.sp, fontWeight = FontWeight.Black)
+        Text("CRM, criticità, cotone, attività, ricavi e Zentha.", color = p.textMuted)
+        Spacer(Modifier.height(4.dp))
+        if (vm.can(AppPermission.CLIENTS_VIEW)) ModuleCard("Clienti", "Anagrafica, scadenze e storico", Icons.Rounded.People, p) { onOpen(AppTab.CLIENTS) }
+        if (vm.can(AppPermission.ISSUES_VIEW)) ModuleCard("Criticità", "Centro operativo di problemi e ritardi • ${vm.openIssues().size} aperte", Icons.Rounded.ReportProblem, p) { onOpen(AppTab.ISSUES) }
+        if (vm.can(AppPermission.COTTON_VIEW)) ModuleCard("Cotone", "Ordini reattivi/pigmento e margini", Icons.Rounded.Texture, p) { onOpen(AppTab.COTTON) }
+        if (vm.can(AppPermission.TASKS_VIEW)) ModuleCard("Attività", "Campioni e progetti • ${vm.openTasks().size} aperte • ${vm.urgentTasks().size} urgenti", Icons.Rounded.NotificationsActive, p) { onOpen(AppTab.ACTIVITIES) }
+        if (vm.can(AppPermission.FINANCE_VIEW)) ModuleCard("Ulteriori lavorazioni", "Beni personalizzati, trasferimenti e lavorazioni fatturate", Icons.Rounded.Payments, p) { onOpen(AppTab.ECONOMIC) }
+        if (vm.can(AppPermission.ZENTHA_VIEW)) ModuleCard(
+            "ZENTHA",
+            if (vm.can(AppPermission.FINANCE_VIEW)) "Catalogo, ordini, utile 50/50 e pagamenti" else "Catalogo, ordini e dettagli di produzione",
+            Icons.Rounded.SportsVolleyball,
+            p
+        ) { onOpen(AppTab.ZENTHA) }
     }
 }
 
 @Composable
-private fun BottomIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, p: com.spectro.app.ui.theme.SpectroPalette, onClick: () -> Unit) {
+private fun ModuleCard(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, p: SpectroPalette, onClick: () -> Unit) {
+    SpectroCard(p = p, onClick = onClick) { Row(verticalAlignment = Alignment.CenterVertically) { Icon(icon, null, tint = p.primary, modifier = Modifier.size(30.dp)); Spacer(Modifier.width(12.dp)); Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Black, fontSize = 18.sp); Text(subtitle, color = p.textMuted, fontSize = 12.sp) }; Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted) } }
+}
+
+@Composable
+private fun SpectroBottomBar(selected: AppTab, p: SpectroPalette, vm: SpectroViewModel, onSelect: (AppTab) -> Unit) {
+    val moreSelected = selected in listOf(AppTab.MORE, AppTab.CLIENTS, AppTab.ISSUES, AppTab.COTTON, AppTab.ZENTHA, AppTab.ECONOMIC, AppTab.ACTIVITIES)
+    Box(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
+        Row(Modifier.fillMaxWidth().height(72.dp).clip(RoundedCornerShape(36.dp)).background(p.surface).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceAround) {
+            if (vm.can(AppPermission.DASHBOARD_VIEW)) BottomIcon(Icons.Rounded.GridView, selected == AppTab.DASHBOARD, p) { onSelect(AppTab.DASHBOARD) }
+            if (vm.can(AppPermission.ORDERS_VIEW)) BottomIcon(Icons.Rounded.Assignment, selected == AppTab.WORK, p) { onSelect(AppTab.WORK) }
+            if (vm.can(AppPermission.ORDERS_MANAGE) || vm.can(AppPermission.PRODUCTION_MANAGE)) {
+                FilledIconButton(onClick = { onSelect(AppTab.CREATE) }, modifier = Modifier.size(58.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = p.primary, contentColor = Color.Black)) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
+            }
+            if (vm.can(AppPermission.INVENTORY_VIEW)) BottomIcon(Icons.Rounded.Inventory2, selected == AppTab.INVENTORY, p) { onSelect(AppTab.INVENTORY) }
+            if (hasMoreModules(vm)) BottomIcon(Icons.Rounded.Apps, moreSelected, p) { onSelect(AppTab.MORE) }
+        }
+    }
+}
+
+private fun isTabAllowed(tab: AppTab, vm: SpectroViewModel): Boolean = when (tab) {
+    AppTab.DASHBOARD -> vm.can(AppPermission.DASHBOARD_VIEW)
+    AppTab.WORK -> vm.can(AppPermission.ORDERS_VIEW)
+    AppTab.CREATE -> vm.can(AppPermission.ORDERS_MANAGE) || vm.can(AppPermission.PRODUCTION_MANAGE)
+    AppTab.INVENTORY -> vm.can(AppPermission.INVENTORY_VIEW)
+    AppTab.CLIENTS -> vm.can(AppPermission.CLIENTS_VIEW)
+    AppTab.ISSUES -> vm.can(AppPermission.ISSUES_VIEW)
+    AppTab.COTTON -> vm.can(AppPermission.COTTON_VIEW)
+    AppTab.ZENTHA -> vm.can(AppPermission.ZENTHA_VIEW)
+    AppTab.ECONOMIC -> vm.can(AppPermission.FINANCE_VIEW)
+    AppTab.ACTIVITIES -> vm.can(AppPermission.TASKS_VIEW)
+    AppTab.MORE -> hasMoreModules(vm)
+}
+
+private fun hasMoreModules(vm: SpectroViewModel): Boolean = listOf(
+    AppPermission.CLIENTS_VIEW, AppPermission.ISSUES_VIEW, AppPermission.COTTON_VIEW,
+    AppPermission.ZENTHA_VIEW, AppPermission.FINANCE_VIEW, AppPermission.TASKS_VIEW
+).any(vm::can)
+
+private fun canSearch(vm: SpectroViewModel): Boolean = listOf(
+    AppPermission.CLIENTS_VIEW, AppPermission.ORDERS_VIEW, AppPermission.PRODUCTION_VIEW,
+    AppPermission.INVENTORY_VIEW, AppPermission.COTTON_VIEW, AppPermission.ZENTHA_VIEW
+).any(vm::can)
+
+private fun firstAvailableTab(vm: SpectroViewModel): AppTab = listOf(
+    AppTab.DASHBOARD, AppTab.WORK, AppTab.INVENTORY, AppTab.MORE, AppTab.CREATE
+).firstOrNull { isTabAllowed(it, vm) } ?: AppTab.MORE
+
+@Composable
+private fun BottomIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, p: SpectroPalette, onClick: () -> Unit) {
     IconButton(onClick = onClick) { Icon(icon, null, tint = if (active) p.primary else p.textMuted) }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RecordDetailSheet(r: ProductionRecord, p: com.spectro.app.ui.theme.SpectroPalette, onDismiss: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun RecordDetailSheet(
+    r: ProductionRecord,
+    p: SpectroPalette,
+    linkedOrder: WorkOrder? = null,
+    showFinance: Boolean = false,
+    onDismiss: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenHistory: () -> Unit = {},
+    onCompleteOrder: () -> Unit = {}
+) {
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf(false) }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = p.background) {
         Column(Modifier.fillMaxWidth().padding(20.dp).navigationBarsPadding()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(r.date, color = p.textMuted, fontSize = 12.sp)
-                    Text(r.clientName, fontSize = 26.sp, fontWeight = FontWeight.Black)
-                    Text(if (r.type == RecordType.NEGATIVE) "Evento negativo" else r.orderRef.ifBlank { "Produzione" }, color = if (r.type == RecordType.NEGATIVE) p.danger else p.primary, fontWeight = FontWeight.Bold)
-                }
+                Column(Modifier.weight(1f)) { Text(r.date, color = p.textMuted, fontSize = 12.sp); Text(r.clientName, fontSize = 26.sp, fontWeight = FontWeight.Black); Text(if (r.type == RecordType.NEGATIVE) "Evento negativo" else r.orderRef.ifBlank { "Produzione" }, color = if (r.type == RecordType.NEGATIVE) p.danger else p.primary, fontWeight = FontWeight.Bold) }
                 IconButton(onClick = onEdit) { Icon(Icons.Rounded.Edit, null, tint = p.primary) }
-                IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
+                if (linkedOrder?.status?.isArchivedOrder() != true) {
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Rounded.Delete, null, tint = p.danger) }
+                }
             }
             Spacer(Modifier.height(16.dp))
             SpectroCard(p = p) {
                 if (r.type == RecordType.PRODUCTION) {
-                    Metric("Tessuto", r.fabricDisplayName); Spacer(Modifier.height(10.dp))
-                    Row { Metric("Carta", meters(r.printedPaperMeters), modifier = Modifier.weight(1f)); Metric("Tessuto", meters(r.fabricUsedMeters), modifier = Modifier.weight(1f)) }
-                    HorizontalDivider(Modifier.padding(vertical = 14.dp), color = p.border)
-                    Row { Metric("Fatturato", euro(r.grossRevenue), p.success, Modifier.weight(1f)); Metric("Materie", euro(r.materialCostTotal), modifier = Modifier.weight(1f)) }
-                    Spacer(Modifier.height(12.dp)); Metric("Utile lordo", euro(r.grossProfit), if (r.grossProfit >= 0) p.success else p.danger)
-                } else {
-                    Text(r.technicalNotes, color = p.text)
-                    Spacer(Modifier.height(12.dp)); Metric("Perdita totale", euro(r.materialCostTotal), p.danger)
+                    Metric("Tessuto", r.fabricDisplayName); Spacer(Modifier.height(10.dp)); Row { Metric("Carta", meters(r.printedPaperMeters), modifier = Modifier.weight(1f)); Metric("Tessuto", meters(r.fabricUsedMeters), modifier = Modifier.weight(1f)) }
+                    if (showFinance) {
+                        HorizontalDivider(Modifier.padding(vertical = 14.dp), color = p.border)
+                        Row { Metric("Fatturato", euro(r.grossRevenue), p.success, Modifier.weight(1f)); Metric("Materie", euro(r.materialCostTotal), modifier = Modifier.weight(1f)) }
+                        Spacer(Modifier.height(12.dp)); Metric("Utile lordo", euro(r.grossProfit), if (r.grossProfit >= 0) p.success else p.danger)
+                    }
+                } else { Text(r.technicalNotes, color = p.text); Spacer(Modifier.height(12.dp)); Metric("Perdita totale", euro(r.materialCostTotal), p.danger) }
+            }
+            if (r.technicalNotes.isNotBlank() && r.type == RecordType.PRODUCTION) { Spacer(Modifier.height(12.dp)); SpectroCard(p = p) { Text("NOTE TECNICHE", fontWeight = FontWeight.Black, color = p.primary); Spacer(Modifier.height(8.dp)); Text(r.technicalNotes) } }
+            if (r.images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(r.images) }
+            if (r.type == RecordType.PRODUCTION && r.workOrderId != null) {
+                Spacer(Modifier.height(14.dp))
+                OutlinedButton(onClick = onOpenHistory, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Rounded.History, null); Spacer(Modifier.width(7.dp)); Text("Apri storico completo dell'ordine") }
+                if (linkedOrder != null && !linkedOrder.status.isFinishedOrder()) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = onCompleteOrder,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = p.success)
+                    ) {
+                        Icon(Icons.Rounded.TaskAlt, null); Spacer(Modifier.width(7.dp)); Text("Completa ed evadi ordine")
+                    }
+                } else if (linkedOrder?.status?.isArchivedOrder() == true) {
+                    Spacer(Modifier.height(8.dp))
+                    Text("Ordine archiviato nello storico cliente • ${linkedOrder.effectiveDeliveryDate.ifBlank { "data non disponibile" }}", color = p.success, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
             }
-            if (r.technicalNotes.isNotBlank() && r.type == RecordType.PRODUCTION) {
-                Spacer(Modifier.height(12.dp)); SpectroCard(p = p) { Text("NOTE TECNICHE", fontWeight = FontWeight.Black, color = p.primary); Spacer(Modifier.height(8.dp)); Text(r.technicalNotes) }
-            }
-            if (r.images.isNotEmpty()) { Spacer(Modifier.height(12.dp)); ImageStrip(r.images) }
-            Spacer(Modifier.height(16.dp))
-            GradientButton("Esporta PDF analitico", p, icon = Icons.Rounded.PictureAsPdf) { ReportExporter.share(context, r) }
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(16.dp)); GradientButton("Esporta PDF analitico", p, icon = Icons.Rounded.PictureAsPdf) { ReportExporter.share(context, r) }; Spacer(Modifier.height(24.dp))
         }
     }
-    if (confirmDelete) AlertDialog(
-        onDismissRequest = { confirmDelete = false },
-        title = { Text("Eliminare la registrazione?") },
-        text = { Text("Il magazzino verrà riallineato automaticamente se questa produzione ha consumato tessuto.") },
-        confirmButton = { TextButton(onClick = onDelete) { Text("Elimina", color = p.danger) } },
-        dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annulla") } }
-    )
+    if (confirmDelete) AlertDialog(onDismissRequest = { confirmDelete = false }, title = { Text("Eliminare la registrazione?") }, text = { Text("Il magazzino verrà riallineato automaticamente se questa produzione ha consumato tessuto.") }, confirmButton = { TextButton(onClick = onDelete) { Text("Elimina", color = p.danger) } }, dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annulla") } })
 }

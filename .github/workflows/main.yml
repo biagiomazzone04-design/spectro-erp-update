@@ -3,13 +3,16 @@ name: Build Spectro Native APK
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]
+    branches: [ main, spectro-3.0-beta ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      SPECTRO_SUPABASE_URL: https://fbfxtyowcxgagseqdlyz.supabase.co
+      SPECTRO_SUPABASE_ANON_KEY: ${{ secrets.SPECTRO_SUPABASE_ANON_KEY || 'sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU' }}
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -167,7 +170,33 @@ jobs:
       - name: Salva APK
         uses: actions/upload-artifact@v7
         with:
-          name: SpectroERP-v2.1.0-RELEASE
+          name: SpectroERP-v3.2.11-BETA21
           path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Pubblica APK Beta 21 con link diretto
+        if: github.ref == 'refs/heads/spectro-3.0-beta'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v3.2.11-beta21"
+          SOURCE_APK="$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk"
+          PUBLIC_APK="SpectroERP-v3.2.11-BETA21.apk"
+          PUBLIC_ZIP="SpectroERP-v3.2.11-BETA21.zip"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$PUBLIC_APK"
+            zip -j "$PUBLIC_ZIP" "$PUBLIC_APK"
+            gh release upload "$TAG" "$PUBLIC_ZIP" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            cp "$SOURCE_APK" "$PUBLIC_APK"
+            zip -j "$PUBLIC_ZIP" "$PUBLIC_APK"
+            gh release create "$TAG" "$PUBLIC_APK" "$PUBLIC_ZIP" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Spectro ERP 3.2.11 Beta 21" \
+              --notes "APK Android RELEASE firmato. Installare sopra la versione esistente senza disinstallare l'app." \
+              --prerelease
+          fi

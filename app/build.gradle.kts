@@ -12,8 +12,21 @@ android {
         applicationId = "com.spectro.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 11
-        versionName = "2.1.0-native"
+        // Android upgrades must also accept installations of the earlier Beta 19 (36).
+        versionCode = 38
+        versionName = "3.2.11-beta21"
+
+        // Project URL and sb_publishable key are public client configuration.
+        // RLS protects the data; properties/environment can override these
+        // defaults whenever the publishable key is rotated.
+        val supabaseUrl = providers.gradleProperty("SPECTRO_SUPABASE_URL")
+            .orElse(providers.environmentVariable("SPECTRO_SUPABASE_URL"))
+            .getOrElse("https://fbfxtyowcxgagseqdlyz.supabase.co")
+        val supabaseAnonKey = providers.gradleProperty("SPECTRO_SUPABASE_ANON_KEY")
+            .orElse(providers.environmentVariable("SPECTRO_SUPABASE_ANON_KEY"))
+            .getOrElse("sb_publishable_7cUKVShHm2xZg96-2pvnOw_79AunZnU")
+        buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseAnonKey.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
 
     buildFeatures {
@@ -62,6 +75,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.10.0")
+    implementation("androidx.work:work-runtime-ktx:2.10.5")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")

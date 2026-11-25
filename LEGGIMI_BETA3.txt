@@ -1,0 +1,30 @@
+SPECTRO ERP 3.0.0 BETA 3 - ISTRUZIONI
+
+1. Apri GitHub Desktop.
+2. Repository: spectro-erp-update.
+3. Branch: spectro-3.0-beta.
+4. Fai Fetch origin / Pull origin se disponibile.
+5. Estrai lo ZIP PATCH Beta 3.
+6. Copia TUTTO il contenuto estratto nella cartella locale del repository.
+7. Quando Windows chiede di sostituire i file, scegli Sostituisci.
+8. NON cancellare la cartella .git.
+9. In GitHub Desktop verifica i file modificati.
+10. Commit suggerito:
+    Spectro ERP 3.0 Beta 3 - search, bozze, magazzino e statistiche
+11. Push origin.
+12. Attendi GitHub Actions.
+13. Se la build è rossa, scarica il log archive completo e invialo a ChatGPT.
+14. Se la build è verde, scarica l'artifact:
+    SpectroERP-v3.0.0-BETA3-RELEASE
+15. Prima dell'installazione fai un backup dall'app attuale.
+16. Installa l'APK SOPRA la Beta 2. NON disinstallare l'app.
+
+IDENTITÀ APP
+- package: com.spectro.app
+- versionCode: 14
+- versionName: 3.0.0-beta3
+- firma: stesso SPECTRO_SIGNING_BUNDLE_B64
+
+NOTA:
+La compilazione Android completa viene validata da GitHub Actions. Non installare la Beta 3
+sul telefono finché la build GitHub non è verde.

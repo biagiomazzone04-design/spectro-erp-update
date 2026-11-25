@@ -1,12 +1,25 @@
 package com.spectro.app.data
 
+internal fun clientNameKey(name: String): String = name.trim().replace(Regex("\\s+"), " ").lowercase()
+
+internal fun matchesClient(client: Client, clientId: Long?, name: String): Boolean =
+    if (clientId != null && clientId != 0L) client.id == clientId
+    else clientNameKey(client.name).let { it.isNotEmpty() && it == clientNameKey(name) }
+
 enum class RecordType { PRODUCTION, NEGATIVE }
 
 enum class WorkStatus {
-    IN_PROGRESS, COMPLETED,
-    RECEIVED, WAITING_MATERIAL, WAITING_CLIENT, IN_PRODUCTION,
-    PRINTED, TRANSFERRED, READY, DELIVERED, ON_HOLD, BLOCKED
+    DRAFT, RECEIVED, IN_PROCESS, TRANSFERRED_TO_PRODUCTION,
+    WAITING_MATERIAL, WAITING_CLIENT, IN_PRODUCTION, IN_PROGRESS,
+    PRINTED, TRANSFERRED, READY, COMPLETED, DELIVERED, CLOSED,
+    ON_HOLD, BLOCKED, CANCELLED
 }
+
+fun WorkStatus.isFinishedOrder(): Boolean =
+    this in setOf(WorkStatus.COMPLETED, WorkStatus.DELIVERED, WorkStatus.CLOSED, WorkStatus.CANCELLED)
+
+fun WorkStatus.isArchivedOrder(): Boolean =
+    this in setOf(WorkStatus.COMPLETED, WorkStatus.DELIVERED, WorkStatus.CLOSED)
 
 enum class Priority { NORMAL, HIGH }
 enum class Blocker { NONE, WAITING_CLIENT, WAITING_MATERIAL }
@@ -18,6 +31,28 @@ enum class IssueResponsibility { CLIENT, INTERNAL, SUPPLIER, MIXED, TO_VERIFY }
 enum class IssueSeverity { LOW, MEDIUM, HIGH, CRITICAL }
 enum class IssueStatus { OPEN, WAITING_CLIENT, MONITORING, RESOLVED, CLOSED }
 enum class PaymentMethod { UNSPECIFIED, BANK_TRANSFER, CASH, CHECK, CARD, OTHER }
+
+enum class RollStatus { INTACT, OPEN, DEPLETED, BLOCKED }
+enum class StockMovementType { LOAD, ORDER_USE, RETURN, ADJUSTMENT, WASTE }
+enum class OrderKind { WORK, PRODUCTION, COTTON, ZENTHA }
+
+enum class TimelineCategory {
+    NOTE, CLIENT, INTERNAL_PROBLEM, GRAPHICS, FILE_ERROR, MATERIAL,
+    SAMPLE, APPROVAL, PRODUCTION, ORDER_CHANGE, DELAY, DELIVERY, STATUS_CHANGE
+}
+enum class TimelineResponsibility { CLIENT, INTERNAL, SUPPLIER, NONE }
+enum class TimelineSeverity { INFO, LOW, MEDIUM, HIGH, BLOCKING }
+enum class TimelineStatus { OPEN, RESOLVED }
+
+enum class CottonPrintType { REACTIVE, PIGMENT, OTHER }
+
+enum class EconomicWorkStatus { OPEN, COMPLETED, PAID, CANCELLED }
+enum class OperationalTaskType { SAMPLE, GRAPHICS_SEARCH, CLIENT_REQUEST, PREPARATION, OTHER }
+enum class OperationalTaskStatus { TODO, IN_PROGRESS, DONE, CANCELLED }
+
+enum class ZenthaOrderStatus {
+    DRAFT, CONFIRMED, GRAPHICS, WAITING_APPROVAL, PRODUCTION, READY, DELIVERED, CLOSED, CANCELLED
+}
 
 data class Client(
     val id: Long = 0,
@@ -34,7 +69,60 @@ data class InventoryItem(
     val purchasePricePerMeter: Double = 0.0,
     val createdDate: String,
     val images: List<String> = emptyList(),
-    val minimumQuantityMeters: Double = 0.0
+    val minimumQuantityMeters: Double = 0.0,
+    val supplierName: String = "",
+    val composition: String = "",
+    val weightGsm: String = "",
+    val variant: String = "",
+    val lotCode: String = "",
+    val processingCostPerMeter: Double = 0.0,
+    val defaultSalePricePerMeter: Double = 0.0,
+    val archived: Boolean = false
+) {
+    val actualCostPerMeter: Double get() = purchasePricePerMeter + processingCostPerMeter
+}
+
+data class FabricRoll(
+    val id: Long = 0,
+    val inventoryId: Long,
+    val rollCode: String,
+    val initialMeters: Double,
+    val availableMeters: Double,
+    val createdDate: String,
+    val note: String = "",
+    val status: RollStatus = RollStatus.INTACT,
+    val images: List<String> = emptyList()
+)
+
+data class FabricRollInput(
+    val meters: Double,
+    val images: List<String> = emptyList(),
+    val code: String = "",
+    val note: String = ""
+)
+
+data class StockMovement(
+    val id: Long = 0,
+    val inventoryId: Long,
+    val rollId: Long,
+    val type: StockMovementType,
+    val dateTime: String,
+    val meters: Double,
+    val orderKind: OrderKind? = null,
+    val orderId: Long? = null,
+    val orderRef: String = "",
+    val note: String = ""
+)
+
+data class RollUsage(
+    val id: Long = 0,
+    val orderKind: OrderKind,
+    val orderId: Long,
+    val orderRef: String,
+    val inventoryId: Long,
+    val rollId: Long,
+    val meters: Double,
+    val createdAt: String
 )
 
 data class ProductionRecord(
@@ -67,7 +155,9 @@ data class ProductionRecord(
     val fabricUsedCost: Double = 0.0,
     val materialCostTotal: Double = 0.0,
     val grossRevenue: Double = 0.0,
-    val grossProfit: Double = 0.0
+    val grossProfit: Double = 0.0,
+    val workOrderId: Long? = null,
+    val zenthaOrderId: Long? = null
 )
 
 data class WorkOrder(
@@ -77,10 +167,42 @@ data class WorkOrder(
     val title: String,
     val description: String = "",
     val images: List<String> = emptyList(),
-    val status: WorkStatus = WorkStatus.RECEIVED,
+    val status: WorkStatus = WorkStatus.IN_PROCESS,
     val dueDate: String = "",
     val priority: Priority = Priority.NORMAL,
-    val blocker: Blocker = Blocker.NONE
+    val blocker: Blocker = Blocker.NONE,
+    val clientId: Long? = null,
+    val orderCode: String = "",
+    val fabricInventoryId: Long? = null,
+    val orderedMeters: Double = 0.0,
+    val printPricePerMeter: Double = 0.0,
+    val designCode: String = "",
+    val productionRecordId: Long? = null,
+    val effectiveDeliveryDate: String = "",
+    val cancelReason: String = "",
+    val materialReceivedDate: String = "",
+    val materialReceiptNotes: String = ""
+)
+
+data class OrderTimelineEvent(
+    val id: Long = 0,
+    val workOrderId: Long,
+    val clientId: Long? = null,
+    val clientName: String,
+    val orderRef: String,
+    val date: String,
+    val time: String = "",
+    val category: TimelineCategory = TimelineCategory.NOTE,
+    val responsibility: TimelineResponsibility = TimelineResponsibility.NONE,
+    val severity: TimelineSeverity = TimelineSeverity.INFO,
+    val status: TimelineStatus = TimelineStatus.OPEN,
+    val title: String,
+    val description: String = "",
+    val oldDueDate: String = "",
+    val newDueDate: String = "",
+    val images: List<String> = emptyList(),
+    val resolutionNote: String = "",
+    val resolvedDate: String = ""
 )
 
 data class ClientIssue(
@@ -123,12 +245,210 @@ data class PaymentDeadline(
     val notes: String = ""
 )
 
+data class CottonOrder(
+    val id: Long = 0,
+    val orderCode: String = "",
+    val clientId: Long? = null,
+    val clientName: String,
+    val orderDate: String,
+    val dueDate: String = "",
+    val fabricName: String,
+    val printType: CottonPrintType = CottonPrintType.REACTIVE,
+    val orderedMeters: Double,
+    val actualProducedMeters: Double = 0.0,
+    val deliveredMeters: Double = 0.0,
+    val defectiveMeters: Double = 0.0,
+    val sampleMeters: Double = 0.0,
+    val leftoverMeters: Double = 0.0,
+    val productionCostPerMeter: Double,
+    val printPricePerMeter: Double,
+    val fabricOwnerType: OwnerType = OwnerType.CLIENT,
+    val inventoryId: Long? = null,
+    val fabricCostPerMeter: Double = 0.0,
+    val notes: String = "",
+    val status: WorkStatus = WorkStatus.IN_PROCESS,
+    val title: String = "",
+    val images: List<String> = emptyList(),
+    val completedDate: String = ""
+) {
+    val accountingDate: String get() = if (status.isArchivedOrder()) completedDate.ifBlank { orderDate } else orderDate
+    val revenueMeters: Double get() = if (deliveredMeters > 0) deliveredMeters else orderedMeters
+    val costMeters: Double get() = if (actualProducedMeters > 0) actualProducedMeters else orderedMeters
+    val grossRevenue: Double get() = revenueMeters * printPricePerMeter
+    val productionCost: Double get() = costMeters * productionCostPerMeter
+    val fabricCost: Double get() = if (fabricOwnerType == OwnerType.HOUSE) costMeters * fabricCostPerMeter else 0.0
+    val totalCost: Double get() = productionCost + fabricCost
+    val margin: Double get() = grossRevenue - totalCost
+    val marginPercent: Double get() = if (grossRevenue <= 0) 0.0 else margin / grossRevenue * 100.0
+}
+
+data class EconomicMaterialUsage(
+    val name: String,
+    val quantity: Double,
+    val unitCost: Double
+) {
+    val totalCost: Double get() = quantity * unitCost
+}
+
+data class EconomicWork(
+    val id: Long = 0,
+    val date: String,
+    val clientId: Long? = null,
+    val clientName: String,
+    val title: String,
+    val quantity: Double = 0.0,
+    val unitPrice: Double = 0.0,
+    val manualGrossRevenue: Double = 0.0,
+    val materials: List<EconomicMaterialUsage> = emptyList(),
+    val otherCosts: Double = 0.0,
+    val notes: String = "",
+    val images: List<String> = emptyList(),
+    val status: EconomicWorkStatus = EconomicWorkStatus.OPEN
+) {
+    val grossRevenue: Double get() = if (manualGrossRevenue > 0) manualGrossRevenue else quantity * unitPrice
+    val materialCosts: Double get() = materials.sumOf { it.totalCost }
+    val totalCosts: Double get() = materialCosts + otherCosts
+    val netProfit: Double get() = grossRevenue - totalCosts
+}
+
+data class OperationalTask(
+    val id: Long = 0,
+    val createdDate: String,
+    val dueDate: String = "",
+    val clientId: Long? = null,
+    val clientName: String = "",
+    val workOrderId: Long? = null,
+    val title: String,
+    val type: OperationalTaskType = OperationalTaskType.OTHER,
+    val description: String = "",
+    val priority: Priority = Priority.NORMAL,
+    val status: OperationalTaskStatus = OperationalTaskStatus.TODO,
+    val images: List<String> = emptyList()
+)
+
+data class ZenthaProduct(
+    val id: Long = 0,
+    val name: String,
+    val sku: String = "",
+    val category: String = "",
+    val standardCost: Double,
+    val standardPrice: Double,
+    val description: String = "",
+    val imagePath: String = "",
+    val active: Boolean = true,
+    val fabricCost: Double = 0.0,
+    val ribCost: Double = 0.0,
+    val liningCost: Double = 0.0,
+    val printCost: Double = 0.0,
+    val accessoryCost: Double = 0.0,
+    val cuttingCost: Double = 0.0,
+    val sewingCost: Double = 0.0,
+    val labelCost: Double = 0.0,
+    val packagingCost: Double = 0.0,
+    val otherCost: Double = 0.0,
+    val priceListName: String = "Listino standard",
+    val markupPercent: Double = 0.0,
+    val sourceReference: String = ""
+) {
+    val costBreakdownTotal: Double get() = fabricCost + ribCost + liningCost + printCost + accessoryCost + cuttingCost + sewingCost + labelCost + packagingCost + otherCost
+    val hasCostBreakdown: Boolean get() = costBreakdownTotal > 0.0001
+    val costBreakdownIsValid: Boolean get() = listOf(fabricCost, ribCost, liningCost, printCost, accessoryCost, cuttingCost, sewingCost, labelCost, packagingCost, otherCost).all { it >= 0.0 }
+    val effectiveCost: Double get() = if (hasCostBreakdown) costBreakdownTotal else standardCost
+    val unitMargin: Double get() = standardPrice - standardCost
+    val marginPercent: Double get() = if (standardPrice > 0) unitMargin / standardPrice * 100.0 else 0.0
+
+    fun costComponents(): List<Pair<String, Double>> = listOf(
+        "Tessuto" to fabricCost,
+        "Costa" to ribCost,
+        "Fodera / inserti" to liningCost,
+        "Stampa" to printCost,
+        "Accessori" to accessoryCost,
+        "Taglio" to cuttingCost,
+        "Cucito / confezione" to sewingCost,
+        "Etichetta" to labelCost,
+        "Imballo" to packagingCost,
+        "Altri costi" to otherCost
+    ).filter { it.second > 0.0001 }
+}
+
+data class ZenthaOrder(
+    val id: Long = 0,
+    val orderCode: String = "",
+    val clientId: Long? = null,
+    val clientName: String,
+    val orderDate: String,
+    val dueDate: String = "",
+    val status: ZenthaOrderStatus = ZenthaOrderStatus.CONFIRMED,
+    val notes: String = "",
+    val attachments: List<String> = emptyList(),
+    val splitPercentA: Double = 50.0,
+    val splitPercentB: Double = 50.0,
+    val chromiaRatePerMeter: Double = 2.50,
+    val sport: String = "MULTISPORT",
+    val audience: String = "MISTO",
+    val priority: Priority = Priority.NORMAL,
+    val blockerReason: String = ""
+)
+
+data class ZenthaOrderItem(
+    val id: Long = 0,
+    val orderId: Long,
+    val productId: Long? = null,
+    val productName: String,
+    val quantity: Int,
+    val unitPrice: Double,
+    val unitCost: Double,
+    val skuSnapshot: String = "",
+    val productDescriptionSnapshot: String = "",
+    val variant: String = "",
+    val color: String = "",
+    val sizeBreakdown: String = "",
+    val personalization: String = "",
+    val productionNotes: String = ""
+) {
+    val revenue: Double get() = quantity * unitPrice
+    val cost: Double get() = quantity * unitCost
+    val margin: Double get() = revenue - cost
+}
+
+enum class ZenthaExportProfile(
+    val showSalePrices: Boolean,
+    val showInternalCosts: Boolean,
+    val showPayments: Boolean,
+    val showProductionDetails: Boolean
+) {
+    ACCOUNTING(true, false, true, true),
+    PRODUCTION(false, false, false, true),
+    COMPLETE(true, true, true, true)
+}
+
+enum class PdfAppearance { LIGHT, DARK }
+
+data class ZenthaExtraCost(
+    val id: Long = 0,
+    val orderId: Long,
+    val label: String,
+    val amount: Double
+)
+
+data class ZenthaPayment(
+    val id: Long = 0,
+    val orderId: Long,
+    val date: String,
+    val amount: Double,
+    val method: PaymentMethod = PaymentMethod.UNSPECIFIED,
+    val notes: String = ""
+)
+
 data class AppSettings(
     val dailyFixedCost: Double = 760.0,
     val plotterX1Cost: Double = 0.80,
     val plotterX2Cost: Double = 1.00,
     val protectionPaperCost: Double = 0.10,
-    val themeKey: String = "spectro"
+    val themeKey: String = "spectro",
+    val zenthaSplitA: Double = 50.0,
+    val zenthaSplitB: Double = 50.0,
+    val chromiaRatePerMeter: Double = 2.50
 )
 
 data class DashboardDay(
@@ -142,6 +462,42 @@ data class DashboardDay(
 
 data class AnalyticsSlice(val label: String, val value: Double)
 
+
+data class ClientMonthlyStat(
+    val clientName: String,
+    val revenue: Double,
+    val paperMeters: Double,
+    val cottonMeters: Double,
+    val profit: Double,
+    val records: Int,
+    val criticalities: Int = 0,
+    val otherRevenue: Double = 0.0,
+    val completedOrders: Int = 0
+)
+
+data class MonthlyStats(
+    val month: String,
+    val productionRevenue: Double,
+    val cottonRevenue: Double,
+    val materialCosts: Double,
+    val cottonCosts: Double,
+    val fixedCosts: Double,
+    val totalRevenue: Double,
+    val totalCosts: Double,
+    val netProfit: Double,
+    val printedPaperMeters: Double,
+    val cottonMeters: Double,
+    val productionCount: Int,
+    val cottonOrderCount: Int,
+    val clients: List<ClientMonthlyStat>,
+    val otherRevenue: Double = 0.0,
+    val otherCosts: Double = 0.0,
+    val otherNetProfit: Double = 0.0,
+    val economicWorkCount: Int = 0,
+    val criticalityCount: Int = 0,
+    val completedOrderCount: Int = 0
+)
+
 data class SpectroSnapshot(
     val clients: List<Client> = emptyList(),
     val inventory: List<InventoryItem> = emptyList(),
@@ -150,5 +506,36 @@ data class SpectroSnapshot(
     val settings: AppSettings = AppSettings(),
     val clientIssues: List<ClientIssue> = emptyList(),
     val issueUpdates: List<IssueUpdate> = emptyList(),
-    val payments: List<PaymentDeadline> = emptyList()
+    val payments: List<PaymentDeadline> = emptyList(),
+    val fabricRolls: List<FabricRoll> = emptyList(),
+    val stockMovements: List<StockMovement> = emptyList(),
+    val rollUsages: List<RollUsage> = emptyList(),
+    val timelineEvents: List<OrderTimelineEvent> = emptyList(),
+    val cottonOrders: List<CottonOrder> = emptyList(),
+    val zenthaProducts: List<ZenthaProduct> = emptyList(),
+    val zenthaOrders: List<ZenthaOrder> = emptyList(),
+    val zenthaItems: List<ZenthaOrderItem> = emptyList(),
+    val zenthaExtraCosts: List<ZenthaExtraCost> = emptyList(),
+    val zenthaPayments: List<ZenthaPayment> = emptyList(),
+    val economicWorks: List<EconomicWork> = emptyList(),
+    val operationalTasks: List<OperationalTask> = emptyList()
+) {
+    val recordCount: Int
+        get() = clients.size + inventory.size + production.size + workOrders.size +
+            clientIssues.size + issueUpdates.size + payments.size + fabricRolls.size +
+            stockMovements.size + rollUsages.size + timelineEvents.size + cottonOrders.size +
+            zenthaProducts.size + zenthaOrders.size + zenthaItems.size +
+            zenthaExtraCosts.size + zenthaPayments.size + economicWorks.size +
+            operationalTasks.size + 1 // impostazioni aziendali
+}
+
+data class LocalSyncState(
+    val organizationId: String = "",
+    val deviceId: String = "",
+    val baseRevision: Long = 0,
+    val lastSeenRemoteRevision: Long = 0,
+    val lastSyncedAt: String = "",
+    val lastError: String = "",
+    val recoveryBackupPath: String = "",
+    val pendingChanges: Boolean = false
 )

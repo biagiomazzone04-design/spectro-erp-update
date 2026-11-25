@@ -1,0 +1,15 @@
+e9be20c898b6be0df98f875cabc948d16d460d9202248b485e3f8b80a8d1df6c  .github/workflows/main.yml
+b8423fc0febd61fac3811f38d9114004e9854388173af15a601c3ca286c6ff92  CHANGELOG_V3.0.0_BETA6.md
+7195a64303339a72136950749926cc06aeefc47a7c1d4cee9fc0ac20515cbe9a  LEGGIMI_BETA6.txt
+6829cf625bccd5fe8e36ea96a5a1e021760b96f19ce487bbff518645dbd24ba8  app/build.gradle.kts
+0b4a3c32cd1930ec50031dc0631830de4fda8e0c442675a53d6b8a414283eabf  app/src/main/java/com/spectro/app/data/SpectroRepository.kt
+7204616eefd521027929014b73c9343e81be0ac7ef8a55e0f90603c1f859c9f2  app/src/main/java/com/spectro/app/ui/ClientsScreen.kt
+38da9ca4ed0e348d6ce016c399e3bb22bd88f6ff137777ef081d487dda7bb207  app/src/main/java/com/spectro/app/ui/Components.kt
+b538fa83c4e4031b9cd18bafbc3029099b5e2bb511ffb5b343bd003d03919055  app/src/main/java/com/spectro/app/ui/DashboardScreen.kt
+71fe4ca96be50b859cc061295a3566833a280ac73e99bc8266fbcc43a961e1eb  app/src/main/java/com/spectro/app/ui/GlobalSearchSheet.kt
+e114fb556024bae135b9e5f7d9ad42294328937b9f509ffa42bd72a7bf3326e5  app/src/main/java/com/spectro/app/ui/SpectroApp.kt
+1280c43e2ebb4f9502189e330644ce506ac715c4cffe4cd899d3427962527afe  app/src/main/java/com/spectro/app/ui/SpectroViewModel.kt
+32ea77ed61f940b0874077da178ed75eb18fd8611f2b4dd214881592d42eb56d  app/src/main/java/com/spectro/app/ui/TimelineScreen.kt
+488aae7274ee26cff9b13215b5ef11e8042b30dbbd46b142690179b85da72e32  app/src/main/java/com/spectro/app/ui/WorkOrdersScreen.kt
+aa0e4bbbac95d306c1b2bd79be9b9b5aeeaa23a97d38a6326f497aac843b6056  app/src/main/java/com/spectro/app/ui/theme/Theme.kt
+d8396a177626a373c86c043fd197c879ad89a34dab2eb001666576a07cb88ad0  app/src/main/java/com/spectro/app/util/ReportExporter.kt

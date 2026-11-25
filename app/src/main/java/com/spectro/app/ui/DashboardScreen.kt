@@ -7,6 +7,8 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,23 +20,36 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.spectro.app.data.AnalyticsSlice
-import com.spectro.app.data.DashboardDay
-import com.spectro.app.data.RecordType
-import com.spectro.app.data.ProductionRecord
+import com.spectro.app.auth.AppPermission
+import com.spectro.app.data.*
 import com.spectro.app.ui.theme.SpectroPalette
+import com.spectro.app.util.ReportExporter
 import java.time.LocalDate
+import java.time.YearMonth
 
 @Composable
-fun DashboardScreen(vm: SpectroViewModel, p: SpectroPalette, onRecord: (ProductionRecord) -> Unit) {
+fun DashboardScreen(
+    vm: SpectroViewModel,
+    p: SpectroPalette,
+    onRecord: (ProductionRecord) -> Unit,
+    onOpenOrder: (WorkOrder) -> Unit = {},
+    onEditOrder: (WorkOrder) -> Unit = {},
+    onOpenModule: (AppTab) -> Unit = {}
+) {
     var mode by remember { mutableStateOf("day") }
     var query by remember { mutableStateOf("") }
     var selectedDate by remember { mutableStateOf(LocalDate.now().toString()) }
+    var deleteTarget by remember { mutableStateOf<WorkOrder?>(null) }
+    var statsMonth by remember { mutableStateOf(YearMonth.now()) }
+    var statsSection by remember { mutableStateOf("SUMMARY") }
+    val context = LocalContext.current
+    val currentMonthStats = vm.monthlyStats(YearMonth.now())
     val days = vm.dashboardDays(query)
     val day = days.firstOrNull { it.date == selectedDate }
 
@@ -64,12 +79,40 @@ fun DashboardScreen(vm: SpectroViewModel, p: SpectroPalette, onRecord: (Producti
             )
         }
 
+        item {
+            val shortcuts = buildList {
+                if (vm.can(AppPermission.ORDERS_VIEW)) add(Triple(AppTab.WORK, "Ordini", Icons.Rounded.Assignment))
+                if (vm.can(AppPermission.CLIENTS_VIEW)) add(Triple(AppTab.CLIENTS, "Clienti", Icons.Rounded.People))
+                if (vm.can(AppPermission.INVENTORY_VIEW)) add(Triple(AppTab.INVENTORY, "Magazzino", Icons.Rounded.Inventory2))
+                if (vm.can(AppPermission.TASKS_VIEW)) add(Triple(AppTab.ACTIVITIES, "Attività", Icons.Rounded.NotificationsActive))
+                if (vm.can(AppPermission.ZENTHA_VIEW)) add(Triple(AppTab.ZENTHA, "Zentha", Icons.Rounded.SportsVolleyball))
+                if (vm.can(AppPermission.ISSUES_VIEW)) add(Triple(AppTab.ISSUES, "Criticità", Icons.Rounded.ReportProblem))
+            }
+            if (shortcuts.isNotEmpty()) {
+                Column {
+                    Text("SCORCIATOIE", color = p.textMuted, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        shortcuts.forEach { (tab, label, icon) ->
+                            FilledTonalButton(onClick = { onOpenModule(tab) }, shape = RoundedCornerShape(16.dp)) {
+                                Icon(icon, null, Modifier.size(18.dp)); Spacer(Modifier.width(7.dp)); Text(label, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if (mode == "day") {
             val openIssues = vm.openIssues().size
             val overduePayments = vm.overduePayments().size
             val lowStock = vm.lowStock().size
             val overdueWork = vm.overdueWork().size
-            if (openIssues + overduePayments + lowStock + overdueWork > 0) {
+            val openTasks = vm.openTasks().size
+            if (openIssues + overduePayments + lowStock + overdueWork + openTasks > 0) {
                 item {
                     SpectroCard(p = p) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -82,7 +125,57 @@ fun DashboardScreen(vm: SpectroViewModel, p: SpectroPalette, onRecord: (Producti
                             AlertMini("Criticità", openIssues, p.warning, Modifier.weight(1f))
                             AlertMini("Scaduti", overduePayments, p.danger, Modifier.weight(1f))
                             AlertMini("Scorte", lowStock, p.warning, Modifier.weight(1f))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AlertMini("Ordini", overdueWork, p.danger, Modifier.weight(1f))
+                            AlertMini("Attività", openTasks, p.primary, Modifier.weight(1f))
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+            val activeOrders = vm.state.workOrders
+.filter { !it.status.isFinishedOrder() }
+                .sortedWith(compareByDescending<WorkOrder> { it.priority == Priority.HIGH || it.status == WorkStatus.BLOCKED }
+                    .thenBy { it.dueDate.ifBlank { "9999-12-31" } })
+                .take(5)
+            if (activeOrders.isNotEmpty()) {
+                item { SectionTitle("Ordini attivi") }
+                items(activeOrders, key = { "order-${it.id}" }) { order ->
+                    DashboardOrderCard(vm, order, p, vm.can(AppPermission.ORDERS_MANAGE), onOpenOrder, onEditOrder, onComplete = { vm.completeWorkOrder(it.id) }, onDelete = { deleteTarget = it })
+                }
+            }
+            item {
+                SpectroCard(p = p) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Produzione mese corrente", fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Text(YearMonth.now().toString(), color = p.textMuted, fontSize = 11.sp)
+                        }
+                        Text(meters(currentMonthStats.printedPaperMeters), color = p.primary, fontWeight = FontWeight.Black, fontSize = 18.sp)
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Carta stampata", meters(currentMonthStats.printedPaperMeters), modifier = Modifier.weight(1f))
+                        Metric("Cotone", meters(currentMonthStats.cottonMeters), modifier = Modifier.weight(1f))
+                        Metric("Utile mese", euro(currentMonthStats.netProfit), valueColor = if (currentMonthStats.netProfit >= 0) p.success else p.danger, modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Metric("Ulteriori lavorazioni", euro(currentMonthStats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
+                        Metric("Ordini evasi", currentMonthStats.completedOrderCount.toString(), valueColor = p.success, modifier = Modifier.weight(1f))
+                        Metric("Criticità", currentMonthStats.criticalityCount.toString(), valueColor = if (currentMonthStats.criticalityCount > 0) p.warning else p.success, modifier = Modifier.weight(1f))
+                    }
+                    if (currentMonthStats.clients.any { it.paperMeters > 0 }) {
+                        Spacer(Modifier.height(12.dp))
+                        Text("Metri carta per cliente", color = p.textMuted, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Spacer(Modifier.height(7.dp))
+                        currentMonthStats.clients.filter { it.paperMeters > 0 }.take(5).forEach { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(row.clientName, color = p.text, fontSize = 12.sp)
+                                Text(meters(row.paperMeters), color = p.textMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
                         }
                     }
                 }
@@ -94,19 +187,207 @@ fun DashboardScreen(vm: SpectroViewModel, p: SpectroPalette, onRecord: (Producti
                     onNext = { selectedDate = LocalDate.parse(selectedDate).plusDays(1).toString() }
                 )
             }
-            item { SectionTitle("Registrazioni del giorno") }
+            if (day != null) item {
+                val byClient = day.records.filter { it.type == RecordType.PRODUCTION }
+                    .groupBy { it.clientName.ifBlank { "Senza cliente" } }
+                    .mapValues { (_, rows) -> rows.sumOf { it.printedPaperMeters } }
+                    .toList().sortedByDescending { it.second }
+                if (byClient.isNotEmpty()) SpectroCard(p = p) {
+                    Text("Metri stampati per cliente", fontWeight = FontWeight.Black, fontSize = 17.sp)
+                    Text("Aggiornamento automatico per la giornata selezionata", color = p.textMuted, fontSize = 11.sp)
+                    Spacer(Modifier.height(10.dp))
+                    byClient.forEach { (client, paperMeters) ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(client, fontWeight = FontWeight.Bold, color = p.text)
+                            Text(meters(paperMeters), fontWeight = FontWeight.Black, color = p.primary, fontSize = 16.sp)
+                        }
+                        Spacer(Modifier.height(7.dp))
+                    }
+                }
+            }
+            item { SectionTitle("Produzioni del giorno") }
             if (day == null || day.records.isEmpty()) {
                 item { EmptyState(Icons.Rounded.ReceiptLong, "Nessuna registrazione", "Aggiungi la prima produzione con il pulsante +") }
             } else {
-                items(day.records, key = { it.id }) { record -> RecordCard(record, p, onRecord) }
+                val linkedGroups = day.records
+                    .filter { it.type == RecordType.PRODUCTION && it.workOrderId != null }
+                    .groupBy { it.workOrderId!! }
+                    .toList()
+                    .sortedBy { (_, rows) -> rows.minOfOrNull { it.id } ?: 0L }
+                val standalone = day.records.filter { it.type != RecordType.PRODUCTION || it.workOrderId == null }
+
+                items(linkedGroups, key = { "day-order-${it.first}" }) { (orderId, records) ->
+                    val linkedOrder = vm.state.workOrders.firstOrNull { it.id == orderId }
+                    GroupedProductionCard(
+                        records = records,
+                        order = linkedOrder,
+                        p = p,
+                        onOpenOrder = onOpenOrder,
+                        onRecord = onRecord
+                    )
+                }
+                items(standalone, key = { "standalone-${it.id}" }) { record -> RecordCard(record, p, onRecord) }
             }
         } else {
-            item { AnalyticsCard("Fatturato per cliente", vm.topClients(), p, true) }
-            item { AnalyticsCard("Consumo tessuti", vm.topFabrics(), p, false) }
-            if (vm.topClients().isEmpty() && vm.topFabrics().isEmpty()) {
-                item { EmptyState(Icons.Rounded.Analytics, "Statistiche in attesa", "Inserisci alcune produzioni per generare grafici") }
+            val stats = vm.monthlyStats(statsMonth)
+            item {
+                SpectroCard(p = p) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = { statsMonth = statsMonth.minusMonths(1) }) { Icon(Icons.Rounded.ChevronLeft, "Mese precedente") }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("STATISTICHE MENSILI", fontSize = 10.sp, fontWeight = FontWeight.Black, color = p.textMuted)
+                            Text(statsMonth.toString(), fontSize = 21.sp, fontWeight = FontWeight.Black)
+                        }
+                        IconButton(onClick = { statsMonth = statsMonth.plusMonths(1) }) { Icon(Icons.Rounded.ChevronRight, "Mese successivo") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val prefix = statsMonth.toString()
+                            ReportExporter.shareMonthlyStatistics(
+                                context = context,
+                                stats = stats,
+                                productions = vm.state.production.filter { it.date.startsWith(prefix) },
+                                cottonOrders = vm.state.cottonOrders.filter { it.status != WorkStatus.CANCELLED && it.accountingDate.startsWith(prefix) },
+                                economicWorks = vm.state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED },
+                                timelineEvents = vm.state.timelineEvents.filter { it.date.startsWith(prefix) },
+                                clientIssues = vm.state.clientIssues.filter { it.openedDate.startsWith(prefix) },
+                                workOrders = vm.state.workOrders.filter { it.effectiveDeliveryDate.startsWith(prefix) && it.status.isArchivedOrder() }
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(7.dp)); Text("Esporta report mensile PDF") }
+                }
+            }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "SUMMARY" to "Riepilogo",
+                        "REVENUE" to "Fatturato",
+                        "CLIENTS" to "Clienti",
+                        "METERS" to "Metri",
+                        "PROFIT" to "Utile"
+                    ).forEach { (key, label) ->
+                        FilterChip(selected = statsSection == key, onClick = { statsSection = key }, label = { Text(label) })
+                    }
+                }
+            }
+            when (statsSection) {
+                "REVENUE" -> {
+                    item { AnalyticsCard("Fatturato per cliente", vm.monthlyRevenueByClient(statsMonth), p, true) }
+                    item {
+                        SpectroCard(p = p) {
+                            SectionTitle("Composizione fatturato")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Sublimazione", euro(stats.productionRevenue), modifier = Modifier.weight(1f))
+                                Metric("Cotone", euro(stats.cottonRevenue), modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Altri lavori", euro(stats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
+                                Metric("Totale", euro(stats.totalRevenue), valueColor = p.success, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+                "CLIENTS" -> {
+                    if (stats.clients.isEmpty()) item { EmptyState(Icons.Rounded.People, "Nessun dato cliente", "Nessuna produzione nel mese selezionato") }
+                    items(stats.clients, key = { "stat-client-${it.clientName}" }) { row ->
+                        SpectroCard(p = p) {
+                            Text(row.clientName, fontWeight = FontWeight.Black, fontSize = 17.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Fatturato", euro(row.revenue), modifier = Modifier.weight(1f))
+                                Metric("Carta", meters(row.paperMeters), modifier = Modifier.weight(1f))
+                                Metric("Utile", euro(row.profit), valueColor = if (row.profit >= 0) p.success else p.danger, modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(7.dp))
+                            Text(
+                                "${row.records} registrazioni • Criticità ${row.criticalities}" +
+                                    (if (row.otherRevenue > 0) " • Altri ricavi ${euro(row.otherRevenue)}" else "") +
+                                    (if (row.cottonMeters > 0) " • Cotone ${meters(row.cottonMeters)}" else ""),
+                                color = p.textMuted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+                "METERS" -> {
+                    item { AnalyticsCard("Metri carta stampati per cliente", vm.monthlyPaperMetersByClient(statsMonth), p, false) }
+                    item {
+                        SpectroCard(p = p) {
+                            SectionTitle("Metri del mese")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Carta stampata", meters(stats.printedPaperMeters), p.primary, Modifier.weight(1f))
+                                Metric("Cotone", meters(stats.cottonMeters), modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Text("${stats.productionCount} produzioni sublimatiche • ${stats.cottonOrderCount} ordini cotone", color = p.textMuted, fontSize = 12.sp)
+                        }
+                    }
+                }
+                "PROFIT" -> {
+                    item {
+                        SpectroCard(p = p) {
+                            SectionTitle("Redditività")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Ricavi", euro(stats.totalRevenue), modifier = Modifier.weight(1f))
+                                Metric("Costi", euro(stats.totalCosts), modifier = Modifier.weight(1f))
+                                Metric("Utile netto", euro(stats.netProfit), valueColor = if (stats.netProfit >= 0) p.success else p.danger, modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(12.dp))
+                            Text("Materie sublimazione ${euro(stats.materialCosts)}", color = p.textMuted)
+                            Text("Costi cotone ${euro(stats.cottonCosts)}", color = p.textMuted)
+                            Text("Costi altri lavori ${euro(stats.otherCosts)}", color = p.textMuted)
+                            Text("Costi fissi imputati ${euro(stats.fixedCosts)}", color = p.textMuted)
+                        }
+                    }
+                }
+                else -> {
+                    item {
+                        SpectroCard(p = p) {
+                            Text("Riepilogo ${stats.month}", fontWeight = FontWeight.Black, fontSize = 18.sp)
+                            Spacer(Modifier.height(12.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Fatturato", euro(stats.totalRevenue), modifier = Modifier.weight(1f))
+                                Metric("Carta", meters(stats.printedPaperMeters), modifier = Modifier.weight(1f))
+                                Metric("Utile", euro(stats.netProfit), valueColor = if (stats.netProfit >= 0) p.success else p.danger, modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(10.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Produzioni", stats.productionCount.toString(), modifier = Modifier.weight(1f))
+                                Metric("Cotone", stats.cottonOrderCount.toString(), modifier = Modifier.weight(1f))
+                                Metric("Altri lavori", stats.economicWorkCount.toString(), modifier = Modifier.weight(1f))
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Clienti", stats.clients.size.toString(), modifier = Modifier.weight(1f))
+                                Metric("Criticità", stats.criticalityCount.toString(), valueColor = if (stats.criticalityCount > 0) p.warning else p.success, modifier = Modifier.weight(1f))
+                                Metric("Altri ricavi", euro(stats.otherRevenue), valueColor = p.primary, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    item { AnalyticsCard("Fatturato per cliente", vm.monthlyRevenueByClient(statsMonth), p, true) }
+                    item { AnalyticsCard("Carta stampata per cliente", vm.monthlyPaperMetersByClient(statsMonth), p, false) }
+                }
+            }
+            if (stats.productionCount == 0 && stats.cottonOrderCount == 0 && stats.economicWorkCount == 0) {
+                item { EmptyState(Icons.Rounded.Analytics, "Statistiche in attesa", "Nessun dato nel mese selezionato") }
             }
         }
+    }
+
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Eliminare definitivamente l'ordine?") },
+            text = { Text("${target.title.ifBlank { target.orderCode }} verrà eliminato insieme alla timeline. Se esiste una produzione collegata, verrà rimossa e il magazzino verrà riallineato.") },
+            confirmButton = { TextButton(onClick = { vm.deleteWorkOrder(target.id); deleteTarget = null }) { Text("Elimina", color = p.danger) } },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Annulla") } }
+        )
     }
 }
 
@@ -175,6 +456,96 @@ private fun RecordCard(record: ProductionRecord, p: SpectroPalette, onRecord: (P
 }
 
 @Composable
+private fun GroupedProductionCard(
+    records: List<ProductionRecord>,
+    order: WorkOrder?,
+    p: SpectroPalette,
+    onOpenOrder: (WorkOrder) -> Unit,
+    onRecord: (ProductionRecord) -> Unit
+) {
+    val fabrics = aggregateProductionFabrics(records)
+    val totalPaper = records.sumOf { it.printedPaperMeters }
+    val totalFabric = records.sumOf { it.fabricUsedMeters }
+    val totalRevenue = records.sumOf { it.grossRevenue }
+    val title = order?.title?.ifBlank { order.orderCode } ?: records.firstOrNull()?.orderRef.orEmpty().ifBlank { "Produzione" }
+    val client = order?.client ?: records.firstOrNull()?.clientName.orEmpty()
+
+    SpectroCard(p = p, onClick = {
+        if (order != null) onOpenOrder(order) else records.lastOrNull()?.let(onRecord)
+    }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(46.dp).background(p.primary.copy(alpha = .14f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.PrecisionManufacturing, null, tint = p.primary)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, color = p.text, fontWeight = FontWeight.Black, fontSize = 17.sp, maxLines = 1)
+                Text("$client • ${records.size} lavorazioni", color = p.textMuted, fontSize = 11.sp)
+            }
+            Text(euro(totalRevenue), color = p.success, fontWeight = FontWeight.Black)
+        }
+        Spacer(Modifier.height(11.dp))
+        fabrics.forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(row.fabricName, color = p.text, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text(meters(row.meters), color = p.primary, fontWeight = FontWeight.Black, fontSize = 14.sp)
+            }
+        }
+        Spacer(Modifier.height(9.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Metric("Tessuto totale", meters(totalFabric), modifier = Modifier.weight(1f))
+            Metric("Carta totale", meters(totalPaper), modifier = Modifier.weight(1f))
+            Metric("Note", records.count { it.technicalNotes.isNotBlank() }.toString(), modifier = Modifier.weight(1f))
+        }
+        if (order != null) {
+            Spacer(Modifier.height(7.dp))
+            Text("Tocca per aprire ordine, singole produzioni, note, immagini e timeline", color = p.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+private fun DashboardOrderCard(vm: SpectroViewModel, order: WorkOrder, p: SpectroPalette, canManage: Boolean, onOpen: (WorkOrder) -> Unit, onEdit: (WorkOrder) -> Unit, onComplete: (WorkOrder) -> Unit, onDelete: (WorkOrder) -> Unit) {
+    val overdue = order.dueDate.isNotBlank() && runCatching { LocalDate.parse(order.dueDate).isBefore(LocalDate.now()) }.getOrDefault(false)
+    val accent = when {
+        order.status == WorkStatus.BLOCKED || overdue -> p.danger
+        order.status in listOf(WorkStatus.WAITING_CLIENT, WorkStatus.WAITING_MATERIAL, WorkStatus.ON_HOLD) -> p.warning
+        order.status in listOf(WorkStatus.IN_PRODUCTION, WorkStatus.IN_PROGRESS, WorkStatus.PRINTED, WorkStatus.TRANSFERRED) -> p.success
+        else -> p.primary
+    }
+    val productions = vm.productionsForOrder(order.id)
+    val fabrics = orderFabricRows(vm, order)
+    SpectroCard(p = p, onClick = { onOpen(order) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(5.dp).height(58.dp).background(accent, RoundedCornerShape(99.dp)))
+            Spacer(Modifier.width(11.dp))
+            Column(Modifier.weight(1f)) {
+                Text(order.title.ifBlank { order.orderCode }, fontWeight = FontWeight.Black, color = p.text, maxLines = 1)
+                Text("${order.client} • ${workStatusLabel(order.status)}", color = p.textMuted, fontSize = 12.sp, maxLines = 1)
+                if (order.orderCode.isNotBlank()) Text(order.orderCode, color = p.textMuted, fontSize = 10.sp, maxLines = 1)
+                if (order.dueDate.isNotBlank()) Text("Consegna ${order.dueDate}${if (overdue) " • SCADUTA" else ""}", color = if (overdue) p.danger else p.textMuted, fontSize = 11.sp, fontWeight = if (overdue) FontWeight.Black else FontWeight.Normal)
+            }
+            if (canManage && productions.isNotEmpty() && !order.status.isFinishedOrder()) {
+                IconButton(onClick = { onComplete(order) }) { Icon(Icons.Rounded.TaskAlt, "Completa ed evadi", tint = p.success) }
+            }
+            if (canManage) {
+                IconButton(onClick = { onEdit(order) }) { Icon(Icons.Rounded.Edit, "Modifica ordine", tint = p.primary) }
+                IconButton(onClick = { onDelete(order) }) { Icon(Icons.Rounded.Delete, "Elimina ordine", tint = p.danger) }
+            }
+        }
+        if (fabrics.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            fabrics.take(3).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(row.fabricName, color = p.text, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                    Text(if (row.meters > 0) meters(row.meters) else "-", color = p.primary, fontWeight = FontWeight.Black, fontSize = 13.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AnalyticsCard(title: String, slices: List<AnalyticsSlice>, p: SpectroPalette, money: Boolean) {
     SpectroCard(p = p) {
         Text(title, fontWeight = FontWeight.Black, fontSize = 17.sp)
@@ -219,7 +590,7 @@ private fun chartColor(i: Int, p: SpectroPalette): Color = listOf(p.primary, p.s
 @Composable
 private fun AlertMini(label: String, count: Int, color: Color, modifier: Modifier = Modifier) {
     Column(modifier.background(color.copy(alpha = .10f), RoundedCornerShape(14.dp)).padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(count.toString(), color = if (count > 0) color else MaterialTheme.colorScheme.onSurface.copy(alpha = .5f), fontWeight = FontWeight.Black, fontSize = 20.sp)
-        Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
+        Text(count.toString(), color = if (count > 0) color else MaterialTheme.colorScheme.onSurface.copy(alpha = .78f), fontWeight = FontWeight.Black, fontSize = 20.sp)
+        Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
     }
 }

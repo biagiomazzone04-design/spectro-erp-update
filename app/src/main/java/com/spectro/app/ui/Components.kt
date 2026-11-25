@@ -2,6 +2,8 @@ package com.spectro.app.ui
 
 import android.graphics.BitmapFactory
 import android.widget.NumberPicker
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
@@ -10,6 +12,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
@@ -19,11 +23,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.viewinterop.AndroidView
@@ -36,6 +42,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spectro.app.ui.theme.SpectroPalette
+import com.spectro.app.data.InventoryItem
+import com.spectro.app.data.OwnerType
+import com.spectro.app.util.AttachmentStore
 import java.io.File
 import java.time.LocalDate
 import java.time.YearMonth
@@ -65,7 +74,7 @@ fun SpectroTextField(
     singleLine: Boolean = true
 ) {
     Column(modifier) {
-        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
         Spacer(Modifier.height(7.dp))
         OutlinedTextField(
             value = value,
@@ -98,8 +107,8 @@ fun GradientButton(text: String, p: SpectroPalette, modifier: Modifier = Modifie
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (icon != null) { Icon(icon, null, tint = Color.White); Spacer(Modifier.width(9.dp)) }
-            Text(text, color = Color.White, fontWeight = FontWeight.Black, fontSize = 15.sp)
+            if (icon != null) { Icon(icon, null, tint = Color.Black); Spacer(Modifier.width(9.dp)) }
+            Text(text, color = Color.Black, fontWeight = FontWeight.Black, fontSize = 15.sp)
         }
     }
 }
@@ -116,7 +125,7 @@ fun SegmentedChoice(options: List<Pair<String, String>>, selected: String, p: Sp
                 Modifier.weight(1f).clip(RoundedCornerShape(13.dp)).background(color).clickable { onSelected(key) }.padding(vertical = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(label, fontWeight = FontWeight.Black, fontSize = 12.sp, color = if (active) Color.White else p.textMuted)
+                Text(label, fontWeight = FontWeight.Black, fontSize = 12.sp, color = if (active) Color.Black else p.textMuted)
             }
         }
     }
@@ -125,7 +134,7 @@ fun SegmentedChoice(options: List<Pair<String, String>>, selected: String, p: Sp
 @Composable
 fun Metric(label: String, value: String, valueColor: Color = MaterialTheme.colorScheme.onSurface, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Text(label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .52f))
+        Text(label.uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .80f))
         Spacer(Modifier.height(4.dp))
         Text(value, fontSize = 20.sp, fontWeight = FontWeight.Black, color = valueColor)
     }
@@ -138,7 +147,7 @@ fun EmptyState(icon: ImageVector, title: String, subtitle: String) {
         Spacer(Modifier.height(12.dp))
         Text(title, fontWeight = FontWeight.Black, fontSize = 18.sp)
         Spacer(Modifier.height(6.dp))
-        Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
+        Text(subtitle, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
     }
 }
 
@@ -153,6 +162,10 @@ fun PrivateImage(path: String, modifier: Modifier = Modifier, contentScale: Cont
 
 @Composable
 private fun FullScreenImage(path: String, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val saveImage = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { uri ->
+        if (uri != null) runCatching { AttachmentStore.exportToUri(context, path, uri) }
+    }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(
             Modifier.fillMaxSize().background(Color.Black.copy(alpha = .96f)).clickable(onClick = onDismiss),
@@ -164,14 +177,46 @@ private fun FullScreenImage(path: String, onDismiss: () -> Unit) {
                 modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(18.dp),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White.copy(alpha = .15f), contentColor = Color.White)
             ) { Icon(Icons.Rounded.Close, contentDescription = "Chiudi") }
+            FilledTonalButton(
+                onClick = { saveImage.launch(File(path).name.ifBlank { "immagine_spectro.jpg" }) },
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(24.dp)
+            ) { Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(8.dp)); Text("Salva sul dispositivo") }
         }
+    }
+}
+
+@Composable
+fun AttachmentSourceButtons(
+    onImported: (List<String>) -> Unit,
+    modifier: Modifier = Modifier,
+    galleryLabel: String = "Galleria"
+) {
+    val context = LocalContext.current
+    var pendingCameraPath by rememberSaveable { mutableStateOf("") }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val imported = uris.mapNotNull { uri -> runCatching { AttachmentStore.importToPrivateStorage(context, uri) }.getOrNull() }
+        if (imported.isNotEmpty()) onImported(imported)
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val path = pendingCameraPath
+        if (success && path.isNotBlank() && File(path).isFile) onImported(listOf(path))
+        else if (path.isNotBlank()) File(path).delete()
+        pendingCameraPath = ""
+    }
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = {
+            val target = AttachmentStore.createCameraTarget(context)
+            pendingCameraPath = target.path
+            camera.launch(target.uri)
+        }, Modifier.weight(1f)) { Icon(Icons.Rounded.PhotoCamera, null); Spacer(Modifier.width(6.dp)); Text("Fotocamera") }
+        OutlinedButton(onClick = { gallery.launch("image/*") }, Modifier.weight(1f)) { Icon(Icons.Rounded.PhotoLibrary, null); Spacer(Modifier.width(6.dp)); Text(galleryLabel) }
     }
 }
 
 @Composable
 fun SectionTitle(text: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
+        Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Black, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .90f))
         if (actionLabel != null && onAction != null) TextButton(onClick = onAction) { Text(actionLabel) }
     }
 }
@@ -212,14 +257,18 @@ fun WheelDateField(
     allowEmpty: Boolean = false
 ) {
     var open by remember { mutableStateOf(false) }
+    val displayValue = remember(value) {
+        runCatching { LocalDate.parse(value).format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy")) }
+            .getOrDefault(value)
+    }
     Column(modifier) {
         if (label.isNotBlank()) {
-            Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+            Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
             Spacer(Modifier.height(7.dp))
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedButton(onClick = { open = true }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 15.dp)) {
-                Icon(Icons.Rounded.CalendarMonth, null); Spacer(Modifier.width(9.dp)); Text(value.ifBlank { if (allowEmpty) "Nessuna data" else "Seleziona data" }, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = { open = true }, modifier = Modifier.weight(1f).heightIn(min = 54.dp), shape = RoundedCornerShape(16.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
+                Icon(Icons.Rounded.CalendarMonth, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(displayValue.ifBlank { if (allowEmpty) "Nessuna data" else "Seleziona data" }, modifier = Modifier.weight(1f), maxLines = 1, softWrap = false, fontSize = 14.sp)
             }
             if (allowEmpty && value.isNotBlank()) { Spacer(Modifier.width(6.dp)); IconButton(onClick = { onValueChange("") }) { Icon(Icons.Rounded.Close, null) } }
         }
@@ -287,7 +336,7 @@ fun <T> SimpleSelectField(
 ) {
     var expanded by remember { mutableStateOf(false) }
     Column(modifier) {
-        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .58f))
+        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .82f))
         Spacer(Modifier.height(7.dp))
         Box {
             OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
@@ -300,17 +349,137 @@ fun <T> SimpleSelectField(
     }
 }
 
+
+@Composable
+fun InventoryPickerDialog(
+    title: String,
+    inventoryItems: List<InventoryItem>,
+    onDismiss: () -> Unit,
+    onSelected: (InventoryItem) -> Unit,
+    ownerTypeFilter: OwnerType? = null,
+    initialOwner: String? = null
+) {
+    val active = remember(inventoryItems, ownerTypeFilter) {
+        inventoryItems.filter { it.quantityMeters > .0001 && (ownerTypeFilter == null || it.ownerType == ownerTypeFilter) }
+    }
+    val ownerKey: (InventoryItem) -> String = { if (it.ownerType == OwnerType.HOUSE) "AZIENDA" else it.ownerName }
+    val owners = remember(active) { active.map(ownerKey).distinct().sortedBy { it.lowercase() } }
+    var owner by remember(active, initialOwner) {
+        mutableStateOf(
+            initialOwner?.takeIf { init -> owners.any { it.equals(init, true) } }
+                ?: owners.singleOrNull()
+        )
+    }
+    var fabric by remember(owner) { mutableStateOf<String?>(null) }
+    val ownerItems = remember(active, owner) { active.filter { owner != null && ownerKey(it).equals(owner, true) } }
+    val fabricGroups = remember(ownerItems) { ownerItems.groupBy { it.fabricName.trim().uppercase() }.toList().sortedBy { it.first } }
+    val loads = remember(ownerItems, fabric) {
+        ownerItems.filter { fabric != null && it.fabricName.trim().uppercase() == fabric }.sortedWith(compareByDescending<InventoryItem> { it.createdDate }.thenByDescending { it.id })
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text(title, fontWeight = FontWeight.Black)
+                Text(
+                    when {
+                        owner == null -> "1. Seleziona cliente / proprietario"
+                        fabric == null -> "2. Seleziona tessuto • $owner"
+                        else -> "3. Seleziona carico • $fabric"
+                    },
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = .78f)
+                )
+            }
+        },
+        text = {
+            LazyColumn(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                when {
+                    owner == null -> {
+                        if (owners.isEmpty()) item { Text("Nessun tessuto disponibile in magazzino.") }
+                        items(owners, key = { it }) { name ->
+                            val rows = active.filter { ownerKey(it).equals(name, true) }
+                            ListItem(
+                                modifier = Modifier.clickable { owner = name; fabric = null },
+                                headlineContent = { Text(name, fontWeight = FontWeight.Black) },
+                                supportingContent = { Text("${rows.map { it.fabricName.uppercase() }.distinct().size} tessuti • ${meters(rows.sumOf { it.quantityMeters })}") },
+                                leadingContent = { Icon(if (name == "AZIENDA") Icons.Rounded.Warehouse else Icons.Rounded.Person, null) },
+                                trailingContent = { Icon(Icons.Rounded.ChevronRight, null) }
+                            )
+                        }
+                    }
+                    fabric == null -> {
+                        items(fabricGroups, key = { it.first }) { (name, rows) ->
+                            ListItem(
+                                modifier = Modifier.clickable { fabric = name },
+                                headlineContent = { Text(name, fontWeight = FontWeight.Black) },
+                                supportingContent = { Text("${rows.size} carichi • ${meters(rows.sumOf { it.quantityMeters })}") },
+                                leadingContent = { Icon(Icons.Rounded.Texture, null) },
+                                trailingContent = { Icon(Icons.Rounded.ChevronRight, null) }
+                            )
+                        }
+                    }
+                    else -> {
+                        items(loads, key = { it.id }) { row ->
+                            val sub = buildList {
+                                add("Carico ${row.createdDate}")
+                                if (row.lotCode.isNotBlank()) add("Lotto ${row.lotCode}")
+                                if (row.variant.isNotBlank()) add(row.variant)
+                            }.joinToString(" • ")
+                            ListItem(
+                                modifier = Modifier.clickable { onSelected(row) },
+                                headlineContent = { Text(row.fabricName.uppercase(), fontWeight = FontWeight.Black) },
+                                supportingContent = { Text(sub) },
+                                trailingContent = {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(meters(row.quantityMeters), fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                                        Text("disponibili", fontSize = 9.sp)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            Row {
+                if (fabric != null) TextButton(onClick = { fabric = null }) { Text("Tessuti") }
+                else if (owner != null && owners.size > 1) TextButton(onClick = { owner = null }) { Text("Clienti") }
+                TextButton(onClick = onDismiss) { Text("Chiudi") }
+            }
+        }
+    )
+}
+
 fun workStatusLabel(status: com.spectro.app.data.WorkStatus): String = when (status) {
-    com.spectro.app.data.WorkStatus.RECEIVED -> "Ricevuto"
+    com.spectro.app.data.WorkStatus.DRAFT -> "Bozza"
+    com.spectro.app.data.WorkStatus.RECEIVED, com.spectro.app.data.WorkStatus.IN_PROCESS -> "In processo"
+    com.spectro.app.data.WorkStatus.TRANSFERRED_TO_PRODUCTION -> "Trasferito in produzione"
     com.spectro.app.data.WorkStatus.WAITING_MATERIAL -> "Attesa materiale"
     com.spectro.app.data.WorkStatus.WAITING_CLIENT -> "Attesa cliente"
-    com.spectro.app.data.WorkStatus.IN_PRODUCTION, com.spectro.app.data.WorkStatus.IN_PROGRESS -> "In lavorazione"
+    com.spectro.app.data.WorkStatus.IN_PRODUCTION, com.spectro.app.data.WorkStatus.IN_PROGRESS -> "In produzione"
     com.spectro.app.data.WorkStatus.PRINTED -> "Stampato"
     com.spectro.app.data.WorkStatus.TRANSFERRED -> "Trasferito"
     com.spectro.app.data.WorkStatus.READY -> "Pronto"
-    com.spectro.app.data.WorkStatus.DELIVERED, com.spectro.app.data.WorkStatus.COMPLETED -> "Consegnato"
+    com.spectro.app.data.WorkStatus.COMPLETED -> "Completato"
+    com.spectro.app.data.WorkStatus.DELIVERED -> "Evaso"
+    com.spectro.app.data.WorkStatus.CLOSED -> "Chiuso"
     com.spectro.app.data.WorkStatus.ON_HOLD -> "Sospeso"
     com.spectro.app.data.WorkStatus.BLOCKED -> "Bloccato"
+    com.spectro.app.data.WorkStatus.CANCELLED -> "Annullato"
+}
+
+fun localizeWorkStatusTokens(text: String): String {
+    var result = text
+    com.spectro.app.data.WorkStatus.entries
+        .sortedByDescending { it.name.length }
+        .forEach { status ->
+            result = result.replace(Regex("\\b${Regex.escape(status.name)}\\b"), workStatusLabel(status))
+        }
+    return result
 }
 
 fun issueCategoryLabel(v: com.spectro.app.data.IssueCategory): String = when (v) {
@@ -346,3 +515,96 @@ fun issueStatusLabel(v: com.spectro.app.data.IssueStatus): String = when (v) {
     com.spectro.app.data.IssueStatus.RESOLVED -> "Risolta"
     com.spectro.app.data.IssueStatus.CLOSED -> "Chiusa"
 }
+
+fun timelineCategoryLabel(v: com.spectro.app.data.TimelineCategory): String = when (v) {
+    com.spectro.app.data.TimelineCategory.NOTE -> "Nota"
+    com.spectro.app.data.TimelineCategory.CLIENT -> "Cliente"
+    com.spectro.app.data.TimelineCategory.INTERNAL_PROBLEM -> "Problema interno"
+    com.spectro.app.data.TimelineCategory.GRAPHICS -> "Grafica"
+    com.spectro.app.data.TimelineCategory.FILE_ERROR -> "File errato"
+    com.spectro.app.data.TimelineCategory.MATERIAL -> "Materiale"
+    com.spectro.app.data.TimelineCategory.SAMPLE -> "Campionatura"
+    com.spectro.app.data.TimelineCategory.APPROVAL -> "Approvazione"
+    com.spectro.app.data.TimelineCategory.PRODUCTION -> "Produzione"
+    com.spectro.app.data.TimelineCategory.ORDER_CHANGE -> "Modifica ordine"
+    com.spectro.app.data.TimelineCategory.DELAY -> "Ritardo"
+    com.spectro.app.data.TimelineCategory.DELIVERY -> "Consegna"
+    com.spectro.app.data.TimelineCategory.STATUS_CHANGE -> "Cambio stato"
+}
+
+fun timelineResponsibilityLabel(v: com.spectro.app.data.TimelineResponsibility): String = when (v) {
+    com.spectro.app.data.TimelineResponsibility.CLIENT -> "Cliente"
+    com.spectro.app.data.TimelineResponsibility.INTERNAL -> "Interna"
+    com.spectro.app.data.TimelineResponsibility.SUPPLIER -> "Fornitore"
+    com.spectro.app.data.TimelineResponsibility.NONE -> "Nessuna"
+}
+
+fun timelineSeverityLabel(v: com.spectro.app.data.TimelineSeverity): String = when (v) {
+    com.spectro.app.data.TimelineSeverity.INFO -> "Informativa"
+    com.spectro.app.data.TimelineSeverity.LOW -> "Bassa"
+    com.spectro.app.data.TimelineSeverity.MEDIUM -> "Media"
+    com.spectro.app.data.TimelineSeverity.HIGH -> "Alta"
+    com.spectro.app.data.TimelineSeverity.BLOCKING -> "Bloccante"
+}
+
+fun economicWorkStatusLabel(v: com.spectro.app.data.EconomicWorkStatus): String = when (v) {
+    com.spectro.app.data.EconomicWorkStatus.OPEN -> "Aperto"
+    com.spectro.app.data.EconomicWorkStatus.COMPLETED -> "Completato"
+    com.spectro.app.data.EconomicWorkStatus.PAID -> "Incassato"
+    com.spectro.app.data.EconomicWorkStatus.CANCELLED -> "Annullato"
+}
+
+fun operationalTaskTypeLabel(v: com.spectro.app.data.OperationalTaskType): String = when (v) {
+    com.spectro.app.data.OperationalTaskType.SAMPLE -> "Campione da fare"
+    com.spectro.app.data.OperationalTaskType.GRAPHICS_SEARCH -> "Ricerca grafica"
+    com.spectro.app.data.OperationalTaskType.CLIENT_REQUEST -> "Richiesta cliente"
+    com.spectro.app.data.OperationalTaskType.PREPARATION -> "Preparazione lavoro"
+    com.spectro.app.data.OperationalTaskType.OTHER -> "Altro"
+}
+
+fun operationalTaskStatusLabel(v: com.spectro.app.data.OperationalTaskStatus): String = when (v) {
+    com.spectro.app.data.OperationalTaskStatus.TODO -> "Da fare"
+    com.spectro.app.data.OperationalTaskStatus.IN_PROGRESS -> "In corso"
+    com.spectro.app.data.OperationalTaskStatus.DONE -> "Completata"
+    com.spectro.app.data.OperationalTaskStatus.CANCELLED -> "Annullata"
+}
+
+/** Riepilogo tessuti collegati a un ordine, usato in card cliente/ordini/produzione. */
+data class OrderFabricRow(val fabricName: String, val meters: Double)
+
+fun orderFabricRows(vm: SpectroViewModel, order: com.spectro.app.data.WorkOrder): List<OrderFabricRow> {
+    val productions = vm.productionsForOrder(order.id)
+    val grouped = productions
+        .filter { it.fabricDisplayName.isNotBlank() && !it.fabricDisplayName.equals("Nessuno", true) }
+        .groupBy { it.fabricDisplayName.substringBefore(" (").trim().uppercase() }
+        .map { (name, rows) -> OrderFabricRow(name, rows.sumOf { it.fabricUsedMeters }) }
+        .sortedBy { it.fabricName }
+
+    if (grouped.isNotEmpty()) {
+        if (grouped.size == 1 && grouped.first().meters <= .0001 && order.orderedMeters > 0) {
+            return listOf(grouped.first().copy(meters = order.orderedMeters))
+        }
+        return grouped
+    }
+
+    val inventory = order.fabricInventoryId?.let { id -> vm.state.inventory.firstOrNull { it.id == id } }
+    if (inventory != null) return listOf(OrderFabricRow(inventory.fabricName.trim().uppercase(), order.orderedMeters))
+    return if (order.orderedMeters > 0) listOf(OrderFabricRow("TESSUTO", order.orderedMeters)) else emptyList()
+}
+
+fun aggregateProductionFabrics(records: List<com.spectro.app.data.ProductionRecord>): List<OrderFabricRow> =
+    records
+        .filter { it.type == com.spectro.app.data.RecordType.PRODUCTION }
+        .groupBy {
+            it.fabricDisplayName
+                .takeIf { name -> name.isNotBlank() && !name.equals("Nessuno", true) }
+                ?.substringBefore(" (")
+                ?.trim()
+                ?.uppercase()
+                ?: "TESSUTO"
+        }
+        .map { (name, rows) ->
+            val fabricMeters = rows.sumOf { it.fabricUsedMeters }
+            OrderFabricRow(name, if (fabricMeters > .0001) fabricMeters else rows.sumOf { it.printedPaperMeters })
+        }
+        .sortedBy { it.fabricName }

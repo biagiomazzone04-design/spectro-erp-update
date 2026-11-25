@@ -1,0 +1,29 @@
+SPECTRO ERP 3.0.0 BETA 5 - BUILD FIX 1
+
+Errore rilevato dai log GitHub:
+Components.kt non importava i componenti Compose LazyColumn e items.
+
+Il compilatore falliva quindi con:
+- Unresolved reference 'LazyColumn'
+- Unresolved reference 'item'
+- Unresolved reference 'items'
+- numerosi errori successivi a cascata su row, lotCode, variant, fabricName, quantityMeters
+
+Correzione:
+aggiunti in Components.kt:
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+
+COME APPLICARE:
+1. Rimani sul branch spectro-3.0-beta.
+2. Estrai questo ZIP.
+3. Copia la cartella app nella root locale del repository.
+4. Scegli Sostituisci.
+5. GitHub Desktop deve mostrare modificato SOLO Components.kt.
+6. Commit:
+   Fix Beta 5 inventory picker imports
+7. Push origin.
+8. Attendi una NUOVA build GitHub Actions.
+9. NON fare Re-run della vecchia build.
+
+Non modificare Secrets, firma, database, versionCode o main.

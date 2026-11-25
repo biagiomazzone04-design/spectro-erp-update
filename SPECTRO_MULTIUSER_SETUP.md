@@ -1,0 +1,81 @@
+# Spectro ERP multiutente — avvio operativo
+
+Questa versione introduce la base cloud comune per Android, Windows e Mac.
+
+## Cosa è già pronto
+
+- login email/password Supabase nell’app Android;
+- sessione Android cifrata con Android Keystore;
+- ruoli e permessi caricati dal backend;
+- moduli nascosti quando l’utente non è autorizzato;
+- blocco centralizzato delle scritture non autorizzate;
+- portale web/PWA installabile da browser su Windows e Mac;
+- PostgreSQL multi-tenant con RLS, ruoli, override per utente, soft-delete, audit e storage privato;
+- workspace Android completo versionato, con allegati, checksum SHA-256 e controllo conflitti;
+- mirror web dei record privo di percorsi file locali, filtrato modulo per modulo e sanificato lato server per i ruoli senza accesso economico;
+- backup locale di recupero automatico prima di ogni pubblicazione o download;
+- sincronizzazione automatica dopo ogni gruppo di modifiche, con stato pendente persistente e retry in caso di rete assente;
+- ruoli iniziali Admin, Produzione, Commerciale, Zentha e Sola lettura;
+- preset **Supervisore** (tutto in sola lettura) e **Attività e Zentha senza prezzi**.
+
+## Attivazione Supabase
+
+1. Eseguire, nell’ordine, `supabase/migrations/202610100001_multi_user_foundation.sql`, `supabase/migrations/202610100002_workspace_sync.sql`, `supabase/migrations/202610170003_sync_roles_and_safe_web.sql` e `supabase/migrations/202610170004_chunked_workspace_sync.sql` nel SQL Editor del progetto Supabase. Le migrazioni 003 e 004 sono ripetibili e non cancellano dati; la 004 abilita workspace oltre 50 MB tramite blocchi verificati.
+2. In Authentication abilitare il provider Email.
+3. La chiave pubblica `sb_publishable_` del progetto è già configurata nei client. Se viene ruotata, sostituirla tramite secret GitHub `SPECTRO_SUPABASE_ANON_KEY` e variabile web `VITE_SUPABASE_ANON_KEY`.
+4. Creare il primo account.
+5. Dall’app Android o dal portale web, nella schermata “Ruolo in attesa”, scegliere **Configura prima azienda**. La funzione funziona solo se non esiste ancora alcuna organizzazione e assegna il ruolo Admin al primo utente.
+
+### Se il link di conferma risulta scaduto o obsoleto
+
+1. Tornare alla schermata di accesso o registrazione.
+2. Inserire l’email usata per l’account e scegliere **Reinvia email di conferma**.
+3. Aprire soltanto l’ultimo messaggio ricevuto: un nuovo invio invalida i link precedenti.
+4. Dopo la conferma, tornare nell’app e accedere con email e password.
+
+Supabase può limitare temporaneamente gli invii ripetuti. Se compare il messaggio relativo al limite email, attendere alcuni minuti prima di riprovare. In **Authentication → URL Configuration** mantenere aggiornati il Site URL del portale pubblicato e le Redirect URLs autorizzate.
+
+Non usare mai la chiave `service_role` nei client.
+
+## Avvio portale Windows/Mac
+
+```bash
+cd web
+cp .env.example .env.local
+# La chiave publishable è già presente; aggiornarla solo in caso di rotazione.
+npm install
+npm run dev
+```
+
+Per la pubblicazione su Cloudflare Pages:
+
+- directory progetto: `web`;
+- comando build: `npm run build`;
+- directory output: `dist`;
+- variabili: `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY`.
+
+Il portale è una PWA: da Edge/Chrome su Windows o Chrome/Safari su macOS può essere aggiunto al Dock/Desktop.
+
+## Prima migrazione e uso quotidiano
+
+1. Accedere su Android con l’utente Admin.
+2. Aprire **Account e impostazioni → Workspace cloud → Verifica stato cloud**.
+3. Se il cloud è vuoto, scegliere **Sincronizza ora** una sola volta. L’app crea prima un backup locale, comprime database e allegati, calcola SHA-256 e pubblica la prima revisione.
+4. Su una seconda postazione Android scegliere **Verifica** e poi **Scarica**. Anche in questo caso la copia locale precedente viene salvata prima della sostituzione.
+5. Dopo le modifiche non serve pubblicare manualmente: Spectro le raggruppa, crea una sola nuova revisione e ritenta automaticamente se la rete non è disponibile. **Sincronizza ora** resta disponibile come controllo manuale e non crea duplicati quando il workspace è già allineato. Se un’altra postazione Android ha già pubblicato, Spectro blocca la sovrascrittura e richiede di scaricare la revisione più recente.
+
+Se la scheda **Workspace cloud** non compare per l’Admin, rieseguire la terza migrazione, disconnettersi e accedere di nuovo: la sessione ricaricherà `sync.use`.
+
+## Profili richiesti
+
+- Enzo: assegnare il ruolo **Supervisore**.
+- Maria: assegnare il ruolo **Attività e Zentha senza prezzi**.
+- Biagio: assegnare il ruolo **Admin**.
+
+Ogni persona deve prima registrarsi con un indirizzo email reale e una password di almeno 8 caratteri, confermare l’email e poi essere associata dall’Admin nella sezione **Utenti e accessi**. I ruoli non contengono password e possono essere usati dallo stesso account su Android, Windows e Mac.
+
+La pubblicazione aggiorna nello stesso commit anche `erp_records`: il portale Windows/Mac mostra quindi soltanto i moduli autorizzati al singolo utente. Foto e archivio completo restano nel bucket privato e non sono scaricabili dai ruoli senza `sync.use`.
+
+## Modello di conflitto intenzionalmente conservativo
+
+La sincronizzazione resta a revisione dell’intero workspace, non è ancora una fusione record-per-record. L’invio è automatico, ma due dispositivi Android che modificano dati devono comunque partire dalla stessa revisione cloud: i conflitti vengono bloccati invece di sovrascrivere silenziosamente. Il portale Windows/Mac legge il mirror aggiornato senza richiedere pubblicazioni manuali. I workspace oltre 50 MB vengono suddivisi automaticamente in blocchi da 45 MB, ricomposti e verificati tramite SHA-256 prima del ripristino. La futura sincronizzazione incrementale userà gli UUID già presenti nell’envelope `erp_records`.

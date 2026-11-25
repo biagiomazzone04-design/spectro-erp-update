@@ -1,0 +1,13 @@
+Apri il repository Spectro ERP e leggi prima AGENTS.md e SPECTRO_CODEX_START_HERE.md, poi tutti i documenti Spectro collegati.
+
+Non modificare subito il codice. Prima:
+1. analizza l'intero progetto;
+2. esegui test e build debug;
+3. descrivi sinteticamente eventuali problemi già presenti nella Beta 6;
+4. prepara un piano Beta 7.
+
+Poi implementa Beta 7 seguendo SPECTRO_BETA7_SCOPE.md con priorità:
+A) Storico Cliente Unificato WorkOrder + produzioni legacy senza duplicati;
+B) Zentha ERP 2.0 con prodotti/varianti, magazzino, movimenti, listini, ordini, distinta squadra, personalizzazioni, workflow, pagamenti, statistiche e PDF.
+
+Vincoli: package com.spectro.app invariato, nessuna migrazione distruttiva, preservare dati e backup esistenti, non toccare firma/Secrets, aggiornare schema solo con migrazione testata, aggiungere test e non considerare concluso il lavoro finché test + build non passano.

@@ -1,0 +1,7 @@
+name = "spectro-erp-cloud"
+compatibility_date = "2026-10-18"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+html_handling = "auto-trailing-slash"

@@ -1,0 +1,35 @@
+SPECTRO ERP 3.0.0 BETA 4 - ISTRUZIONI GITHUB
+
+1. Apri GitHub Desktop.
+2. Repository: spectro-erp-update.
+3. Rimani sul branch: spectro-3.0-beta.
+4. Fai Fetch origin / Pull origin se disponibile.
+5. Estrai SpectroERP-v3.0.0-BETA4-PATCH.zip.
+6. Copia TUTTO il contenuto estratto nella cartella locale del repository.
+7. Quando Windows chiede di sostituire i file, scegli Sostituisci.
+8. NON cancellare la cartella .git.
+9. In GitHub Desktop controlla i file modificati.
+10. Commit suggerito:
+    Spectro ERP 3.0 Beta 4 - bozze, storico, ricavi, attività e PDF
+11. Push origin.
+12. Vai su GitHub -> Actions e attendi la nuova build.
+13. Se la build è rossa, scarica il log archive completo e invialo a ChatGPT.
+14. Se è verde, scarica l'artifact:
+    SpectroERP-v3.0.0-BETA4-RELEASE
+15. PRIMA di installare, crea un nuovo backup dall'app attuale.
+16. Installa l'APK direttamente sopra l'app esistente. NON disinstallare Spectro.
+
+IDENTITÀ APP
+- package: com.spectro.app
+- versionCode: 15
+- versionName: 3.0.0-beta4
+- firma: stesso secret SPECTRO_SIGNING_BUNDLE_B64
+
+DATI
+- La migrazione database è non distruttiva.
+- Timeline e criticità rimangono legate allo stesso ordine quando passa in produzione.
+- Le bozze sono locali al telefono e vengono conservate se la schermata/app viene chiusa.
+- I nuovi moduli Altri ricavi e Attività sono inclusi nei backup nuovi.
+
+IMPORTANTE
+Non installare la Beta 4 finché GitHub Actions non conclude la build con esito verde.

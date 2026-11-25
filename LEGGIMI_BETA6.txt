@@ -1,0 +1,33 @@
+SPECTRO ERP 3.0.0 BETA 6 - ISTRUZIONI GITHUB
+
+Questa patch va applicata SOPRA la Beta 5 + relativo Build Fix 1.
+
+1. Apri GitHub Desktop.
+2. Repository: spectro-erp-update.
+3. Branch: spectro-3.0-beta.
+4. Fai Fetch origin / Pull origin se disponibile.
+5. Estrai SpectroERP-v3.0.0-BETA6-PATCH.zip.
+6. Copia TUTTO il contenuto estratto nella cartella locale del repository.
+7. Se Windows chiede di sostituire i file, scegli Sostituisci.
+8. NON cancellare la cartella .git.
+9. Controlla i file modificati in GitHub Desktop.
+10. Commit suggerito:
+    Spectro ERP 3.0 Beta 6 - navigazione, produzioni aggregate e tema neon
+11. Premi Push origin.
+12. Attendi una NUOVA build GitHub Actions.
+13. NON usare Re-run su una build precedente.
+14. Se la build è rossa, scarica il log archive completo della NUOVA build e invialo a ChatGPT.
+15. Se la build è verde, esegui prima un backup dall'app installata.
+16. Scarica l'artifact SpectroERP-v3.0.0-BETA6-RELEASE.
+17. Installa l'APK SOPRA l'app esistente. NON disinstallare Spectro.
+
+IDENTITÀ APP
+- package: com.spectro.app
+- versionCode: 17
+- versionName: 3.0.0-beta6
+- firma: stessa firma Spectro già configurata nei GitHub Secrets
+
+DATI
+- Nessun reset del database previsto.
+- Ordini evasi vengono archiviati, non cancellati.
+- Timeline, criticità, immagini e produzioni collegate restano associate allo stesso ordine.

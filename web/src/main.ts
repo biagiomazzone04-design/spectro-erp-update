@@ -1,6 +1,7 @@
 import { createClient, type User } from '@supabase/supabase-js'
 import './style.css'
 import { printDashboardReport, renderAnalyticalModule, type CloudRecord } from './erp'
+import { cottonAccountingDate, cottonAmounts, otherAmounts, clientKey } from './accounting'
 import { formatItalianDate, moduleLabel, translateCode } from './i18n'
 
 const projectUrl = import.meta.env.VITE_SUPABASE_URL || 'https://fbfxtyowcxgagseqdlyz.supabase.co'
@@ -142,7 +143,7 @@ function mountShell(user: User, access: AccessContext, activeKey: string, conten
       <div class="brand-lockup"><div class="brand-mark small">S</div><div><p class="kicker">SPECTRO</p><strong>CONTROL TOWER</strong></div></div>
       <div class="workspace-label"><span>AZIENDA</span><strong>${escapeHtml(access.organization_name || 'Spectro')}</strong></div>
       <nav>${navigation.map(item => `<button class="nav-item ${item.key === activeKey ? 'active' : ''}" data-route="${item.key}"><b>${moduleIcons[item.key] || '•'}</b><span>${escapeHtml(item.title)}</span><i></i></button>`).join('')}</nav>
-      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.8 · Build 18</small></div></div>
+      <div class="sidebar-status"><i></i><div><strong>Cloud operativo</strong><small>Web 3.2.11 · Build 21</small></div></div>
       <div class="user-card"><span class="avatar">${escapeHtml((access.display_name || user.email || 'U').slice(0, 1).toUpperCase())}</span><div><strong>${escapeHtml(access.display_name || user.email)}</strong><small>${escapeHtml(access.role_name || 'Utente')}</small></div><button id="logout" title="Disconnetti" aria-label="Disconnetti">⏻</button></div>
     </aside>
     <div class="desktop-stage">
@@ -216,7 +217,7 @@ const escapeHtml = (value: unknown) => String(value ?? '')
   .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
   .replaceAll('"', '&quot;').replaceAll("'", '&#039;')
 
-const recordDate = (row: CloudRecord) => String(
+const recordDate = (row: CloudRecord) => row.entity_type === 'cotton_order' ? cottonAccountingDate(row.payload) : String(
   row.payload.date || row.payload.orderDate || row.payload.receivedDate || row.payload.dueDate || row.payload.openedDate || row.updated_at || ''
 ).slice(0, 10)
 
@@ -434,16 +435,30 @@ async function renderWorkspace(user: User, access: AccessContext) {
     const dailyFixedCost = Number(settings.dailyFixedCost || 760)
     const fixedDays = new Set(productionRecords.filter(row => row.payload.applyFixedCosts !== false).map(row => String(row.payload.date || '').slice(0,10)).filter(Boolean)).size
     const productionRevenue = production.reduce((sum, row) => sum + Number(row.payload.grossRevenue || 0), 0)
-    const cottonRevenue = cottonOrders.reduce((sum, row) => sum + Number(row.payload.grossRevenue || 0), 0)
-    const otherRevenue = economicWorks.reduce((sum, row) => sum + Number(row.payload.manualGrossRevenue || Number(row.payload.quantity || 0) * Number(row.payload.unitPrice || 0)), 0)
+    const cottonRevenue = cottonOrders.reduce((sum, row) => sum + cottonAmounts(row.payload).revenue, 0)
+    const otherRevenue = economicWorks.reduce((sum, row) => sum + otherAmounts(row.payload).revenue, 0)
     const revenue = productionRevenue + cottonRevenue + otherRevenue
     const materialCosts = productionRecords.reduce((sum,row) => sum + Number(row.payload.materialCostTotal || 0), 0)
-    const cottonCosts = cottonOrders.reduce((sum,row) => sum + Number(row.payload.totalCost || row.payload.productionCost || 0), 0)
-    const otherCosts = economicWorks.reduce((sum,row) => sum + Number(row.payload.totalCosts || row.payload.materialCosts || 0), 0)
+    const cottonCosts = cottonOrders.reduce((sum,row) => sum + cottonAmounts(row.payload).costs, 0)
+    const otherCosts = economicWorks.reduce((sum,row) => sum + otherAmounts(row.payload).costs, 0)
     const fixedCosts = fixedDays * dailyFixedCost
     const totalCosts = materialCosts + cottonCosts + otherCosts + fixedCosts
     const netProfit = revenue - totalCosts
-    const clientPerformance = [...production.reduce((map,row) => { const name=String(row.payload.clientName||'Senza cliente'); const current=map.get(name)||{revenue:0,profit:0,paper:0}; current.revenue+=Number(row.payload.grossRevenue||0); current.profit+=Number(row.payload.grossRevenue||0)-Number(row.payload.materialCostTotal||0); current.paper+=Number(row.payload.printedPaperMeters||0); map.set(name,current); return map }, new Map<string,{revenue:number,profit:number,paper:number}>()).entries()].sort((a,b)=>b[1].revenue-a[1].revenue).slice(0,5)
+    const clientIndex = new Map(allRecords.filter(row => row.entity_type === 'client').map(row => [String(row.payload.id), String(row.payload.name)]))
+    const customers = new Map<string, { name: string, revenue: number, profit: number, paper: number }>()
+    for (const row of [...productionRecords, ...cottonOrders, ...economicWorks]) {
+      const x = row.payload
+      if (x.status === 'CANCELLED') continue
+      const name = clientIndex.get(String(x.clientId)) || String(x.clientName || 'Senza cliente').trim()
+      const key = clientKey(name)
+      const current = customers.get(key) || { name, revenue: 0, profit: 0, paper: 0 }
+      const values = row.entity_type === 'cotton_order' ? cottonAmounts(x) : row.entity_type === 'economic_work' ? otherAmounts(x) : { revenue: x.type === 'NEGATIVE' ? 0 : Number(x.grossRevenue || 0), costs: Number(x.materialCostTotal || 0) }
+      current.revenue += values.revenue
+      current.profit += values.revenue - values.costs
+      current.paper += Number(x.printedPaperMeters || 0)
+      customers.set(key, current)
+    }
+    const clientPerformance = [...customers.values()].sort((a,b) => b.revenue - a.revenue).slice(0,5).map(value => [value.name, value] as const)
     const priorityOrders = allRecords.filter(row=>['work_order','zentha_order'].includes(row.entity_type)&&!terminal.test(String(row.payload.status||''))).sort((a,b)=>{const ad=dueDate(a)||'9999-12-31';const bd=dueDate(b)||'9999-12-31';return ad.localeCompare(bd)||b.updated_at.localeCompare(a.updated_at)}).slice(0,6)
     const periodLabel = `${formatItalianDate(range.start)} – ${formatItalianDate(range.end)}`
     host.innerHTML = `<section class="dashboard-heading"><div><p class="kicker">CENTRO DI CONTROLLO</p><h1>Buon lavoro, ${escapeHtml((access.display_name || 'Biagio').split(' ')[0])}.</h1><p>Indicatori calcolati esclusivamente nel periodo selezionato.</p></div><div class="period-controller"><label>Periodo<select id="dashboard-period"><option value="current_month" ${periodMode === 'current_month' ? 'selected' : ''}>Mese corrente</option><option value="previous_month" ${periodMode === 'previous_month' ? 'selected' : ''}>Mese precedente</option><option value="7" ${periodMode === '7' ? 'selected' : ''}>Ultimi 7 giorni</option><option value="30" ${periodMode === '30' ? 'selected' : ''}>Ultimi 30 giorni</option><option value="90" ${periodMode === '90' ? 'selected' : ''}>Ultimi 90 giorni</option><option value="custom" ${periodMode === 'custom' ? 'selected' : ''}>Intervallo personalizzato</option></select></label><label>Dal<input id="dashboard-from" type="date" value="${range.start}"></label><label>Al<input id="dashboard-to" type="date" value="${range.end}"></label><strong>${periodLabel}</strong>${access.permissions.includes('reports.export') ? '<button id="dashboard-pdf" class="dashboard-pdf-button">Scarica report PDF economico-produttivo</button>' : ''}</div></section>
@@ -624,7 +639,7 @@ async function renderModule(user: User, access: AccessContext, module: Module) {
   if (!supabase) return
   const host = mountShell(user, access, module.key, '<div class="loader-shell"><div class="loader"></div></div>')
   const relatedModules: Record<string, string[]> = {
-    orders: ['orders', 'zentha', 'production', 'issues', 'clients'], clients: ['clients', 'orders', 'production', 'tasks'],
+    orders: ['orders', 'zentha', 'production', 'issues', 'clients'], clients: ['clients', 'orders', 'production', 'tasks', 'cotton', 'finance', 'zentha'],
     inventory: ['inventory'], zentha: ['zentha', 'production'], production: ['production', 'clients', 'orders'], cotton: ['cotton'],
     finance: ['finance'], tasks: ['tasks'], issues: ['issues']
   }

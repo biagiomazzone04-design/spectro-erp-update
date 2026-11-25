@@ -92,12 +92,16 @@ fun SearchClientProfileSheet(
     val context = LocalContext.current
     var section by remember(client.id) { mutableStateOf(initialSection) }
     var expandedFabric by remember(client.id) { mutableStateOf<String?>(null) }
+    var currentMonthOnly by remember(client.id) { mutableStateOf(false) }
+    val currentMonth = LocalDate.now().toString().take(7)
+    fun matches(id: Long?, name: String) = matchesClient(client, id, name)
+    fun visible(date: String) = !currentMonthOnly || date.startsWith(currentMonth)
 
     val works = if (vm.can(AppPermission.ORDERS_VIEW)) vm.state.workOrders
-        .filter { it.clientId == client.id || it.client.equals(client.name, true) }
+        .filter { matches(it.clientId, it.client) }
         .sortedWith(compareByDescending<WorkOrder> { if (!it.status.isFinishedOrder()) 1 else 0 }.thenByDescending { it.receivedDate }) else emptyList()
     val productions = if (vm.can(AppPermission.PRODUCTION_VIEW)) vm.state.production
-        .filter { it.type == RecordType.PRODUCTION && (it.clientId == client.id || it.clientName.equals(client.name, true)) }
+        .filter { it.type == RecordType.PRODUCTION && matches(it.clientId, it.clientName) }
         .sortedWith(compareByDescending<ProductionRecord> { it.date }.thenByDescending { it.id }) else emptyList()
     val inventoryAll = if (vm.can(AppPermission.INVENTORY_VIEW)) vm.state.inventory
         .filter { it.ownerType == OwnerType.CLIENT && it.ownerName.equals(client.name, true) }
@@ -105,15 +109,21 @@ fun SearchClientProfileSheet(
     val inventoryActive = inventoryAll.filter { it.quantityMeters > .0001 }
     val inventoryHistory = inventoryAll.filter { it.quantityMeters <= .0001 }
     val cottonOrders = if (vm.can(AppPermission.COTTON_VIEW)) vm.state.cottonOrders
-        .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
-        .sortedByDescending { it.orderDate } else emptyList()
+        .filter { matches(it.clientId, it.clientName) }
+        .sortedByDescending { it.accountingDate } else emptyList()
     val economicWorks = if (vm.can(AppPermission.FINANCE_VIEW)) vm.state.economicWorks
-        .filter { it.clientId == client.id || it.clientName.equals(client.name, true) }
+        .filter { matches(it.clientId, it.clientName) }
         .sortedByDescending { it.date } else emptyList()
     val criticalities = if (vm.can(AppPermission.ISSUES_VIEW)) vm.state.timelineEvents
         .filter { (it.clientId == client.id || it.clientName.equals(client.name, true)) && it.severity != TimelineSeverity.INFO }
         .sortedWith(compareByDescending<OrderTimelineEvent> { it.date }.thenByDescending { it.time }) else emptyList()
-    val revenue = productions.sumOf { it.grossRevenue } + cottonOrders.sumOf { it.grossRevenue } + economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED }.sumOf { it.grossRevenue }
+    val zenthaOrders = if (vm.can(AppPermission.ZENTHA_VIEW)) vm.state.zenthaOrders
+        .filter { matches(it.clientId, it.clientName) }.sortedByDescending { it.orderDate } else emptyList()
+    val standalone = productions.filter { production -> works.none { it.id == production.workOrderId } }
+    fun revenue(month: String = "") =
+        productions.filter { it.date.startsWith(month) }.sumOf { it.grossRevenue } +
+            cottonOrders.filter { it.status != WorkStatus.CANCELLED && it.accountingDate.startsWith(month) }.sumOf { it.grossRevenue } +
+            economicWorks.filter { it.status != EconomicWorkStatus.CANCELLED && it.date.startsWith(month) }.sumOf { it.grossRevenue }
     val paperMeters = productions.sumOf { it.printedPaperMeters }
     val fabricMeters = productions.sumOf { it.fabricUsedMeters }
     val totalStock = inventoryActive.sumOf { it.quantityMeters }
@@ -163,15 +173,18 @@ fun SearchClientProfileSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Metric("Criticità", criticalities.size.toString(), if (criticalities.any { it.status == TimelineStatus.OPEN }) p.secondary else p.success, Modifier.weight(1f))
                                 Metric("Carta", meters(paperMeters), modifier = Modifier.weight(1f))
-                                if (vm.can(AppPermission.FINANCE_VIEW)) Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
+                            }
+                            if (vm.can(AppPermission.FINANCE_VIEW)) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Metric("Fatturato mese", euro(revenue(currentMonth)), p.success, Modifier.weight(1f))
+                                Metric("Fatturato storico", euro(revenue()), p.success, Modifier.weight(1f))
                             }
                         }
                     }
                     if (vm.can(AppPermission.INVENTORY_VIEW)) item {
                         ClientAreaCard("MAGAZZINO", "${inventoryActive.map { it.fabricName.uppercase() }.distinct().size} tessuti attivi • ${meters(totalStock)}", Icons.Rounded.Inventory2, p, p.primary) { section = ClientProfileSection.INVENTORY }
                     }
-                    if (vm.can(AppPermission.ORDERS_VIEW)) item {
-                        ClientAreaCard("ORDINI", "${works.size} ordini • ${works.count { it.status.isArchivedOrder() }} evasi", Icons.Rounded.Assignment, p, p.primary) { section = ClientProfileSection.ORDERS }
+                    if (vm.can(AppPermission.ORDERS_VIEW) || vm.can(AppPermission.PRODUCTION_VIEW) || vm.can(AppPermission.COTTON_VIEW) || vm.can(AppPermission.ZENTHA_VIEW) || vm.can(AppPermission.FINANCE_VIEW)) item {
+                        ClientAreaCard("ORDINI E LAVORAZIONI", "${works.size + cottonOrders.size + zenthaOrders.size} ordini · ${productions.size + economicWorks.size} lavorazioni", Icons.Rounded.Assignment, p, p.primary) { section = ClientProfileSection.ORDERS }
                     }
                     if (vm.can(AppPermission.ISSUES_VIEW)) item {
                         ClientAreaCard("CRITICITÀ", "${criticalities.size} registrate • ${criticalities.count { it.status == TimelineStatus.OPEN }} aperte", Icons.Rounded.ReportProblem, p, p.secondary) { section = ClientProfileSection.ISSUES }
@@ -243,9 +256,15 @@ fun SearchClientProfileSheet(
                 }
 
                 ClientProfileSection.ORDERS -> {
-                    if (works.isEmpty() && cottonOrders.isEmpty()) item { Text("Nessun ordine registrato.", color = p.textMuted) }
-                    if (works.isNotEmpty()) item { SectionTitle("Sublimazione") }
-                    items(works, key = { "wo${it.id}" }) { w ->
+                    item { SegmentedChoice(listOf("ALL" to "TUTTO LO STORICO", "MONTH" to "MESE CORRENTE"), if (currentMonthOnly) "MONTH" else "ALL", p) { currentMonthOnly = it == "MONTH" } }
+                    val visibleWorks = works.filter { visible(it.receivedDate) || visible(it.effectiveDeliveryDate) || vm.productionsForOrder(it.id).any { record -> visible(record.date) } }
+                    val visibleCotton = cottonOrders.filter { visible(it.orderDate) || visible(it.accountingDate) }
+                    val visibleProduction = standalone.filter { visible(it.date) }
+                    val visibleEconomic = economicWorks.filter { visible(it.date) }
+                    val visibleZentha = zenthaOrders.filter { visible(it.orderDate) }
+                    if (listOf(visibleWorks, visibleCotton, visibleProduction, visibleEconomic, visibleZentha).all { it.isEmpty() }) item { Text("Nessuna registrazione nel periodo.", color = p.textMuted) }
+                    if (visibleWorks.isNotEmpty()) item { SectionTitle("Sublimazione") }
+                    items(visibleWorks, key = { "wo${it.id}" }) { w ->
                         val fabrics = orderFabricRows(vm, w)
                         val productionRows = vm.productionsForOrder(w.id)
                         val productionNotes = productionRows.mapNotNull { it.technicalNotes.trim().takeIf(String::isNotBlank) }.distinct()
@@ -284,19 +303,35 @@ fun SearchClientProfileSheet(
                             }
                         }
                     }
-                    if (cottonOrders.isNotEmpty()) item { SectionTitle("Cotone") }
-                    items(cottonOrders, key = { "cot${it.id}" }) { c ->
+                    if (visibleProduction.isNotEmpty()) item { SectionTitle("Produzioni senza commessa") }
+                    items(visibleProduction, key = { "legacy${it.id}" }) { record ->
+                        SpectroCard(p = p, onClick = { onOpenProduction(record) }) {
+                            Text(record.orderRef.ifBlank { "Produzione" }, fontWeight = FontWeight.Black)
+                            Text("${record.date} · ${meters(record.printedPaperMeters)} carta · ${record.fabricDisplayName}", color = p.textMuted)
+                        }
+                    }
+                    if (visibleCotton.isNotEmpty()) item { SectionTitle("Cotone") }
+                    items(visibleCotton, key = { "cot${it.id}" }) { c ->
                         SpectroCard(p = p, onClick = { onOpenCotton(c) }) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(c.title.ifBlank { c.orderCode.ifBlank { "Ordine cotone" } }, fontWeight = FontWeight.Black, color = p.text)
                                     Text(c.fabricName.uppercase(), color = p.text, fontWeight = FontWeight.Black, fontSize = 15.sp)
+                                    Text(c.accountingDate, color = p.textMuted, fontSize = 11.sp)
                                     Text("${meters(if (c.actualProducedMeters > 0) c.actualProducedMeters else c.orderedMeters)} • ${workStatusLabel(c.status)}", color = p.textMuted, fontSize = 11.sp)
                                 }
                                 IconButton(onClick = { ReportExporter.shareCottonOrder(context, c) }) { Icon(Icons.Rounded.PictureAsPdf, "PDF", tint = p.primary) }
                                 Icon(Icons.Rounded.ChevronRight, null, tint = p.textMuted)
                             }
                         }
+                    }
+                    if (visibleEconomic.isNotEmpty()) item { SectionTitle("Ulteriori lavorazioni") }
+                    items(visibleEconomic, key = { "economic${it.id}" }) { work ->
+                        SpectroCard(p = p) { Text(work.title, fontWeight = FontWeight.Black); Text(work.date, color = p.textMuted) }
+                    }
+                    if (visibleZentha.isNotEmpty()) item { SectionTitle("Zentha") }
+                    items(visibleZentha, key = { "zentha${it.id}" }) { order ->
+                        SpectroCard(p = p) { Text(order.orderCode, fontWeight = FontWeight.Black); Text(order.orderDate, color = p.textMuted) }
                     }
                 }
 
@@ -340,7 +375,7 @@ fun SearchClientProfileSheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Metric("Carta", meters(paperMeters), p.primary, Modifier.weight(1f))
                                 Metric("Tessuto", meters(fabricMeters), modifier = Modifier.weight(1f))
-                                Metric("Fatturato", euro(revenue), p.success, Modifier.weight(1f))
+                                if (vm.can(AppPermission.FINANCE_VIEW)) Metric("Fatturato storico", euro(revenue()), p.success, Modifier.weight(1f))
                             }
                         }
                     }

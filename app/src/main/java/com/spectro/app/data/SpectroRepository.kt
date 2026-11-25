@@ -345,9 +345,16 @@ class SpectroRepository(context: Context) {
     fun saveCottonOrder(input: CottonOrder, rollAllocations: Map<Long, Double> = emptyMap()): Long = db.transaction { sql ->
         validateCotton(input)
         val previous = if (input.id != 0L) db.getCottonOrderById(input.id, sql) else null
+        require(input.completedDate.isBlank() || validDate(input.completedDate)) { "Data di evasione non valida." }
+        val completedDate = when {
+            !input.status.isArchivedOrder() -> ""
+            input.completedDate.isNotBlank() -> input.completedDate
+            previous?.status?.isArchivedOrder() == true -> previous.completedDate
+            else -> LocalDate.now().toString()
+        }
         if (previous != null) restoreOrderRollUsages(OrderKind.COTTON, previous.id, sql)
         val id = if (input.id == 0L) db.insertCottonOrder(input.copy(orderCode = ""), sql) else { db.updateCottonOrder(input, sql); input.id }
-        val order = input.copy(id = id, orderCode = input.orderCode.ifBlank { generateOrderCode("COT", input.orderDate, id) })
+        val order = input.copy(id = id, orderCode = input.orderCode.ifBlank { generateOrderCode("COT", input.orderDate, id) }, completedDate = completedDate)
         db.updateCottonOrder(order, sql)
         if (order.fabricOwnerType == OwnerType.HOUSE && order.inventoryId != null) {
             val need = if (order.actualProducedMeters > 0) order.actualProducedMeters else order.orderedMeters
@@ -481,7 +488,7 @@ class SpectroRepository(context: Context) {
                         inventoryId = raw.optLong("inventoryId").takeIf { raw.has("inventoryId") && !raw.isNull("inventoryId") },
                         fabricCostPerMeter = raw.optDouble("fabricCostPerMeter"), notes = raw.optString("notes"),
                         status = runCatching { WorkStatus.valueOf(raw.optString("status")) }.getOrDefault(WorkStatus.IN_PROCESS),
-                        title = raw.optString("title"), images = images
+                        title = raw.optString("title"), images = images, completedDate = raw.optString("completedDate")
                     )
                 }
                 "zentha_order" -> {

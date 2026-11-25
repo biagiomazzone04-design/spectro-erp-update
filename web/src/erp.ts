@@ -32,7 +32,7 @@ const has = (row: CloudRecord, key: string) => Object.prototype.hasOwnProperty.c
 const terminalStatus = /(CLOSED|DELIVERED|COMPLETED|DONE|CANCELLED|PAID|RESOLVED|ARCHIVED)/
 
 const moduleDate = (row: CloudRecord) => isoDate(
-  p(row).date || p(row).dueDate || p(row).orderDate || p(row).receivedDate || p(row).createdDate || p(row).openedDate || row.updated_at
+  p(row).date || p(row).orderDate || p(row).receivedDate || p(row).dueDate || p(row).createdDate || p(row).openedDate || row.updated_at
 )
 
 const isOverdue = (row: CloudRecord) => {
@@ -96,8 +96,8 @@ function cells(module: string, row: CloudRecord, records: CloudRecord[]) {
     case 'clients': {
       const id = x.id
       return [`<strong>${esc(text(x.name))}</strong><small>Cliente #${esc(id)}</small>`,
-        `<strong>${related(records, 'work_order', 'clientId', id).length}</strong><small>commesse</small>`,
-        `<strong>${related(records, 'production_record', 'clientId', id).length}</strong><small>registrazioni</small>`,
+        `<strong>${records.filter(item => ['work_order', 'cotton_order', 'zentha_order'].includes(item.entity_type) && matchesClient(x, p(item))).length}</strong><small>commesse</small>`,
+        `<strong>${records.filter(item => ['production_record', 'economic_work'].includes(item.entity_type) && matchesClient(x, p(item))).length}</strong><small>registrazioni</small>`,
         `<strong>${related(records, 'operational_task', 'clientId', id).length}</strong><small>attività</small>`,
         `<strong>${new Date(row.updated_at).toLocaleString('it-IT')}</strong>`]
     }
@@ -285,7 +285,7 @@ function attachmentGallery(row: CloudRecord) {
   return `<section class="detail-section attachment-section empty-attachments"><h3>Immagini e allegati</h3><p>Nessuna immagine associata a questo elemento.</p></section>`
 }
 
-function detailContent(module: string, row: CloudRecord, records: CloudRecord[]) {
+function detailContent(module: string, row: CloudRecord, records: CloudRecord[], canFinance: boolean) {
   const x = p(row)
   let fields = ''
   if (module === 'orders') fields = field('Codice ordine', x.orderCode) + field('Cliente', x.client) + field('Stato', x.status) + field('Priorità', x.priority) + field('Data ordine', x.receivedDate, 'date') + field('Consegna materiale', x.materialReceivedDate, 'date') + field('Note consegna materiale', x.materialReceiptNotes) + field('Consegna ordine', x.dueDate, 'date') + field('Metri ordinati', x.orderedMeters, 'number') + field('Disegno', x.designCode) + (has(row, 'printPricePerMeter') ? field('Prezzo stampa / m', x.printPricePerMeter, 'money') : '')
@@ -296,6 +296,24 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
   else fields = Object.entries(x).filter(([key, value]) => !key.startsWith('_') && !['id', 'attachmentCount', 'materials'].includes(key) && typeof value !== 'object').slice(0, 14).map(([key, value]) => field(label(key), value)).join('')
 
   let relatedHtml = ''
+  if (module === 'clients') {
+    const types: Record<string, string> = { work_order: 'Ordine sublimazione', production_record: 'Produzione', cotton_order: 'Cotone', economic_work: 'Ulteriori lavorazioni', zentha_order: 'Zentha' }
+    const work = records.filter(item => types[item.entity_type] && matchesClient(x, p(item)))
+    const now = new Date()
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    const dateOf = (item: CloudRecord) => item.entity_type === 'cotton_order' ? cottonAccountingDate(p(item)) : moduleDate(item)
+    const revenueOf = (item: CloudRecord) => {
+      const y = p(item)
+      if (item.entity_type === 'cotton_order') return cottonAmounts(y).revenue
+      if (item.entity_type === 'economic_work') return otherAmounts(y).revenue
+      return item.entity_type === 'production_record' && y.type !== 'NEGATIVE' ? Number(y.grossRevenue || 0) : 0
+    }
+    const thisMonth = work.filter(item => dateOf(item).startsWith(month))
+    const history = work.filter(item => !dateOf(item).startsWith(month))
+    const section = (title: string, rows: CloudRecord[]) => `<section class="detail-section"><h3>${title} <span>${rows.length}</span></h3>${[...rows].sort((a,b) => dateOf(b).localeCompare(dateOf(a))).map(item => `<div class="linked-row"><b>${esc(titleOf(item))}</b><span>${types[item.entity_type]} · ${date(dateOf(item))} · ${esc(label(p(item).status))}</span></div>`).join('') || '<p class="muted">Nessuna registrazione.</p>'}</section>`
+    const canSeeAmounts = canFinance
+    relatedHtml = (canSeeAmounts ? `<section class="detail-section"><h3>Fatturato operativo</h3><div class="detail-grid">${field('Mese corrente', thisMonth.reduce((sum, item) => sum + revenueOf(item), 0), 'money')}${field('Totale storico', work.reduce((sum, item) => sum + revenueOf(item), 0), 'money')}</div></section>` : '') + section('Mese corrente', thisMonth) + section('Storico', history)
+  }
   if (module === 'orders') {
     const productions = related(records, 'production_record', 'workOrderId', x.id)
     const timeline = related(records, 'order_timeline_event', 'workOrderId', x.id)
@@ -325,9 +343,18 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[])
 }
 
 function zenthaCatalog(products: CloudRecord[], canFinance: boolean) {
-  const lists = new Map<string, number>()
-  products.forEach(row => { const name = text(p(row).priceListName, 'Listino standard'); lists.set(name, (lists.get(name) || 0) + 1) })
-  return `<section class="zentha-catalog"><div class="catalog-heading"><div><p class="kicker">CATALOGO ZENTHA</p><h2>Prodotti e listini</h2><p>${products.length} articoli sincronizzati · ${lists.size || 1} listini rilevati</p></div><div class="price-list-pills">${[...lists.entries()].map(([name, count]) => `<span><b>${esc(name)}</b>${count} prodotti</span>`).join('') || '<span><b>Listino standard</b>In attesa di prodotti</span>'}</div></div><div class="product-grid">${products.map(row => { const x = p(row); return `<button class="product-card" data-product="${esc(row.id)}"><span class="product-sku">${esc(text(x.sku, 'S/C'))}</span><h3>${esc(text(x.name, 'Prodotto Zentha'))}</h3><p>${esc(text(x.category, 'Senza categoria'))}</p><div><span>${esc(text(x.priceListName, 'Listino standard'))}</span>${canFinance && has(row, 'standardPrice') ? `<strong>${euro(x.standardPrice)}</strong>` : '<strong>Prezzo riservato</strong>'}</div></button>` }).join('') || '<div class="empty-state"><h3>Catalogo non ancora sincronizzato</h3><p>Pubblica una revisione Android aggiornata per trasferire i prodotti Zentha nel cloud.</p></div>'}</div></section>`
+  const groups = new Map<string, CloudRecord[]>([['Basket', []], ['Calcio / Volley', []], ['Danza', []], ['Multisport', []]])
+  for (const row of products) {
+    const x = p(row)
+    const terms = `${x.sku ?? ''} ${x.name ?? ''} ${x.category ?? ''} ${x.description ?? ''}`.toLowerCase()
+    const sport = /basket|pallacanestro/.test(terms) ? 'Basket' : /calcio|volley|pallavolo/.test(terms) ? 'Calcio / Volley' : /danza|dance/.test(terms) ? 'Danza' : 'Multisport'
+    groups.get(sport)!.push(row)
+  }
+  const card = (row: CloudRecord) => {
+    const x = p(row)
+    return `<button class="product-card" data-product="${esc(row.id)}"><span class="product-sku">${esc(x.sku)}</span><h3>${esc(x.name)}</h3><p>${esc(x.category)}</p>${canFinance && has(row, 'standardPrice') ? `<div><span>${esc(x.priceListName)}</span><strong>${euro(x.standardPrice)}</strong></div>` : ''}</button>`
+  }
+  return `<section class="zentha-catalog"><div class="catalog-heading"><div><h2>Catalogo per sport</h2><p>${products.length} articoli</p></div></div>${[...groups].filter(([, rows]) => rows.length).map(([sport, rows]) => `<details class="catalog-sport"><summary>${sport} <span>${rows.length} articoli</span></summary><div class="product-grid">${rows.map(card).join('')}</div></details>`).join('') || '<p>Catalogo non ancora sincronizzato.</p>'}</section>`
 }
 
 function printZenthaOrder(order: CloudRecord, records: CloudRecord[], profile: 'production'|'accounting'|'complete') {
@@ -372,7 +399,7 @@ export function printDashboardReport(records: CloudRecord[], from: string, to: s
   const negativeEvents = productionRecords.filter(row => String(p(row).type || '') === 'NEGATIVE')
   const orders = records.filter(row => row.entity_type === 'work_order' && within(row, 'receivedDate'))
   const completed = records.filter(row => row.entity_type === 'work_order' && terminalStatus.test(String(p(row).status || '')) && within(row, 'effectiveDeliveryDate', 'dueDate', 'receivedDate'))
-  const cottonOrders = records.filter(row => row.entity_type === 'cotton_order' && within(row, 'orderDate'))
+  const cottonOrders = records.filter(row => row.entity_type === 'cotton_order' && p(row).status !== 'CANCELLED' && cottonAccountingDate(p(row)) >= from && cottonAccountingDate(p(row)) <= to)
   const otherWorks = records.filter(row => row.entity_type === 'economic_work' && within(row, 'date'))
   const timeline = records.filter(row => row.entity_type === 'order_timeline_event' && within(row, 'date'))
   const issues = records.filter(row => row.entity_type === 'client_issue' && within(row, 'openedDate'))
@@ -384,11 +411,11 @@ export function printDashboardReport(records: CloudRecord[], from: string, to: s
   const paper = productions.reduce((sum,row) => sum + Number(p(row).printedPaperMeters || 0), 0)
   const fabric = productions.reduce((sum,row) => sum + Number(p(row).fabricUsedMeters || 0), 0)
   const productionRevenue = productions.reduce((sum,row) => sum + Number(p(row).grossRevenue || 0), 0)
-  const cottonRevenue = cottonOrders.reduce((sum,row) => sum + Number(p(row).grossRevenue || 0), 0)
-  const otherRevenue = otherWorks.reduce((sum,row) => sum + (Number(p(row).manualGrossRevenue || 0) || Number(p(row).quantity || 0) * Number(p(row).unitPrice || 0)), 0)
+  const cottonRevenue = cottonOrders.reduce((sum,row) => sum + cottonAmounts(p(row)).revenue, 0)
+  const otherRevenue = otherWorks.reduce((sum,row) => sum + otherAmounts(p(row)).revenue, 0)
   const productionCosts = productionRecords.reduce((sum,row) => sum + Number(p(row).materialCostTotal || 0), 0)
-  const cottonCosts = cottonOrders.reduce((sum,row) => sum + Number(p(row).totalCost || p(row).productionCost || 0), 0)
-  const otherCosts = otherWorks.reduce((sum,row) => sum + Number(p(row).totalCosts || p(row).materialCosts || 0), 0)
+  const cottonCosts = cottonOrders.reduce((sum,row) => sum + cottonAmounts(p(row)).costs, 0)
+  const otherCosts = otherWorks.reduce((sum,row) => sum + otherAmounts(p(row)).costs, 0)
   const costs = productionCosts + cottonCosts + otherCosts + fixedCosts
   const revenue = productionRevenue + cottonRevenue + otherRevenue
   const netProfit = revenue - costs
@@ -400,6 +427,11 @@ export function printDashboardReport(records: CloudRecord[], from: string, to: s
   productions.forEach(row => { const x=p(row); const name=text(x.clientName,'Senza cliente'); const value=clientValue(name); value.paper+=Number(x.printedPaperMeters||0); value.fabric+=Number(x.fabricUsedMeters||0); value.revenue+=Number(x.grossRevenue||0); value.costs+=Number(x.materialCostTotal||0); value.count++; byClient.set(name,value) })
   orders.forEach(row => { const name=text(p(row).client,'Senza cliente'); const value=clientValue(name); value.orders++; byClient.set(name,value) })
   criticalTimeline.forEach(row => { const name=text(p(row).clientName,'Senza cliente'); const value=clientValue(name); value.critical++; byClient.set(name,value) })
+  for (const row of [...cottonOrders, ...otherWorks]) {
+    const x = p(row); const name = text(x.clientName, 'Senza cliente'); const value = clientValue(name)
+    const amounts = row.entity_type === 'cotton_order' ? cottonAmounts(x) : otherAmounts(x)
+    value.revenue += amounts.revenue; value.costs += amounts.costs; value.orders++; byClient.set(name, value)
+  }
   const clients = [...byClient.entries()].sort((a,b) => b[1].paper-a[1].paper)
   const days: string[] = []
   for (let cursor = new Date(`${from}T12:00:00`), end = new Date(`${to}T12:00:00`); cursor <= end && days.length < 93; cursor.setDate(cursor.getDate() + 1)) days.push(cursor.toISOString().slice(0,10))
@@ -413,7 +445,7 @@ export function printDashboardReport(records: CloudRecord[], from: string, to: s
   <main class="page"><header><div><div class="brand">SPECTRO ERP · CONTROLLO DIREZIONALE</div><h1>Report mensile analitico</h1><span>Produzione, economia, ordini, qualità e attività</span></div><b>${formatItalianDate(from)} – ${formatItalianDate(to)}</b></header><section class="kpis"><article class="kpi"><small>Ordini registrati</small><strong>${orders.length}</strong></article><article class="kpi"><small>Ordini evasi</small><strong class="green">${completed.length}</strong></article><article class="kpi"><small>Carta stampata</small><strong class="cyan">${num(paper)} m</strong></article><article class="kpi"><small>Tessuto lavorato</small><strong class="pink">${num(fabric)} m</strong></article><article class="kpi"><small>Produzioni</small><strong>${productions.length}</strong></article><article class="kpi"><small>Eventi negativi</small><strong class="${negativeEvents.length ? 'red':'green'}">${negativeEvents.length}</strong></article>${canFinance ? `<article class="kpi"><small>Fatturato totale</small><strong class="green">${euro(revenue)}</strong></article><article class="kpi"><small>Costi totali reali</small><strong class="orange">${euro(costs)}</strong></article><article class="kpi"><small>Utile netto reale</small><strong class="${netProfit>=0?'green':'red'}">${euro(netProfit)}</strong></article>` : ''}</section><section class="panel"><h2>Metri di carta stampati per giorno</h2><div class="bars">${daily.map(value=>`<div title="${date(value.day)} · ${num(value.paper)} m"><i style="height:${Math.max(2,value.paper/maxDaily*100)}px"></i><span>${new Date(`${value.day}T12:00:00`).toLocaleDateString('it-IT',{day:'2-digit',month:'2-digit'})}</span></div>`).join('')}</div></section>${canFinance?`<h2>Composizione economica completa</h2><div class="summary"><section class="panel"><table><tbody><tr><td>Sublimazione</td><td><b>${euro(productionRevenue)}</b></td></tr><tr><td>Cotone</td><td><b>${euro(cottonRevenue)}</b></td></tr><tr><td>Ulteriori lavorazioni</td><td><b>${euro(otherRevenue)}</b></td></tr><tr><td>Fatturato complessivo</td><td><b class="green">${euro(revenue)}</b></td></tr></tbody></table></section><section class="panel"><table><tbody><tr><td>Materiali e perdite produzione</td><td><b>${euro(productionCosts)}</b></td></tr><tr><td>Costi cotone</td><td><b>${euro(cottonCosts)}</b></td></tr><tr><td>Costi ulteriori lavorazioni</td><td><b>${euro(otherCosts)}</b></td></tr><tr><td>Costi fissi (${fixedDays.length} gg × ${euro(dailyFixedCost)})</td><td><b>${euro(fixedCosts)}</b></td></tr><tr><td>Costi complessivi</td><td><b class="orange">${euro(costs)}</b></td></tr><tr><td>Utile netto reale</td><td><b class="${netProfit>=0?'green':'red'}">${euro(netProfit)}</b></td></tr></tbody></table></section></div>`:''}${footer(1)}</main>
   <main class="page"><header><div><div class="brand">SPECTRO ERP · ANALISI CLIENTI</div><h1>Prestazioni per cliente</h1><span>Volumi, fatturato e criticità del periodo</span></div><b>${clients.length} clienti lavorati</b></header><section class="panel"><table><thead><tr><th>Cliente</th><th>Produzioni</th><th>Ordini</th><th>Carta</th><th>Tessuto</th><th>Criticità</th>${canFinance?'<th>Fatturato</th><th>Margine</th>':''}</tr></thead><tbody>${detailRows(clients.map(([name,value])=>({id:'',module:'',entity_type:'',payload:{name,...value},updated_at:'',revision:0})),row=>{const x=p(row);return `<tr><td><b>${esc(x.name)}</b></td><td>${x.count}</td><td>${x.orders}</td><td><b class="cyan">${num(x.paper)} m</b></td><td>${num(x.fabric)} m</td><td>${x.critical}</td>${canFinance?`<td>${euro(x.revenue)}</td><td><b class="${Number(x.revenue)-Number(x.costs)>=0?'green':'red'}">${euro(Number(x.revenue)-Number(x.costs))}</b></td>`:''}</tr>`})}</tbody></table></section><h2>Produzioni del periodo</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente / ordine</th><th>Carta</th><th>Tessuto</th><th>Plotter</th>${canFinance?'<th>Fatturato</th>':''}</tr></thead><tbody>${detailRows([...productions].sort((a,b)=>moduleDate(a).localeCompare(moduleDate(b))),row=>{const x=p(row);return `<tr><td>${date(x.date)}</td><td><b>${esc(text(x.clientName))}</b><div class="note">${esc(text(x.orderRef,'Senza riferimento'))} · ${esc(Array.isArray(x.designs)?x.designs.join(', '):text(x.designs,'Nessun disegno'))}<br>${esc(text(x.technicalNotes,'Nessuna nota tecnica'))}</div></td><td>${num(x.printedPaperMeters)} m</td><td>${num(x.fabricUsedMeters)} m</td><td>${esc(text(x.plotter))}</td>${canFinance?`<td>${euro(x.grossRevenue)}</td>`:''}</tr>`})}</tbody></table></section>${footer(2)}</main>
   <main class="page"><header><div><div class="brand">SPECTRO ERP · ORDINI E QUALITÀ</div><h1>Ordini evasi e criticità</h1><span>Controllo completo del lavoro concluso e delle anomalie</span></div><b>${formatItalianDate(from)} – ${formatItalianDate(to)}</b></header><h2>Ordini completati / evasi</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente</th><th>Ordine</th><th>Metri</th><th>Stato</th></tr></thead><tbody>${detailRows(completed,row=>{const x=p(row);return `<tr><td>${date(x.effectiveDeliveryDate||x.dueDate||x.receivedDate)}</td><td><b>${esc(text(x.client))}</b></td><td>${esc(text(x.title,x.orderCode as string))}<div class="note">${esc(text(x.description,'Nessuna nota'))}</div></td><td>${num(x.orderedMeters)} m</td><td class="status green">${esc(label(x.status))}</td></tr>`},'Nessun ordine evaso nel periodo.')}</tbody></table></section><h2>Criticità e anomalie</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente / ordine</th><th>Evento</th><th>Gravità</th><th>Stato</th></tr></thead><tbody>${detailRows([...criticalTimeline,...issues].sort((a,b)=>moduleDate(a).localeCompare(moduleDate(b))),row=>{const x=p(row);return `<tr><td>${date(x.date||x.openedDate)}</td><td><b>${esc(text(x.clientName))}</b><div class="note">${esc(text(x.orderRef))}</div></td><td>${esc(text(x.title))}<div class="note">${esc(text(x.description,'Nessuna descrizione'))}</div></td><td class="status red">${esc(label(x.severity))}</td><td>${esc(label(x.status))}</td></tr>`},'Nessuna criticità rilevata nel periodo.')}</tbody></table></section><h2>Attività operative</h2><section class="panel"><table><tbody><tr><td>Attività registrate</td><td><b>${tasks.length}</b></td></tr><tr><td>Attività completate</td><td><b class="green">${completedTasks.length}</b></td></tr><tr><td>Attività ancora aperte</td><td><b class="orange">${tasks.length-completedTasks.length}</b></td></tr></tbody></table></section>${footer(3)}</main>
-  <main class="page"><header><div><div class="brand">SPECTRO ERP · REPARTI COMPLEMENTARI</div><h1>Cotone e ulteriori lavorazioni</h1><span>Dettaglio economico e operativo del periodo</span></div><b>${cottonOrders.length + otherWorks.length} registrazioni</b></header><h2>Ordini cotone</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente / ordine</th><th>Tessuto</th><th>Metri</th><th>Stato</th>${canFinance?'<th>Margine</th>':''}</tr></thead><tbody>${detailRows(cottonOrders,row=>{const x=p(row);const meters=Number(x.actualProducedMeters||x.orderedMeters||0);return `<tr><td>${date(x.orderDate)}</td><td><b>${esc(text(x.clientName))}</b><div class="note">${esc(text(x.title,x.orderCode as string))}</div></td><td>${esc(text(x.fabricName))}</td><td>${num(meters)} m</td><td>${esc(label(x.status))}</td>${canFinance?`<td>${euro(x.margin||Number(x.grossRevenue||0)-Number(x.totalCost||0))}</td>`:''}</tr>`},'Nessun ordine cotone nel periodo.')}</tbody></table></section><h2>Ulteriori lavorazioni</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente</th><th>Lavorazione</th><th>Quantità</th><th>Stato</th>${canFinance?'<th>Fatturato / utile</th>':''}</tr></thead><tbody>${detailRows(otherWorks,row=>{const x=p(row);const gross=Number(x.manualGrossRevenue||0)||Number(x.quantity||0)*Number(x.unitPrice||0);const workCosts=Number(x.totalCosts||x.materialCosts||0);return `<tr><td>${date(x.date)}</td><td><b>${esc(text(x.clientName))}</b></td><td>${esc(text(x.title))}<div class="note">${esc(text(x.notes,'Nessuna nota'))}</div></td><td>${num(x.quantity)}</td><td>${esc(label(x.status))}</td>${canFinance?`<td>${euro(gross)} / <b class="${gross-workCosts>=0?'green':'red'}">${euro(gross-workCosts)}</b></td>`:''}</tr>`},'Nessuna ulteriore lavorazione nel periodo.')}</tbody></table></section>${footer(4)}</main>
+  <main class="page"><header><div><div class="brand">SPECTRO ERP · REPARTI COMPLEMENTARI</div><h1>Cotone e ulteriori lavorazioni</h1><span>Dettaglio economico e operativo del periodo</span></div><b>${cottonOrders.length + otherWorks.length} registrazioni</b></header><h2>Ordini cotone</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente / ordine</th><th>Tessuto</th><th>Metri</th><th>Stato</th>${canFinance?'<th>Margine</th>':''}</tr></thead><tbody>${detailRows(cottonOrders,row=>{const x=p(row);const meters=Number(x.actualProducedMeters||x.orderedMeters||0);return `<tr><td>${date(x.orderDate)}</td><td><b>${esc(text(x.clientName))}</b><div class="note">${esc(text(x.title,x.orderCode as string))}</div></td><td>${esc(text(x.fabricName))}</td><td>${num(meters)} m</td><td>${esc(label(x.status))}</td>${canFinance?`<td>${euro(cottonAmounts(x).revenue-cottonAmounts(x).costs)}</td>`:''}</tr>`},'Nessun ordine cotone nel periodo.')}</tbody></table></section><h2>Ulteriori lavorazioni</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente</th><th>Lavorazione</th><th>Quantità</th><th>Stato</th>${canFinance?'<th>Fatturato / utile</th>':''}</tr></thead><tbody>${detailRows(otherWorks,row=>{const x=p(row);const gross=Number(x.manualGrossRevenue||0)||Number(x.quantity||0)*Number(x.unitPrice||0);const workCosts=Number(x.totalCosts||x.materialCosts||0);return `<tr><td>${date(x.date)}</td><td><b>${esc(text(x.clientName))}</b></td><td>${esc(text(x.title))}<div class="note">${esc(text(x.notes,'Nessuna nota'))}</div></td><td>${num(x.quantity)}</td><td>${esc(label(x.status))}</td>${canFinance?`<td>${euro(gross)} / <b class="${gross-workCosts>=0?'green':'red'}">${euro(gross-workCosts)}</b></td>`:''}</tr>`},'Nessuna ulteriore lavorazione nel periodo.')}</tbody></table></section>${footer(4)}</main>
   <main class="page"><header><div><div class="brand">SPECTRO ERP · PERDITE E COSTI FISSI</div><h1>Eventi negativi del periodo</h1><span>Difetti, rimborsi, fermi produttivi e impatto economico</span></div><b>${negativeEvents.length} eventi · ${fixedDays.length} giornate conteggiate</b></header><section class="kpis"><article class="kpi"><small>Eventi negativi</small><strong class="${negativeEvents.length?'red':'green'}">${negativeEvents.length}</strong></article><article class="kpi"><small>Perdite materiali / rimborsi</small><strong class="orange">${euro(negativeEvents.reduce((sum,row)=>sum+Number(p(row).materialCostTotal||0),0))}</strong></article><article class="kpi"><small>Costi fissi del periodo</small><strong class="orange">${euro(fixedCosts)}</strong></article></section><h2>Dettaglio analitico eventi</h2><section class="panel"><table><thead><tr><th>Data</th><th>Cliente / riferimento</th><th>Descrizione e causa</th><th>Rimborso</th><th>Tessuto</th><th>Perdita totale</th></tr></thead><tbody>${detailRows([...negativeEvents].sort((a,b)=>moduleDate(a).localeCompare(moduleDate(b))),row=>{const x=p(row);return `<tr><td>${date(x.date)}${x.applyFixedCosts!==false?'<div class="note">Costo fisso giornata applicato</div>':''}</td><td><b>${esc(text(x.clientName,'Evento interno'))}</b><div class="note">${esc(text(x.orderRef,'Senza riferimento'))}</div></td><td>${esc(text(x.technicalNotes,'Nessuna descrizione'))}</td><td>${euro(x.refundCost)}</td><td>${euro(x.fabricLossCost)}</td><td><b class="red">${euro(x.materialCostTotal)}</b></td></tr>`},'Nessun evento negativo registrato nel periodo.')}</tbody></table></section><h2>Giornate con costi fissi</h2><section class="panel"><table><thead><tr><th>Giorno</th><th>Motivo</th><th>Costo giornaliero</th></tr></thead><tbody>${fixedDays.length?fixedDays.sort().map(day=>`<tr><td><b>${date(day)}</b></td><td>Presenza di produzione o evento con costi fissi attivi</td><td><b>${euro(dailyFixedCost)}</b></td></tr>`).join(''):'<tr><td colspan="3">Nessuna giornata con costi fissi nel periodo.</td></tr>'}</tbody></table></section>${footer(5)}</main><script>window.onload=()=>window.print()<\/script></body></html>`)
   page.document.close()
 }
@@ -427,7 +459,7 @@ function editableFields(module: string, row: CloudRecord): EditableField[] {
     production:[{key:'date',label:'Data',kind:'date'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Riferimento ordine'},{key:'zenthaOrderId',label:'ID ordine Zentha collegato',kind:'number'},{key:'plotter',label:'Plotter'},{key:'printedPaperMeters',label:'Carta stampata (m)',kind:'number'},{key:'protectionPaperMeters',label:'Carta protezione (m)',kind:'number'},{key:'fabricUsedMeters',label:'Tessuto usato (m)',kind:'number'},{key:'fabricDisplayName',label:'Tessuto'},{key:'technicalNotes',label:'Note tecniche',kind:'textarea'},{key:'productionRating',label:'Valutazione produzione (1-5)',kind:'number'},{key:'productionCriticality',label:'Criticità (NESSUNA/BASSA/MEDIA/ALTA/CRITICA)'},{key:'productionProblems',label:'Problemi rilevati',kind:'textarea'},{key:'productionReview',label:'Valutazione finale',kind:'textarea'}],
     inventory:[{key:'fabricName',label:'Tessuto'},{key:'ownerName',label:'Proprietario'},{key:'quantityMeters',label:'Disponibilità (m)',kind:'number'},{key:'minimumQuantityMeters',label:'Soglia minima (m)',kind:'number'},{key:'supplierName',label:'Fornitore'},{key:'composition',label:'Composizione'},{key:'variant',label:'Variante'},{key:'lotCode',label:'Lotto'},{key:'purchasePricePerMeter',label:'Costo acquisto / m',kind:'number'},{key:'processingCostPerMeter',label:'Lavorazioni / m',kind:'number'},{key:'defaultSalePricePerMeter',label:'Vendita predefinita / m',kind:'number'}],
     clients:[{key:'name',label:'Ragione sociale / nome'},{key:'email',label:'Email'},{key:'phone',label:'Telefono'},{key:'address',label:'Indirizzo'},{key:'notes',label:'Note',kind:'textarea'}],
-    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}],
+    cotton:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'fabricName',label:'Tessuto'},{key:'orderedMeters',label:'Metri ordinati',kind:'number'},{key:'actualProducedMeters',label:'Metri prodotti',kind:'number'},{key:'dueDate',label:'Consegna prevista',kind:'date'},{key:'completedDate',label:'Data effettiva di evasione',kind:'date'},{key:'status',label:'Stato'},{key:'notes',label:'Note',kind:'textarea'}],
     zentha:[{key:'orderCode',label:'Codice ordine'},{key:'clientName',label:'Cliente'},{key:'sport',label:'Sport (BASKET/CALCIO_VOLLEY/DANZA/MULTISPORT)'},{key:'audience',label:'Destinatario (UOMO/DONNA/BAMBINO/MISTO)'},{key:'priority',label:'Priorità'},{key:'blockerReason',label:'Motivo blocco / urgenza',kind:'textarea'},{key:'orderDate',label:'Data ordine',kind:'date'},{key:'dueDate',label:'Consegna',kind:'date'},{key:'status',label:'Stato'},{key:'chromiaRatePerMeter',label:'Tariffa Chromia / m',kind:'number'},{key:'notes',label:'Note',kind:'textarea'}],
     tasks:[{key:'title',label:'Attività'},{key:'clientName',label:'Cliente'},{key:'dueDate',label:'Scadenza',kind:'date'},{key:'priority',label:'Priorità'},{key:'status',label:'Stato'},{key:'description',label:'Descrizione',kind:'textarea'}],
     issues:[{key:'title',label:'Titolo'},{key:'clientName',label:'Cliente'},{key:'orderRef',label:'Ordine'},{key:'status',label:'Stato'},{key:'severity',label:'Gravità'},{key:'description',label:'Descrizione',kind:'textarea'}],
@@ -458,6 +490,7 @@ export function renderAnalyticalModule(
   const clients = records.filter(row => row.entity_type === 'client').sort((a,b) => text(p(a).name).localeCompare(text(p(b).name),'it'))
   const workOrders = records.filter(row => row.entity_type === 'work_order' && !terminalStatus.test(String(p(row).status || '')))
   const today = new Date().toISOString().slice(0, 10)
+  let entireHistory = ['zentha', 'clients'].includes(module.key)
   let rangeStart = `${today.slice(0, 7)}-01`
   let rangeEnd = today
   const statuses = [...new Set(primary.map(row => String(p(row).status || (p(row).paid === true ? 'PAID' : p(row).paid === false ? 'OPEN' : ''))).filter(Boolean))].sort()
@@ -480,14 +513,14 @@ export function renderAnalyticalModule(
     <section class="metric-grid" id="module-metrics">${statistics(module.key, primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd), records, canFinance)}</section>
     <div id="module-insights">${moduleInsights(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>
     ${module.key === 'production' ? `<div id="production-analysis">${productionAnalytics(primary.filter(row => moduleDate(row) >= rangeStart && moduleDate(row) <= rangeEnd))}</div>` : ''}
-    ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
     <section class="data-panel"><div class="data-toolbar"><div><p class="kicker">${module.key === 'tasks' ? 'ARCHIVIO E PIANIFICAZIONE' : 'CENTRO OPERATIVO'}</p><h2>${esc(module.title)}</h2></div><div class="toolbar-actions">${canExport ? '<button id="open-export-center" class="primary compact-action">Centro esportazioni</button><button id="quick-csv" class="secondary compact-action">CSV rapido</button>' : '<span class="permission-chip">Esportazione non autorizzata</span>'}</div></div>
       <div class="view-tabs" role="tablist"><button class="${module.key === 'tasks' ? '' : 'active'}" data-view="all">Tutti <b>${primary.length}</b></button><button class="${module.key === 'tasks' ? 'active' : ''}" data-view="operative">Operativi <b>${primary.filter(row => !terminalStatus.test(rowStatus(row))).length}</b></button><button data-view="attention">Da attenzionare <b>${primary.filter(row => isOverdue(row) || /HIGH|URGENT|CRITICAL|BLOCKING/.test(String(p(row).priority || p(row).severity || rowStatus(row)))).length}</b></button><button data-view="archive">Archivio <b>${primary.filter(row => terminalStatus.test(rowStatus(row))).length}</b></button></div>
-      <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="current_month">Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${rangeEnd}"></label><select id="sort-filter" aria-label="Ordina risultati"><option value="date_desc">Data: più recenti prima</option><option value="date_asc">Data: meno recenti prima</option><option value="updated_desc">Ultima modifica</option><option value="client_asc">Cliente: A–Z</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
+      <div class="advanced-filters"><label class="search-box">⌕<input id="record-search" type="search" placeholder="${esc(searchPlaceholder[module.key] || 'Cerca nei dati…')}"></label>${statuses.length ? `<select id="status-filter" aria-label="Filtra per stato"><option value="">Tutti gli stati</option>${statuses.map(status => `<option value="${esc(status)}">${esc(label(status))}</option>`).join('')}</select>` : ''}<select id="period-filter" aria-label="Scegli periodo"><option value="all" ${entireHistory ? 'selected' : ''}>Tutto lo storico</option><option value="current_month" ${entireHistory ? '' : 'selected'}>Mese corrente</option><option value="previous_month">Mese precedente</option><option value="7">Ultimi 7 giorni</option><option value="30">Ultimi 30 giorni</option><option value="90">Ultimi 90 giorni</option><option value="custom">Personalizzato</option></select><label class="date-filter">Dal<input id="period-from" type="date" value="${entireHistory ? '' : rangeStart}"></label><label class="date-filter">Al<input id="period-to" type="date" value="${entireHistory ? '' : rangeEnd}"></label><select id="sort-filter" aria-label="Ordina risultati"><option value="date_desc">Data: più recenti prima</option><option value="date_asc">Data: meno recenti prima</option><option value="updated_desc">Ultima modifica</option><option value="client_asc">Cliente: A–Z</option></select><select id="group-filter" aria-label="Raggruppa risultati"><option value="none">Nessun raggruppamento</option><option value="date">Raggruppa per mese</option><option value="status">Raggruppa per stato</option><option value="client">Raggruppa per cliente</option></select></div>
       <div class="table-wrap"><table class="module-table ${esc(module.key)}"><thead><tr>${(columns[module.key] || ['Record']).map(value => `<th>${esc(value)}</th>`).join('')}</tr></thead><tbody id="record-body"></tbody></table></div>
       <div id="record-empty" class="table-empty" hidden>Nessun elemento corrisponde ai filtri.</div>
       <footer class="table-footer"><span id="result-count"></span><small>Seleziona una riga per aprire il dossier completo</small></footer>
     </section>
+    ${module.key === 'zentha' ? zenthaCatalog(products, canFinance) : ''}
     <div id="detail-overlay" class="detail-overlay" hidden><button class="detail-scrim" aria-label="Chiudi"></button><aside class="detail-drawer"><header><div><p class="kicker">DOSSIER COMPLETO</p><h2 id="detail-title"></h2></div><button id="detail-close" aria-label="Chiudi">×</button></header><nav id="detail-tabs" class="dossier-tabs"></nav><div id="detail-actions" class="detail-actions"></div><div id="detail-content"></div></aside></div>
     <div id="export-overlay" class="export-overlay" hidden><button class="export-scrim" aria-label="Chiudi"></button><section class="export-center"><header><div><p class="kicker">CENTRO ESPORTAZIONI</p><h2>Prepara il documento</h2><p>Il report userà il periodo e i filtri attualmente selezionati.</p></div><button id="export-close" aria-label="Chiudi">×</button></header>${module.key === 'production' ? `<div class="export-options"><label class="export-choice"><input type="radio" name="report-profile" value="executive" checked><span><b>Report direzionale</b><small>KPI, metri per cliente, dati economici autorizzati e dettaglio produzioni.</small></span></label><label class="export-choice"><input type="radio" name="report-profile" value="operations"><span><b>Report operativo</b><small>Produzioni, ordini, disegni, carta, tessuto e note senza prezzi.</small></span></label><label class="export-choice"><input type="radio" name="report-profile" value="complete"><span><b>Analisi completa</b><small>Documento analitico con indicatori economici per amministrazione.</small></span></label></div>` : `<div class="export-options"><div class="export-choice static"><span><b>Elenco filtrato ${esc(module.title)}</b><small>${primary.length} elementi disponibili prima dei filtri.</small></span></div></div>`}<div class="export-summary"><span>Periodo</span><strong id="export-period-label">${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}</strong><span>Elementi</span><strong id="export-count-label">0</strong></div><footer><button id="export-csv" class="secondary">Scarica Excel / CSV</button><button id="generate-report" class="primary">${module.key === 'production' ? 'Apri PDF professionale' : 'Stampa elenco filtrato'}</button></footer></section></div>
     <div id="edit-overlay" class="export-overlay" hidden><button class="edit-scrim export-scrim" aria-label="Chiudi"></button><form id="edit-form" class="export-center edit-center"><header><div><p class="kicker">MODIFICA RECORD</p><h2 id="edit-title">Aggiorna dati</h2><p>La modifica viene salvata nel cloud come livello protetto.</p></div><button id="edit-close" type="button" aria-label="Chiudi">×</button></header><div id="edit-fields" class="edit-fields"></div><p id="edit-message" class="form-message" hidden></p><footer><button id="edit-cancel" type="button" class="secondary">Annulla</button><button id="edit-save" type="submit" class="primary">Salva modifiche</button></footer></form></div>
@@ -689,7 +722,7 @@ export function renderAnalyticalModule(
   const openRecord = (row: CloudRecord) => {
     const recordModule = row.entity_type === 'zentha_order' ? 'zentha' : module.key
     root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
-    root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(recordModule, row, records)
+    root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(recordModule, row, records, canFinance)
     const actions = root.querySelector<HTMLElement>('#detail-actions')!
     actions.innerHTML = `${canManage && onUpdate ? `<button id="edit-record">${recordModule === 'production' ? 'Modifica e valuta produzione' : 'Modifica dati'}</button>` : ''}${recordModule === 'zentha' && row.entity_type === 'zentha_order' ? `<button data-export-profile="production">PDF produzione</button>${canFinance ? '<button data-export-profile="accounting">PDF contabilità</button><button data-export-profile="complete">Dossier completo</button>' : ''}` : ''}`
     actions.querySelector('#edit-record')?.addEventListener('click', () => openEdit(row))
@@ -732,7 +765,7 @@ export function renderAnalyticalModule(
         const row = records.find(item => item.id === button.dataset.order); if (row) openRecord(row)
       }))
     }
-    const periodRows = primary.filter(row => { const value = moduleDate(row); return value && value >= rangeStart && value <= rangeEnd })
+    const periodRows = primary.filter(row => { const value = moduleDate(row); return entireHistory || (value && value >= rangeStart && value <= rangeEnd) })
     root.querySelector<HTMLElement>('#module-metrics')!.innerHTML = statistics(module.key, periodRows, records, canFinance)
     root.querySelector<HTMLElement>('#module-insights')!.innerHTML = moduleInsights(periodRows)
     if (module.key === 'production') root.querySelector<HTMLElement>('#production-analysis')!.innerHTML = productionAnalytics(periodRows)
@@ -757,8 +790,8 @@ export function renderAnalyticalModule(
       return `${heading}<tr data-record="${esc(row.id)}">${cells(module.key, row, records).map(value => `<td>${value}</td>`).join('')}</tr>`
     }).join('')
     empty.hidden = visibleRows.length > 0
-    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${periodRows.length} nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
-    root.querySelector<HTMLElement>('#export-period-label')!.textContent = `${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
+    resultCount.textContent = `${visibleRows.length} elementi visualizzati su ${periodRows.length} ${entireHistory ? 'nello storico completo' : `nel periodo ${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`}`
+    root.querySelector<HTMLElement>('#export-period-label')!.textContent = entireHistory ? 'Tutto lo storico' : `${formatItalianDate(rangeStart)} – ${formatItalianDate(rangeEnd)}`
     root.querySelector<HTMLElement>('#export-count-label')!.textContent = String(visibleRows.length)
     body.querySelectorAll<HTMLTableRowElement>('tr').forEach(element => element.addEventListener('click', () => {
       if (!element.dataset.record) return
@@ -769,16 +802,19 @@ export function renderAnalyticalModule(
   const setPreset = () => {
     const mode = period.value
     const now = new Date(); const end = now.toISOString().slice(0, 10)
-    if (mode === 'custom') return
+    entireHistory = mode === 'all'
+    if (entireHistory) { periodFrom.value = ''; periodTo.value = ''; draw(); return }
+    if (mode === 'custom') { periodFrom.value ||= rangeStart; periodTo.value ||= rangeEnd; return }
     if (mode === 'current_month') rangeStart = `${end.slice(0, 7)}-01`
     else if (mode === 'previous_month') { rangeStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().slice(0, 10); rangeEnd = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().slice(0, 10); periodFrom.value = rangeStart; periodTo.value = rangeEnd; draw(); return }
     else { const start = new Date(now); start.setDate(start.getDate() - Number(mode) + 1); rangeStart = start.toISOString().slice(0, 10) }
     rangeEnd = end; periodFrom.value = rangeStart; periodTo.value = rangeEnd; draw()
   }
-  const setCustom = () => { if (periodFrom.value && periodTo.value && periodFrom.value <= periodTo.value) { period.value = 'custom'; rangeStart = periodFrom.value; rangeEnd = periodTo.value; draw() } }
+  const setCustom = () => { if (periodFrom.value && periodTo.value && periodFrom.value <= periodTo.value) { period.value = 'custom'; entireHistory = false; rangeStart = periodFrom.value; rangeEnd = periodTo.value; draw() } }
   draw(); search.addEventListener('input', draw); status?.addEventListener('change', draw); period.addEventListener('change', setPreset); periodFrom.addEventListener('change', setCustom); periodTo.addEventListener('change', setCustom); sort.addEventListener('change', draw); group.addEventListener('change', draw)
   root.querySelectorAll<HTMLButtonElement>('[data-view]').forEach(button => button.addEventListener('click', () => {
     currentView = button.dataset.view || 'all'
+    if (currentView === 'all' && module.key === 'zentha') { period.value = 'all'; entireHistory = true; periodFrom.value = ''; periodTo.value = '' }
     root.querySelectorAll('[data-view]').forEach(item => item.classList.toggle('active', item === button))
     draw()
   }))
@@ -800,7 +836,7 @@ export function renderAnalyticalModule(
     root.querySelector<HTMLElement>('#detail-title')!.textContent = titleOf(row)
     root.querySelector<HTMLElement>('#detail-actions')!.innerHTML = canManage && onUpdate ? '<button id="edit-product">Modifica prodotto</button>' : ''
     root.querySelector('#edit-product')?.addEventListener('click', () => openEdit(row))
-    root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records)
+    root.querySelector<HTMLElement>('#detail-content')!.innerHTML = detailContent(module.key, row, records, canFinance)
     root.querySelector<HTMLElement>('#detail-overlay')!.hidden = false; document.body.classList.add('drawer-open')
   }))
   const close = () => { root.querySelector<HTMLElement>('#detail-overlay')!.hidden = true; document.body.classList.remove('drawer-open') }
@@ -814,8 +850,14 @@ export function renderAnalyticalModule(
     const button = root.querySelector<HTMLButtonElement>('#edit-save')!; button.disabled = true; button.textContent = 'Salvataggio…'
     const form = new FormData(event.currentTarget as HTMLFormElement); const patch: Record<string, unknown> = {}
     editableFields(editingRow.entity_type === 'zentha_order' ? 'zentha' : module.key, editingRow).forEach(field => { const raw = String(form.get(field.key) ?? ''); patch[field.key] = field.kind === 'number' ? Number(raw || 0) : raw })
+    if (editingRow.entity_type === 'cotton_order') {
+      const completed = (status: unknown) => ['COMPLETED', 'DELIVERED', 'CLOSED'].includes(String(status))
+      if (!completed(patch.status)) patch.completedDate = ''
+      else if (!patch.completedDate && !completed(p(editingRow).status)) patch.completedDate = today
+    }
     const error = await onUpdate(editingRow, patch)
     if (error) { const message = root.querySelector<HTMLElement>('#edit-message')!; message.textContent = error; message.hidden = false; button.disabled = false; button.textContent = 'Salva modifiche' }
   })
   root.querySelector('#home')?.addEventListener('click', onBack)
 }
+import { cottonAccountingDate, cottonAmounts, otherAmounts, matchesClient } from './accounting'

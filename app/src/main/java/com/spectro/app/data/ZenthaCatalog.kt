@@ -16,6 +16,8 @@ object ZenthaCatalog {
         product("02BGM DOUBLE UOMO", "Maglia uomo GM Double", "Maglia", "MAGLIA UOMO GM DOUBLE POLYMESH FINDITEX", 2.02, 0.0, 0.0, 3.35, 0.0, .40, 4.10, .03, .04, 9.94, 14.61),
         product("02BGM UOMO", "Maglia uomo GM", "Maglia", "MAGLIA UOMO GM POLYMESH FINDITEX + COSTA DORIA", 1.01, .19, 0.0, 1.67, 0.0, .40, 2.30, .03, .04, 5.64, 8.29),
         product("02BASKE PCU UOMO", "Pantaloncino uomo basket", "Pantaloncino", "PANTALONCINO UOMO BASKET POLYMESH FINDITEX", .90, 0.0, 0.0, 1.85, .80, .40, 2.80, .03, .04, 6.82, 10.03),
+        product("02BASKE PCU BABY", "Pantaloncino baby basket", "Pantaloncino", "PANT BABY BASKET POLYMESH FINDITEX", .78, 0.0, 0.0, 1.50, .80, .40, 2.80, .03, .04, 6.35, 9.33)
+            .copy(sourceReference = "Listino fornito il 25/11/2026 · valore sorgente 0,065 (unità non indicata)"),
         product("01PCDO DONNA UNITO", "Pantaloncino donna unito", "Pantaloncino", "PANTALONCINO CORTO DONNA ELAST DANZA CTA UNITO", 1.15, 0.0, 0.0, .90, .50, .40, 3.80, .03, .04, 6.82, 10.03),
         product("01PCDO DONNA", "Pantaloncino donna sublimato", "Pantaloncino", "PANTALONCINO CORTO DONNA ELAST DANZA CTA SUBLY", 1.15, 0.0, 0.0, 1.85, .50, .40, 3.80, .03, .04, 7.77, 11.42),
         product("03VBM PIEGA BABY", "Maglia baby calcio/volley", "Maglia", "MAGLIA CALCIO/VOLLEY MC/BORDI 100% POLIESTERE", .76, .13, 0.0, 1.70, 0.0, .40, 2.30, .03, .04, 5.36, 7.88),

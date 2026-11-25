@@ -134,6 +134,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     var inventoryDialog by remember { mutableStateOf(false) }
     var allocations by remember(editing?.id) { mutableStateOf<Map<Long, Double>>(draft?.allocations?.takeIf { it.isNotEmpty() } ?: if (editing != null) vm.state.rollUsages.filter { it.orderKind == OrderKind.COTTON && it.orderId == editing.id }.associate { it.rollId to it.meters } else emptyMap()) }
     var formError by remember(editing?.id) { mutableStateOf("") }
+    var completedDate by remember(editing?.id) { mutableStateOf(editing?.completedDate.orEmpty()) }
 
     val inventory = vm.state.inventory.firstOrNull { it.id == inventoryId }
     val calc = CottonOrder(
@@ -142,7 +143,7 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
         actualProducedMeters = produced.toDoubleSafe(), deliveredMeters = delivered.toDoubleSafe(), defectiveMeters = defective.toDoubleSafe(),
         sampleMeters = samples.toDoubleSafe(), leftoverMeters = leftover.toDoubleSafe(), productionCostPerMeter = productionCost.toDoubleSafe(),
         printPricePerMeter = printPrice.toDoubleSafe(), fabricOwnerType = owner, inventoryId = inventoryId, fabricCostPerMeter = fabricCost.toDoubleSafe(),
-        notes = notes, status = status, title = title, images = images
+        notes = notes, status = status, title = title, images = images, completedDate = completedDate
     )
     val needed = if (calc.actualProducedMeters > 0) calc.actualProducedMeters else calc.orderedMeters
 
@@ -161,6 +162,9 @@ private fun CottonOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
                 item { SimpleSelectField("Cliente", clientName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { id -> vm.state.clients.firstOrNull { it.id == id }?.let { clientId = it.id; clientName = it.name } } }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { WheelDateField("Data ordine", date, { date = it }, Modifier.weight(1f)); WheelDateField("Consegna", due, { due = it }, Modifier.weight(1f), allowEmpty = true) } }
                 item { SpectroTextField("Tessuto", fabric, { fabric = it }, placeholder = "Es. Voile") }
+                if (status.isArchivedOrder()) item {
+                    WheelDateField("Data effettiva di evasione", completedDate, { completedDate = it }, allowEmpty = true)
+                }
                 item { SimpleSelectField("Tipo stampa", when (printType) { CottonPrintType.REACTIVE -> "Reattiva"; CottonPrintType.PIGMENT -> "Pigmento"; CottonPrintType.OTHER -> "Altro" }, CottonPrintType.entries.map { it to when (it) { CottonPrintType.REACTIVE -> "Reattiva"; CottonPrintType.PIGMENT -> "Pigmento"; CottonPrintType.OTHER -> "Altro" } }) { printType = it } }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Metri ordinati", ordered, { ordered = it }, Modifier.weight(1f), numeric = true); SpectroTextField("Costo stampa €/mt", productionCost, { productionCost = it }, Modifier.weight(1f), numeric = true) } }
                 item { SpectroTextField("Prezzo stampa €/mt", printPrice, { printPrice = it }, numeric = true) }

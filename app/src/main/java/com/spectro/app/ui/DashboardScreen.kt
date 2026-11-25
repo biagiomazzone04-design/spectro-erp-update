@@ -248,7 +248,7 @@ fun DashboardScreen(
                                 context = context,
                                 stats = stats,
                                 productions = vm.state.production.filter { it.date.startsWith(prefix) },
-                                cottonOrders = vm.state.cottonOrders.filter { it.orderDate.startsWith(prefix) },
+                                cottonOrders = vm.state.cottonOrders.filter { it.status != WorkStatus.CANCELLED && it.accountingDate.startsWith(prefix) },
                                 economicWorks = vm.state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED },
                                 timelineEvents = vm.state.timelineEvents.filter { it.date.startsWith(prefix) },
                                 clientIssues = vm.state.clientIssues.filter { it.openedDate.startsWith(prefix) },

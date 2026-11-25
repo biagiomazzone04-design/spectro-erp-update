@@ -435,7 +435,7 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         val prefix = month.toString()
         val productions = state.production.filter { it.date.startsWith(prefix) }
         val productive = productions.filter { it.type == RecordType.PRODUCTION }
-        val cotton = state.cottonOrders.filter { it.orderDate.startsWith(prefix) }
+        val cotton = state.cottonOrders.filter { it.status != WorkStatus.CANCELLED && it.accountingDate.startsWith(prefix) }
         val economic = state.economicWorks.filter { it.date.startsWith(prefix) && it.status != EconomicWorkStatus.CANCELLED }
         val criticalEvents = state.timelineEvents.filter { it.date.startsWith(prefix) && it.severity != TimelineSeverity.INFO }
         val legacyIssues = state.clientIssues.filter { it.openedDate.startsWith(prefix) }
@@ -455,18 +455,19 @@ class SpectroViewModel(app: Application) : AndroidViewModel(app) {
         val paperMeters = productive.sumOf { it.printedPaperMeters }
         val cottonMeters = cotton.sumOf { if (it.actualProducedMeters > 0) it.actualProducedMeters else it.orderedMeters }
 
+        fun customer(id: Long?, name: String): String = state.clients.firstOrNull { matchesClient(it, id, name) }?.name ?: name.trim().ifBlank { "Senza cliente" }
         val names = (
-            productive.map { it.clientName.ifBlank { "Senza cliente" } } +
-            cotton.map { it.clientName.ifBlank { "Senza cliente" } } +
-            economic.map { it.clientName.ifBlank { "Senza cliente" } } +
-            criticalEvents.map { it.clientName.ifBlank { "Senza cliente" } } +
-            legacyIssues.map { it.clientName.ifBlank { "Senza cliente" } }
-        ).distinct()
+            productive.map { customer(it.clientId, it.clientName) } +
+            cotton.map { customer(it.clientId, it.clientName) } +
+            economic.map { customer(it.clientId, it.clientName) } +
+            criticalEvents.map { customer(it.clientId, it.clientName) } +
+            legacyIssues.map { customer(it.clientId, it.clientName) }
+        ).distinctBy(::clientNameKey)
 
         val clients = names.map { name ->
-            val prods = productive.filter { it.clientName.equals(name, true) }
-            val cottonRows = cotton.filter { it.clientName.equals(name, true) }
-            val economicRows = economic.filter { it.clientName.equals(name, true) }
+            val prods = productive.filter { clientNameKey(customer(it.clientId, it.clientName)) == clientNameKey(name) }
+            val cottonRows = cotton.filter { clientNameKey(customer(it.clientId, it.clientName)) == clientNameKey(name) }
+            val economicRows = economic.filter { clientNameKey(customer(it.clientId, it.clientName)) == clientNameKey(name) }
             val crits = criticalEvents.count { it.clientName.equals(name, true) } + legacyIssues.count { it.clientName.equals(name, true) }
             ClientMonthlyStat(
                 clientName = name,

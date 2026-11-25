@@ -1,5 +1,11 @@
 package com.spectro.app.data
 
+internal fun clientNameKey(name: String): String = name.trim().replace(Regex("\\s+"), " ").lowercase()
+
+internal fun matchesClient(client: Client, clientId: Long?, name: String): Boolean =
+    if (clientId != null && clientId != 0L) client.id == clientId
+    else clientNameKey(client.name).let { it.isNotEmpty() && it == clientNameKey(name) }
+
 enum class RecordType { PRODUCTION, NEGATIVE }
 
 enum class WorkStatus {
@@ -262,8 +268,10 @@ data class CottonOrder(
     val notes: String = "",
     val status: WorkStatus = WorkStatus.IN_PROCESS,
     val title: String = "",
-    val images: List<String> = emptyList()
+    val images: List<String> = emptyList(),
+    val completedDate: String = ""
 ) {
+    val accountingDate: String get() = if (status.isArchivedOrder()) completedDate.ifBlank { orderDate } else orderDate
     val revenueMeters: Double get() = if (deliveredMeters > 0) deliveredMeters else orderedMeters
     val costMeters: Double get() = if (actualProducedMeters > 0) actualProducedMeters else orderedMeters
     val grossRevenue: Double get() = revenueMeters * printPricePerMeter

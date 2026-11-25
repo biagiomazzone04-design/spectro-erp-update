@@ -24,6 +24,20 @@ class ZenthaCatalogTest {
     }
 
     @Test
+    fun legacyArticleCodesAndSizesSortIntoTheCatalogSections() {
+        val bySku = ZenthaCatalog.products.associateBy { it.sku }
+        val basketBaby = bySku.getValue("02BGM DOUBLE BABY")
+        val volleyAdult = bySku.getValue("01VGMD INS DONNA")
+        val multiSportBaby = bySku.getValue("01PCDO BABY")
+        assertEquals(listOf("BASKET"), ZenthaCatalog.sports(basketBaby))
+        assertEquals("Baby", ZenthaCatalog.audience(basketBaby))
+        assertEquals(listOf("CALCIO_VOLLEY"), ZenthaCatalog.sports(volleyAdult))
+        assertEquals("Adulto", ZenthaCatalog.audience(volleyAdult))
+        assertEquals(listOf("CALCIO_VOLLEY", "DANZA"), ZenthaCatalog.sports(multiSportBaby))
+        assertEquals("Da classificare", ZenthaCatalog.audience(volleyAdult.copy(sku = "", name = "Kit volley", description = "")))
+    }
+
+    @Test
     fun importedAnalyticalCostsMatchDeclaredTotals() {
         ZenthaCatalog.products.forEach { product ->
             assertTrue("Manca il dettaglio costi per ${product.sku}", product.hasCostBreakdown)

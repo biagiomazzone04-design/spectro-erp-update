@@ -121,18 +121,33 @@ fun ZenthaScreen(
             }
         } else {
             if (products.isEmpty()) item { EmptyState(Icons.Rounded.Inventory, "Catalogo vuoto", "Premi + per aggiungere Canotte, Kit, T-shirt e altri prodotti") }
-            items(products, key = { it.id }) { product ->
-                SpectroCard(p = p, onClick = if (canManage) ({ editingProduct = product }) else null) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) { Text(product.name, fontWeight = FontWeight.Black); Text(listOf(product.sku, product.category).filter { it.isNotBlank() }.joinToString(" • "), color = p.textMuted, fontSize = 12.sp) }
-                        if (!product.active) Text("DISATTIVO", color = p.warning, fontSize = 10.sp, fontWeight = FontWeight.Black)
+            val types = listOf("BASKET" to "Basket", "CALCIO_VOLLEY" to "Calcio / Volley", "DANZA" to "Danza", "MULTISPORT" to "Multisport")
+            for ((sport, sportLabel) in types) {
+                val rows = products.filter { sport in ZenthaCatalog.sports(it) }
+                if (rows.isEmpty()) continue
+                item(key = "catalog-$sport") { SectionTitle(sportLabel) }
+                val groups = if (sport == "BASKET" || sport == "CALCIO_VOLLEY") {
+                    listOf("Adulto", "Baby", "Da classificare").map { audience -> audience to rows.filter { ZenthaCatalog.audience(it) == audience } }
+                } else listOf("" to rows)
+                for ((audience, entries) in groups) {
+                    if (entries.isEmpty()) continue
+                    if (audience.isNotEmpty()) item(key = "catalog-$sport-$audience") {
+                        Text("$audience · ${entries.size}", color = p.primary, fontWeight = FontWeight.Bold)
                     }
-                    if (canFinance) {
-                        Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Costo", euro(product.standardCost), modifier = Modifier.weight(1f)); Metric("Listino", euro(product.standardPrice), modifier = Modifier.weight(1f)); Metric("Margine", euro(product.unitMargin), valueColor = p.success, modifier = Modifier.weight(1f)) }
-                        Spacer(Modifier.height(7.dp)); Text("${product.priceListName} • ricarico ${"%.0f".format(product.markupPercent)}% • margine ${"%.1f".format(product.marginPercent)}%", color = p.textMuted, fontSize = 11.sp)
-                        if (product.hasCostBreakdown) Text(product.costComponents().joinToString(" • ") { "${it.first} ${euro(it.second)}" }, color = p.textMuted, fontSize = 10.sp)
-                    } else if (product.description.isNotBlank()) {
-                        Spacer(Modifier.height(7.dp)); Text(product.description, color = p.textMuted, fontSize = 11.sp)
+                    items(entries, key = { "$sport-${it.id}" }) { product ->
+                        SpectroCard(p = p, onClick = if (canManage) ({ editingProduct = product }) else null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) { Text(product.name, fontWeight = FontWeight.Black); Text(listOf(product.sku, product.category).filter { it.isNotBlank() }.joinToString(" • "), color = p.textMuted, fontSize = 12.sp) }
+                                if (!product.active) Text("DISATTIVO", color = p.warning, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                            }
+                            if (canFinance) {
+                                Spacer(Modifier.height(8.dp)); Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { Metric("Costo", euro(product.standardCost), modifier = Modifier.weight(1f)); Metric("Listino", euro(product.standardPrice), modifier = Modifier.weight(1f)); Metric("Margine", euro(product.unitMargin), valueColor = p.success, modifier = Modifier.weight(1f)) }
+                                Spacer(Modifier.height(7.dp)); Text("${product.priceListName} • ricarico ${"%.0f".format(product.markupPercent)}% • margine ${"%.1f".format(product.marginPercent)}%", color = p.textMuted, fontSize = 11.sp)
+                                if (product.hasCostBreakdown) Text(product.costComponents().joinToString(" • ") { "${it.first} ${euro(it.second)}" }, color = p.textMuted, fontSize = 10.sp)
+                            } else if (product.description.isNotBlank()) {
+                                Spacer(Modifier.height(7.dp)); Text(product.description, color = p.textMuted, fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
             }
@@ -305,16 +320,8 @@ private fun ZenthaOrderDialog(vm: SpectroViewModel, p: SpectroPalette, editing: 
     val extraTotal = extras.sumOf { it.amount.toDoubleSafe() }
     val profit = revenue - costs - extraTotal
     val activeProducts = vm.state.zenthaProducts.filter { it.active }
-    val sportTokens = when (sport) {
-        "BASKET" -> listOf("basket", "pallacanestro")
-        "CALCIO_VOLLEY" -> listOf("calcio", "volley", "pallavolo")
-        "DANZA" -> listOf("danza", "dance", "body")
-        else -> emptyList()
-    }
-    val sportProducts = if (sportTokens.isEmpty()) activeProducts else activeProducts.filter { product ->
-        val searchable = "${product.category} ${product.name} ${product.description}".lowercase()
-        sportTokens.any(searchable::contains)
-    }.ifEmpty { activeProducts }
+    val sportProducts = if (sport == "MULTISPORT") activeProducts else activeProducts
+        .filter { sport in ZenthaCatalog.sports(it) }.ifEmpty { activeProducts }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {

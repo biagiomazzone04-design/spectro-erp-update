@@ -338,3 +338,6 @@ html[data-motion="reduced"] .task-focus-board { animation:none; } html[data-moti
 .catalog-sport summary { cursor: pointer; font-weight: 800; padding-block: 5px; }
 .catalog-sport summary span { color: var(--muted, #a5a6b0); margin-inline-start: 12px; font-size: .85em; }
 .catalog-sport .product-grid { margin-top: 12px; }
+.catalog-audience { margin-top: 18px; }
+.catalog-audience h3 { margin: 0; }
+.catalog-audience h3 small { margin-inline-start: 8px; font-weight: normal; opacity: .72; }

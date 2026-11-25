@@ -11,6 +11,33 @@ object ZenthaCatalog {
     const val PRICE_LIST = "Listino Zentha 47%"
     const val MARKUP_PERCENT = 47.0
 
+    private val babyTerms = Regex("""\b(baby|bambin[oaie]?|junior|kids)\b""")
+    private val adultTerms = Regex("""\b(adult[oaie]?|uomo|donna)\b""")
+    private val skuSpaces = Regex("""\s+""")
+    private val basketTerms = Regex("basket|pallacanestro")
+    private val volleyTerms = Regex("calcio|volley|pallavolo")
+    private val danceTerms = Regex("danza|dance")
+
+    fun sports(product: ZenthaProduct): List<String> {
+        val sku = product.sku.uppercase().replace(skuSpaces, "")
+        val terms = "${product.name} ${product.category} ${product.description}".lowercase()
+        return buildList {
+            if (sku.startsWith("02BGM") || sku.startsWith("02BASKE") || basketTerms.containsMatchIn(terms)) add("BASKET")
+            if (listOf("01VGMD", "01PCDO", "03VBM", "03VPC").any(sku::startsWith) || volleyTerms.containsMatchIn(terms)) add("CALCIO_VOLLEY")
+            if (danceTerms.containsMatchIn(terms)) add("DANZA")
+            if (isEmpty()) add("MULTISPORT")
+        }
+    }
+
+    fun audience(product: ZenthaProduct): String {
+        val terms = "${product.sku} ${product.name} ${product.category} ${product.description}".lowercase()
+        return when {
+            babyTerms.containsMatchIn(terms) -> "Baby"
+            adultTerms.containsMatchIn(terms) -> "Adulto"
+            else -> "Da classificare"
+        }
+    }
+
     val products: List<ZenthaProduct> = listOf(
         product("01VGMD INS DONNA", "Maglia donna GM inserti", "Maglia", "MAGLIA DONNA GM INSERTI LISCIO FINDITEX + POLY MESH + DORIA", 1.02, .25, .13, 1.67, 0.0, .40, 2.80, .03, .04, 6.34, 9.32),
         product("02BGM DOUBLE UOMO", "Maglia uomo GM Double", "Maglia", "MAGLIA UOMO GM DOUBLE POLYMESH FINDITEX", 2.02, 0.0, 0.0, 3.35, 0.0, .40, 4.10, .03, .04, 9.94, 14.61),

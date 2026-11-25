@@ -1,4 +1,5 @@
 import { formatItalianDate, isoDate, translateCode } from './i18n'
+import { productAudience, productSports } from './zentha-catalog'
 
 export type CloudRecord = {
   id: string
@@ -345,16 +346,23 @@ function detailContent(module: string, row: CloudRecord, records: CloudRecord[],
 function zenthaCatalog(products: CloudRecord[], canFinance: boolean) {
   const groups = new Map<string, CloudRecord[]>([['Basket', []], ['Calcio / Volley', []], ['Danza', []], ['Multisport', []]])
   for (const row of products) {
-    const x = p(row)
-    const terms = `${x.sku ?? ''} ${x.name ?? ''} ${x.category ?? ''} ${x.description ?? ''}`.toLowerCase()
-    const sport = /basket|pallacanestro/.test(terms) ? 'Basket' : /calcio|volley|pallavolo/.test(terms) ? 'Calcio / Volley' : /danza|dance/.test(terms) ? 'Danza' : 'Multisport'
-    groups.get(sport)!.push(row)
+    for (const sport of productSports(p(row))) groups.get(sport)?.push(row)
   }
   const card = (row: CloudRecord) => {
     const x = p(row)
     return `<button class="product-card" data-product="${esc(row.id)}"><span class="product-sku">${esc(x.sku)}</span><h3>${esc(x.name)}</h3><p>${esc(x.category)}</p>${canFinance && has(row, 'standardPrice') ? `<div><span>${esc(x.priceListName)}</span><strong>${euro(x.standardPrice)}</strong></div>` : ''}</button>`
   }
-  return `<section class="zentha-catalog"><div class="catalog-heading"><div><h2>Catalogo per sport</h2><p>${products.length} articoli</p></div></div>${[...groups].filter(([, rows]) => rows.length).map(([sport, rows]) => `<details class="catalog-sport"><summary>${sport} <span>${rows.length} articoli</span></summary><div class="product-grid">${rows.map(card).join('')}</div></details>`).join('') || '<p>Catalogo non ancora sincronizzato.</p>'}</section>`
+  const grid = (rows: CloudRecord[]) => `<div class="product-grid">${rows.map(card).join('')}</div>`
+  const sections = [...groups].filter(([, rows]) => rows.length).map(([sport, rows]) => {
+    const body = sport === 'Basket' || sport === 'Calcio / Volley'
+      ? ['Adulto', 'Baby', 'Da classificare'].map(audience => {
+        const entries = rows.filter(row => productAudience(p(row)) === audience)
+        return entries.length ? `<section class="catalog-audience"><h3>${audience} <small>${entries.length}</small></h3>${grid(entries)}</section>` : ''
+      }).join('')
+      : grid(rows)
+    return `<details class="catalog-sport"><summary>${sport} <span>${rows.length} articoli</span></summary>${body}</details>`
+  }).join('')
+  return `<section class="zentha-catalog"><div class="catalog-heading"><div><h2>Catalogo per sport</h2><p>${products.length} articoli</p></div></div>${sections || '<p>Catalogo non ancora sincronizzato.</p>'}</section>`
 }
 
 function printZenthaOrder(order: CloudRecord, records: CloudRecord[], profile: 'production'|'accounting'|'complete') {

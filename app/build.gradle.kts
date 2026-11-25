@@ -13,8 +13,8 @@ android {
         minSdk = 26
         targetSdk = 36
         // Android upgrades must also accept installations of the earlier Beta 19 (36).
-        versionCode = 39
-        versionName = "3.2.12-beta22"
+        versionCode = 40
+        versionName = "3.2.13-beta23"
 
         // Project URL and sb_publishable key are public client configuration.
         // RLS protects the data; properties/environment can override these

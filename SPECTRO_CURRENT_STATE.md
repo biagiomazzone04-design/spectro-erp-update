@@ -1,9 +1,9 @@
 # SPECTRO_CURRENT_STATE.md
 
 ## Snapshot handoff
-Base: **Spectro ERP 3.2.11 Beta 21**.
-- versionCode 38
-- versionName `3.2.11-beta21`
+Base: **Spectro ERP 3.2.12 Beta 22**.
+- versionCode 39
+- versionName `3.2.12-beta22`
 - applicationId `com.spectro.app`
 - SQLite schema 13
 - backup formato v9 (import retrocompatibile)

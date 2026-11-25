@@ -302,7 +302,7 @@ private fun InventoryFabricGroupSheet(
 @Composable
 private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDismiss: () -> Unit) {
     var ownerType by remember { mutableStateOf(OwnerType.CLIENT) }
-    var clientId by remember { mutableStateOf<Long?>(null) }
+    var customerName by remember { mutableStateOf("") }
     var fabric by remember { mutableStateOf("") }
     var supplier by remember { mutableStateOf("") }
     var composition by remember { mutableStateOf("") }
@@ -315,7 +315,7 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
     var minimum by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(LocalDate.now().toString()) }
     var rolls by remember { mutableStateOf(listOf(NewRollDraft())) }
-    val ownerName = if (ownerType == OwnerType.HOUSE) "AZIENDA" else vm.state.clients.firstOrNull { it.id == clientId }?.name.orEmpty()
+    val ownerName = if (ownerType == OwnerType.HOUSE) "AZIENDA" else customerName.trim()
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -323,7 +323,16 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
         text = {
             LazyColumn(Modifier.heightIn(max = 650.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item { SegmentedChoice(listOf("CLIENT" to "CLIENTE", "HOUSE" to "AZIENDA"), ownerType.name, p) { ownerType = OwnerType.valueOf(it) } }
-                if (ownerType == OwnerType.CLIENT) item { SimpleSelectField("Cliente", ownerName.ifBlank { "Seleziona cliente" }, vm.state.clients.map { it.id to it.name }) { clientId = it } }
+                if (ownerType == OwnerType.CLIENT) {
+                    item {
+                        SpectroTextField("Nome cliente o proprietario", customerName, { customerName = it }, placeholder = "Scrivi il nome")
+                    }
+                    if (vm.state.clients.isNotEmpty()) item {
+                        SimpleSelectField("Rubrica (facoltativa)", "Scegli dalla rubrica", vm.state.clients.map { it.name to it.name }) {
+                            customerName = it
+                        }
+                    }
+                }
                 item { SpectroTextField("Nome tessuto", fabric, { fabric = it }, placeholder = "Es. Piquet 140") }
                 item { SpectroTextField("Fornitore", supplier, { supplier = it }, placeholder = "Facoltativo") }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { SpectroTextField("Composizione", composition, { composition = it }, Modifier.weight(1f)); SpectroTextField("Grammatura", weight, { weight = it }, Modifier.weight(1f)) } }
@@ -355,7 +364,7 @@ private fun NewInventoryLoadDialog(vm: SpectroViewModel, p: SpectroPalette, onDi
             }
         },
         confirmButton = {
-            Button(onClick = {
+            Button(enabled = fabric.isNotBlank() && ownerName.isNotBlank() && rolls.any { it.meters.toDoubleSafe() > 0 }, onClick = {
                 if (fabric.isNotBlank() && ownerName.isNotBlank() && rolls.any { it.meters.toDoubleSafe() > 0 }) {
                     vm.createInventoryWithRolls(
                         InventoryItem(ownerType = ownerType, ownerName = ownerName, fabricName = fabric.trim(), quantityMeters = 0.0, purchasePricePerMeter = cost.toDoubleSafe(), createdDate = date, minimumQuantityMeters = minimum.toDoubleSafe(), supplierName = supplier.trim(), composition = composition.trim(), weightGsm = weight.trim(), variant = variant.trim(), lotCode = lot.trim(), processingCostPerMeter = processingCost.toDoubleSafe(), defaultSalePricePerMeter = salePrice.toDoubleSafe()),

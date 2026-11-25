@@ -7,13 +7,20 @@ import org.junit.Test
 
 class ZenthaCatalogTest {
     @Test
-    fun importedCatalogContainsFourteenUniqueArticleCodes() {
-        assertEquals(14, ZenthaCatalog.products.size)
+    fun importedCatalogContainsFifteenUniqueArticleCodes() {
+        assertEquals(15, ZenthaCatalog.products.size)
         assertEquals(
             ZenthaCatalog.products.size,
             ZenthaCatalog.products.map { it.sku.trim().uppercase() }.distinct().size
         )
         assertTrue(ZenthaCatalog.products.all { it.sku.isNotBlank() && it.name.isNotBlank() })
+    }
+
+    @Test
+    fun babyBasketShortsHaveTheSuppliedCostAndPrice() {
+        val product = ZenthaCatalog.products.single { it.sku == "02BASKE PCU BABY" }
+        assertEquals(6.35, product.standardCost, 0.001)
+        assertEquals(9.33, product.standardPrice, 0.001)
     }
 
     @Test
